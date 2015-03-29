@@ -234,6 +234,7 @@ PAD    -- a-addr                  user PAD buffer
 TIB    -- a-addr            Terminal Input Buffer
 WITHIN n1|u1 n2|u2 n3|u3 -- f     test n2<=n1<n3?
 WORDS  --                 list all words in dict.
+\      --            parse and discard parse area
 
                Private Extensions
 These are words which are unique to CamelForth.
