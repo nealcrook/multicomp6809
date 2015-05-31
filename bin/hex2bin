@@ -1,0 +1,52 @@
+#!/usr/bin/perl -w
+#
+# convert input file in Intel Hex format to binary.
+#
+# usage: hex2bin foo.hex > foo.bin
+#
+
+$next_address = "unknown";
+
+open INFILE, $ARGV[0] or die "Could not open input file $ARGV[0]";
+while (my $line = <INFILE>) {
+    $line =~/(\:)([0-9A-F][0-9A-F])([0-9A-F][0-9A-F][0-9A-F][0-9A-F])([0-9A-F][0-9A-F])(\w+)/;
+    my $len=hex($2);
+    my $adr=hex($3);
+    my $typ=hex($4);
+    my $dat=$5; # data and checksum
+
+    # support Extended Linear Address (type 4) provided that the 16-bit data field is 0
+    if ($typ == 4) {
+        die "Unsupported type 4 record at line $. - unexpected length" if ($len != 2);
+        die "Unsupported type 4 record at line $. - unsupported value" if ($dat ne "0000FA");
+        # it's a nop
+        next;
+    }
+
+    # ignore type 5 (entry point)
+    if ($typ == 5) {
+        next;
+    }
+
+    # of the remainder, only support data records and end-of-file records
+    die "Unsupported record $typ at line $." if (($typ != 0) && ($typ != 1));
+
+    # pad if data is not contiguous
+    # .. assumes records are in incrementing order!! If not, will pad ~forever!!
+    if ( ($next_address ne "unknown") && ($typ==0) && ($adr != $next_address) ) {
+        print STDERR "pad from $adr to $next_address\n";
+        while ($adr != $next_address) {
+            print chr(255);
+            $next_address = $next_address + 1;
+        }
+    }
+
+    # process $len bytes of data from $dat.
+    for (my $i=0; $i<$len; $i++) {
+        my $hex=substr $dat, 2*$i, 2;
+        print chr(hex($hex));
+    }
+    $next_address = $adr + $len;
+}
+close INFILE;
+
