@@ -1,0 +1,68 @@
+#!/usr/bin/perl -W
+#
+# read a forth block file: "binary" with 16 lines of 64 characters per block.
+#
+# generate formatted ASCII output suitable for printing or for reading back in
+# and compiling.
+#
+# forth_block2ascii foo.blk > foo.txt
+# forth_block2ascii -noprint foo.blk > foo.fth
+
+
+$LINES_PER_BLOCK = 16;
+$CHAR_PER_LINE = 64;
+$BLOCKS_PER_PAGE = 3;
+$FF = "\f";
+
+# [NAC HACK 2015Mar08] numbered from 0 or 1??
+$block = 0;
+$line = 0;
+
+$spacer = "-" x $CHAR_PER_LINE;
+
+if ($ARGV[0] eq "-noprint") {
+    $print = 0;
+    $file = $ARGV[1];
+}
+else {
+    $file = $ARGV[0];
+    $print = 1;
+}
+
+open INFILE, $file or die "ERROR could not open $file";
+
+while (!eof(INFILE)) {
+    my $txt;
+    my $unprintables;
+    if ($print) {
+        printf("                  +%s+\n", $spacer);
+    }
+    else {
+        printf("( ------------------ Block %03d --------------------------------)\n", $block);
+    }
+    for (my $l = $line; $l < $LINES_PER_BLOCK+$line; $l=$l+1) {
+        read INFILE,  $txt, 64;
+        # remove unprintables
+        $unprintables = ($txt =~ s/[^ \w\*\(\)\-\.\,\'\"\;\:\#\$\&\?\@\/\\\>\<\+\!\[\]\=\|]/\?/g);
+        if ($print) {
+            printf("          %03d:%02d  |%s%s\n",$block, $l, $txt, $unprintables==0 ? "|":"|*");
+        }
+        else {
+            printf("$txt\n");
+        }
+    }
+    if ($print) {
+        printf("                  +%s+\n\n", $spacer);
+    }
+    else {
+        printf("\n\n");
+    }
+
+    $block = $block + 1;
+    if ( (($block % $BLOCKS_PER_PAGE) == 0) && $print) {
+        print $FF;
+    }
+}
+
+
+close INFILE;
