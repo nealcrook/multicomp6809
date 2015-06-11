@@ -1,11 +1,6 @@
-*****************************************************************
-** DOCUMENTATION
-**
-** For instructions and other documentation for these files,
-** refer to the Wiki (use the link on the right). You might
-** not see the link if you are using a mobile device: select
-** "desktop version"
-*****************************************************************
+---
+DOCUMENTATION: For instructions and other documentation for these files, refer to the Wiki (use the link on the right). You might not see the link if you are using a mobile device -- you may need to select "desktop version"
+---
 
 I always wanted a 6809 machine. I still have the A4 notebook where I sketched out design ideas. However, I never simultaneously had the time and money to build one from scratch (even though I have accumulated all of the parts in my junk box over the years).
 
