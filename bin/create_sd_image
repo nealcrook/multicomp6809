@@ -75,7 +75,7 @@ dd if=multicomp09_flex.img of=multicomp09_sd.img obs=1M seek=68
 # (Allow) 3MBytes at offset 71MByte
 # 71MByte is block offset 1048576 * 71/512 = 0x2.3800
 # The .dsk file needs to be expanded to 512byte sectors.
-flex_disk_manip ../../swtp/Disks/FLEX6809/ADVENT.dsk -outsd flex_drive1.img
+flex_disk_manip ../../swtp/Disks/FLEX6809/ADVENTURE.dsk -outsd flex_drive1.img
 dd if=flex_drive1.img of=multicomp09_sd.img obs=1M seek=71
 
 # Drive 2
