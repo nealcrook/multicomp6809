@@ -15,11 +15,6 @@
 * MULTICOMP I/O REGISTERS
 *******************************************************************
 
-* PAGING CONTROL REGISTERS
-WPROT          EQU $FFDD
-ROMDIS         EQU $FFDE
-MAPPER         EQU $FFDF
-
 * SDCARD CONTROL REGISTERS
 SDDATA         EQU $FFD8
 SDCTL          EQU $FFD9
@@ -27,14 +22,9 @@ SDLBA0         EQU $FFDA
 SDLBA1         EQU $FFDB
 SDLBA2         EQU $FFDC
 
-* START ADDRESS OF THE TWO PAGEABLE REGIONS
-REGCD          EQU $C000
-REGEF          EQU $E000
-
 * VDU DATA
 UARTDAT        EQU $FFD1
 UARTSTA        EQU $FFD0
-
 
 
 
