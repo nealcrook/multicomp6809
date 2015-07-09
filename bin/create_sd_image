@@ -75,21 +75,21 @@ dd if=multicomp09_flex.img of=multicomp09_sd.img obs=1M seek=68
 # (Allow) 3MBytes at offset 71MByte
 # 71MByte is block offset 1048576 * 71/512 = 0x2.3800
 # The .dsk file needs to be expanded to 512byte sectors.
-flex_disk_manip ../../swtp/Disks/FLEX6809/ADVENTURE.dsk -outsd flex_drive1.img
+flex_disk_manip ../../flex09_dsk_files/ADVENTURE.dsk -outsd flex_drive1.img
 dd if=flex_drive1.img of=multicomp09_sd.img obs=1M seek=71
 
 # Drive 2
 # (Allow) 3MBytes at offset 74MByte
 # 74MByte is block offset 1048576 * 74/512 = 0x2.5000
 # The .dsk file needs to be expanded to 512byte sectors.
-flex_disk_manip ../../swtp/Disks/FLEX6809/CEDRIC.DSK -outsd flex_drive2.img
+flex_disk_manip ../../flex09_dsk_files/CEDRIC.DSK -outsd flex_drive2.img
 dd if=flex_drive2.img of=multicomp09_sd.img obs=1M seek=74
 
 # Drive 3
 # (Allow) 3MBytes at offset 77MByte
 # 77MByte is block offset 1048576 * 77/512 = 0x2.6800
 # The .dsk file needs to be expanded to 512byte sectors.
-flex_disk_manip ../../swtp/Disks/FLEX6809/SBUG.DSK -outsd flex_drive3.img
+flex_disk_manip ../../flex09_dsk_files/SBUG.DSK -outsd flex_drive3.img
 dd if=flex_drive3.img of=multicomp09_sd.img obs=1M seek=77
 
 
