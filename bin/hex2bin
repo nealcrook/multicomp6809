@@ -5,7 +5,7 @@
 # usage: hex2bin foo.hex > foo.bin
 #
 
-$next_address = "unknown";
+$nxt_adr = "unknown";
 
 open INFILE, $ARGV[0] or die "Could not open input file $ARGV[0]";
 while (my $line = <INFILE>) {
@@ -33,11 +33,11 @@ while (my $line = <INFILE>) {
 
     # pad if data is not contiguous
     # .. assumes records are in incrementing order!! If not, will pad ~forever!!
-    if ( ($next_address ne "unknown") && ($typ==0) && ($adr != $next_address) ) {
-        print STDERR "pad from $adr to $next_address\n";
-        while ($adr != $next_address) {
+    if ( ($nxt_adr ne "unknown") && ($typ==0) && ($adr != $nxt_adr) ) {
+        printf STDERR "pad from %d (0x%04x) to %d (0x%04x) -- %d (0x%04x) bytes\n", $nxt_adr, $nxt_adr, $adr-1, $adr-1, ($adr-$nxt_adr-1), ($adr-$nxt_adr-1);
+        while ($adr != $nxt_adr) {
             print chr(255);
-            $next_address = $next_address + 1;
+            $nxt_adr = $nxt_adr + 1;
         }
     }
 
@@ -46,7 +46,7 @@ while (my $line = <INFILE>) {
         my $hex=substr $dat, 2*$i, 2;
         print chr(hex($hex));
     }
-    $next_address = $adr + $len;
+    $nxt_adr = $adr + $len;
 }
 close INFILE;
 
