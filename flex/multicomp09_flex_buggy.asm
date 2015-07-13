@@ -1,4 +1,100 @@
-        ;Buggy machine language monitor and rudimentary O.S. version 1.0
+* NEXT: Check in original and port slowly to this one
+* work out memory map changes and get assembler working
+* put harness in place to allow entry to and exit from FLEX
+* TODO .s19 file loads OK but .hex reports:
+*     line 222: invalid hex record information. (line 222 is the last line - a blank line)
+* might be due to file having DOS line endings (same problem does not occur with unix line
+* endings in 6809M.HEX)
+
+* Memory-resident monitor for Multicomp09 running FLEX
+*
+* Derived from Lennart Benschop's
+* "Buggy machine language monitor and rudimentary O.S. version 1.0"
+*
+* After booting FLEX, load this program into memory thus:
+* +++MON09
+* The program will initialise and then return to the FLEX prompt.
+* Once loaded and intialised in this way, you can enter it at
+* any time from FLEX using the FLEX build-in command, MON:
+* +++MON
+* and return to FLEX using the monitor command FLEX
+*
+*
+* Entry/Exit points:
+* - cold start. When entered in this way, program sets its own
+*   stack pointer, initialises local workspace and enters the
+*   CLI. EXIT command generates an error. Only use this if
+*   running without FLEX or other host OS.
+* - fromflex INIT. Use this as the FLEX transfer address. Program
+*   uses system stack. Initialises local workspace, changes the
+*   MONITR vector at $D3F3 to the value of "fromflex MON" then
+*   returns to FLEX by doing a FLEX warm start.
+* - fromflex MON. When entered in this way, program sets its own
+*   stack pointer and enters the CLI (expects local workspace
+*   to be initialised). EXIT command does a FLEX warm start.
+* - from NMI (interactive). When entered in this way, program
+*   stores current S register, then sets its own stack pointer
+*   and enters the CLI (expects local workspace to be initialised).
+*   EXIT command restores S register and then does a RTI.
+* - from NMI (non-interactive). When entered in this way, program
+*   stores current S register, then sets its own stack pointer.
+*   (expects local workspace to be initialised). After displaying
+*   system registers (same as R command), it automatically exits by
+*   restoring S register and doing a RTI.
+*
+*   FLEX warm start (jump to $CD03) resets the stack pointer
+*
+* Memory Map:
+* - Designed to be RAM-resident at D000-FFFF (loaded in when
+*   the ROM is disabled).
+* - Avoids address space $FFD0-FFDF, used for I/O in multicomp.
+*
+* I/O:
+*
+*
+*
+* Interrupts:
+*
+*
+*
+*
+*
+*
+*
+* ** to delete:
+* xrecord step breakpoint
+* ** to add:
+* sdcard load
+* flags for timer interrupt and interactive mode
+* exit to return to FLEX
+* mmapping?
+* memory compare
+* TODO think about the impact of the SP messing on
+* INT and NMI.. may need to rethink things? Or is it all
+* safe?
+*
+*
+* remove any messing with DP and any page-0 access.
+* be careful of any messing with interrupt flags
+*
+* bug/todo
+* 0. exec09 doesn't include LIST in help screen
+* 1. why does exec09 complain about final line of .hex file?
+* 2. d,1000,70 prints 70 the first time but afterwards d prints
+* a default of 40. Why not 70? Likewise U,
+* 3. some commands *need* a comma (u 100,20 and d 100,69) some do not (e 400 "hello")
+* 4. how does bytes argument work for E and F?
+* 6. what do G vs I vs J do?
+* 7. what does P do?
+* 8. remove unusable commands
+* 9. add new commands
+* 10. add new entry points and exit vectors
+* 11. how does A work?
+* 12. can go e"hello world" and it goes somewhere. Dangerous, and not
+*     covered as legal syntax!
+* 13. e accepts 00 but not 0 as legal input - change scanbyte to
+*     accept 1 or 2 hex digits if delimited by space.
+* 14. A going wrong as you step through addresses and reach $0026
 
 * Memory map of SBC
 * $0-$40 Zero page variables reserved by monitor and O.S.
@@ -13,6 +109,11 @@
 * $E000-$E1FF I/O addresses.
 * $E200-$E3FF Reserved.
 * $E400-$FFFF Monitor ROM
+
+* FLEX vectors
+flexwrm         equ $CD03
+monitr          equ $D3F3
+
 
 * Reserved Zero page addresses
                 org $0000
@@ -93,7 +194,7 @@ postbyte        rmb 1
 amode           rmb 1
 operand         rmb 2
 mnembuf         rmb 5           ;Buffer to store capitalized mnemonic.
-opsize          rmb 1           ;SIze (in bytes) of extra oeprand (0--2)
+opsize          rmb 1           ;Size (in bytes) of extra operand (0--2)
 uncert          rmb 1           ;Flag to indicate that op is unknown.
 dpsetting       rmb 2
 
@@ -103,10 +204,11 @@ ramstart        equ $400        ;first free RAM address.
 
 ramtop          equ $8000       ;top of RAM.
 
-* I/O port addresses
-aciactl         equ $e000       ;Control port of ACIA
-aciasta         equ $e000       ;Status port of ACIA
-aciadat         equ $e001       ;Data port of ACIA
+* MULTICOMP I/O port addresses
+aciasta         equ $ffd0       ;Status port of VDU pseudo ACIA
+aciadat         equ $ffd1       ;Data port of VDU pseudo ACIA
+
+
 
 * ASCII control characters.
 SOH             equ 1
@@ -169,7 +271,8 @@ blockmove       lda ,x+
 
 * Initialize serial communications port, buffers, interrupts.
 initacia        ldb #$03
-                stb aciactl
+* Multicomp
+*               stb aciactl
                 ldb #%00110101
                 rts
 
@@ -180,7 +283,7 @@ osgetc          ldb aciasta
                 ldb aciadat
                 rts
 
-;O.S. rotuine to check if there is a character ready to be read.
+* O.S. routine to check if there is a character ready to be read.
 osgetpoll       ldb aciasta
                 bitb #$01
                 bne poltrue
@@ -249,7 +352,7 @@ dotab           ldb #' '
                 jsr putchar
                 stb ,x+
                 inca
-                bita #7                ;Insert spaces until length mod 8=0
+                bita #7               ;Insert spaces until length mod 8=0
                 bne dotab
                 bra osgetl1
 
@@ -270,7 +373,7 @@ oscr            pshs b
                 ldb #CR
                 jsr putchar
                 ldb #LF
-                jsr putchar     ;Send the CR and LF characters.
+                jsr putchar           ;Send the CR and LF characters.
                 puls b
                 rts
 
@@ -355,7 +458,7 @@ cmdline         jsr xcloseout
                 cmpb #26
                 bcc unk              ;Unknown cmd if it is not a letter.
                 ldx #cmdtab
-                aslb                  ;Index into command table.
+                aslb                 ;Index into command table.
                 jmp [b,x]
 
 cmdtab          fdb asm,break,calc,dump
@@ -366,25 +469,31 @@ cmdtab          fdb asm,break,calc,dump
                 fdb unasm,unk,unk,xmodem
                 fdb unk,unk
 
-* Unknown command handling routine.
+***************************************************************
+* Error: bad command arguments
+argerr          jsr xabortin
+                ldx #badargs
+                jsr outcount
+                jsr putcr
+                jmp cmdline
+
+***************************************************************
+* Command: Unknown command handling routine.
 unk             jsr xabortin
                 ldx #unknown
                 jsr outcount
                 jsr putcr
                 jmp cmdline
 
-help            ldx #mhelp      ;Print a help message.
+***************************************************************
+* Command: H, help
+help            ldx #mhelp           ;Print a help message.
 help1           ldb ,x+
                 beq endhlp
                 lbsr osputc
                 bra help1
 endhlp          jmp cmdline
 mhelp           fcb     CR,LF
-                fcc     'Commands list'
-                fcb     CR,LF
-
-                fcc     '-------------'
-                fcb     CR,LF
 
                 fcc     'Asm    '
                 fcc     '{Aaddr}'
@@ -394,28 +503,28 @@ mhelp           fcb     CR,LF
                 fcc     '{U or Uaddr or Uaddr,length}'
                 fcb     CR,LF
 
+                fcc     'Calc   '
+                fcc     '{Chexnum1{+|-hexnum2}}'
+                fcb     CR,LF
+
                 fcc     'Dump   '
-                fcc     '{D or D<addr> or D<addr>,<length>}'
+                fcc     '{D or Daddr or Daddr,length}'
                 fcb     CR,LF
 
                 fcc     'Enter  '
-                fcc     '{E or E<addr> or E<addr> <bytes> or E<addr>string}'
+                fcc     '{E or Eaddr or Eaddr bytes or Eaddr "string"}'
                 fcb     CR,LF
 
                 fcc     'Break  '
-                fcc     '{B or B<addr>. B displays, B<addr> sets or clears breakpoint}'
+                fcc     '{B or Baddr. B displays, Baddr sets or clears breakpoint}'
                 fcb     CR,LF
 
                 fcc     'Find   '
-                fcb     "{Faddr bytes or Faddr",34,"ascii",34,"}"
+                fcc     '{Faddr bytes or Faddr "string"}'
                 fcb     CR,LF
 
                 fcc     'Go     '
-                fcc     '{G or G<addr>}'
-                fcb     CR,LF
-
-                fcc     'Calc   '
-                fcc     '{Chexnum{+|-hexnum}}'
+                fcc     '{G or Gaddr}'
                 fcb     CR,LF
 
                 fcc     'Inp    '
@@ -423,11 +532,11 @@ mhelp           fcb     CR,LF
                 fcb     CR,LF
 
                 fcc     'Jump   '
-                fcc     '{J<addr>}'
+                fcc     '{Jaddr}'
                 fcb     CR,LF
 
                 fcc     'Move   '
-                fcc     '{M<addr1>,<addr2>,<lenght>}'
+                fcc     '{Maddr1,addr2,length}'
                 fcb     CR,LF
 
                 fcc     'Prog   '
@@ -452,15 +561,16 @@ mhelp           fcb     CR,LF
 
                 fcc     'Help   '
                 fcc     '{H}'
-                fcb     CR,LF,0
+                fcb     CR,LF,CR,LF,0
 
 
-
-* Here are some useful messages.
+* Here are some useful messages stored as counted-strings.
 welcome         fcb unknown-welcome-1
-                fcc "Welcome to BUGGY version 1.0"
-unknown         fcb brkmsg-unknown-1
+                fcc "BUGGY for Multicomp09, 2015Jul12 (type h for help)"
+unknown         fcb badargs-unknown-1
                 fcc "Unknown command"
+badargs         fcb brkmsg-badargs-1
+                fcc "Bad arguments"
 brkmsg          fcb clrmsg-brkmsg-1
                 fcc "Breakpoint set"
 clrmsg          fcb fullmsg-clrmsg-1
@@ -541,8 +651,8 @@ scanexit        ldd temp
                 tst temp2
                 rts             <-- exit point of scanhex
 
-* Scan for hexadecimal number at address X return in D, Z flag is set it no
-* number found.
+* Scan for hexadecimal number at address X return in D.
+* Z flag is set if no number found.
 scanhex         clr temp
                 clr temp+1
                 clr temp2
@@ -577,7 +687,7 @@ scan2parms      std length
                 std length
 sp2             rts
 
-* Scan two hexdigits at in and convert to byte into A, Z flag if error.
+* Scan two hexdigits at X in and convert to byte into A, Z flag if error.
 scanbyte        bsr skipspace
                 bsr convb
                 beq sb1
@@ -595,11 +705,12 @@ scanbyte        bsr skipspace
 sb1             rts
 
 
-* This is the code for the D command, hex/ascii dump of memory
-* Syntax: D or D<addr> or D<addr>,<length>
+***************************************************************
+* Command: D hex/ascii dump of memory
+* Syntax: D or Daddr or Daddr,length
 dump            ldx #linebuf+1
                 ldd #$40
-                jsr scan2parms ;Scan address and length, default length=64
+                jsr scan2parms  ;Scan address and length, default length=64
                 ldy addr
 dh1             lda #16
                 sta temp+1
@@ -637,20 +748,21 @@ dh5             jsr putchar
                 sty addr
                 jmp cmdline
 
-* This is the code for the E command, enter hex bytes or ascii string.
+***************************************************************
+* Command: E, enter hex bytes or ascii string.
 * Syntax E or E<addr> or E<addr> <bytes> or E<addr>"string"
+* [NAC HACK 2015Jul12] bytes need to be 2 characters.
+* . to exit, - to go back 1 location
 enter           ldx #linebuf+1
                 jsr scanhex
                 beq ent1
                 std addr
 ent1            bsr entline
                 lbne cmdline    ;No bytes, then enter interactively.
-ent2            ldb #'E'
-                jsr putchar
-                ldd addr
+ent2            ldd addr
                 jsr outd
                 ldb #' '
-                jsr putchar     ;Display Eaddr + space
+                jsr putchar     ;Display addr + space
                 lda [addr]
                 jsr outbyte
                 ldb #' '
@@ -671,25 +783,33 @@ skipbyte        ldd addr
                 std addr
                 bra ent2
 
-* Enter a line of hex bytes or ascci string at address X, Z if empty.
+* Enter a line of hex bytes or ASCII string at address X, Z if empty.
 entline         jsr skipspace
                 tstb
                 beq entexit
-                cmpb #'.'
+                cmpb #'.'       ; . to exit
                 beq entexit
-                cmpb #'"'
+
+                cmpb #'-'       ; - to go back 1 location
+                bne entnbk
+                ldy addr
+                leay -1,y
+                bra entdone
+
+entnbk          cmpb #'"'       ; " to start string
                 beq entasc
                 leax -1,x
                 ldy addr
-entl2           jsr scanbyte  ;Enter hex digits.
+entl2           jsr scanbyte    ; Enter hex digits.
                 beq entdone
                 sta ,y+
                 bra entl2
+
 entasc          ldy addr
 entl3           lda ,x+
                 tsta
                 beq entdone
-                cmpa #'"'
+                cmpa #'"'       ; " to end string
                 beq entdone
                 sta ,y+
                 bra entl3
@@ -699,18 +819,20 @@ entdone         sty addr
 entexit         orcc #$04
                 rts
 
-*This is the code for the I command, display the contents of an address
+***************************************************************
+* Command: I, inspect the contents of an address
 * Syntax: Iaddr
 inp             ldx #linebuf+1
                 jsr scanhex
                 tfr d,x
                 lda ,x          ;Read the byte from memory.
-                jsr outbyte     ;Display itin hex.
+                jsr outbyte     ;Display it in hex.
                 jsr putcr
                 jmp cmdline
 
-*This is the code for the H command, display result of simple hex expression
-*Syntax Hhexnum{+|-hexnum}
+***************************************************************
+* Command: C, calculate result of simple hex expression
+*Syntax Chexnum{+|-hexnum}
 calc            ldx #linebuf+1
                 jsr scanhex
                 std temp3
@@ -735,7 +857,8 @@ hexend          ldd temp3
                 jsr putcr
                 jmp cmdline
 
-* This is the code for the G command, jump to the program
+***************************************************************
+* Command: G, jump (go) to the program
 * Syntax G or G<addr>
 go              ldx #linebuf+1
                 jsr scanhex
@@ -744,7 +867,8 @@ go              ldx #linebuf+1
 launch          jsr arm         ;Arm the breakpoints.
                 puls cc,b,a,dp,x,y,u,pc
 
-* This is the code for the J command, run a subroutine.
+***************************************************************
+* Command: J, run a subroutine
 * Syntax J<addr>
 jump            ldx #linebuf+1
                 ldd 10,s
@@ -761,14 +885,16 @@ jump            ldx #linebuf+1
                 bra launch      ;Jump to the routine.
 
 
-* This is the code for the P command, run instruction followed by breakpoint
+***************************************************************
+* Command: P, run instruction followed by breakpoint
 * Syntax P
 prog            ldy 10,s        ;Get program counter value.
                 jsr disdecode   ;Find out location past current insn.
                 sty stepbp
                 bra launch
 
-* This is the code for the T command, single step trace an instruction.
+***************************************************************
+* Command: T, single step trace an instruction.
 * Syntax T
 trace           jsr traceone
                 jsr dispregs
@@ -846,7 +972,6 @@ dispregs        ldb #'X'
                 ldb #'C'
                 lda 2,s
                 bsr disp8
-                jsr putcr
                 ldb #'P'
                 ldy 12,s
                 bsr disp16
@@ -855,20 +980,20 @@ dispregs        ldb #'X'
                 jsr putcr
                 rts
 
-
-* This is the code for the R command, display or alter the registers.
+***************************************************************
+* Command: R, display or alter the registers.
 * Syntax R or R<letter><hex>
 regs            ldx #linebuf+1
                 jsr skipspace
                 tstb
                 bne setreg
-                bsr dispregs    ;Display regs ifnothing follows.
+                bsr dispregs    ;Display regs if nothing follows.
                 jmp cmdline
 setreg          ldy #regtab
                 clra
                 andb #CASEMASK  ;Make letter uppercase.
 sr1             tst ,y
-                lbeq unk        ;At end of register tab, unknown reg
+                lbeq argerr     ;At end of register tab, unknown reg
                 cmpb ,y+
                 beq sr2         ;Found the register?
                 inca
@@ -934,7 +1059,8 @@ arm2            leax -3,x
                 bne arm1
                 rts
 
-* This is the code for the break command, set, clear display breakpoints.
+***************************************************************
+* Command: B, set, clear display breakpoints.
 * Syntax B or B<addr>. B displays, B<addr> sets or clears breakpoint.
 break           lda #brkpoints
                 sta temp2+1     ;Store number of breakpoints to visit.
@@ -987,7 +1113,8 @@ addchk          jsr scanbyte
                 stb temp2+1
                 rts
 
-* This tis the code for the S command, the Motorola S records entry.
+***************************************************************
+* Command: S, the Motorola S records entry.
 * Syntax SO<addr> or SS<addr>,<len> or S1<bytes> or S9<bytes>
 srec            ldx #linebuf+1
                 ldb ,x+
@@ -1106,23 +1233,24 @@ checkout        pshs a
                 puls a
                 rts
 
-* This is the code for the M command, move memory region.
+***************************************************************
+* Command: M, move memory region.
 * Syntax: Maddr1,addr2,length
 move            ldx #linebuf+1
                 jsr scanhex
-                lbeq unk
+                lbeq argerr
                 std temp3
                 jsr skipspace
                 cmpb #','
-                lbne unk
+                lbne argerr
                 jsr scanhex
-                lbeq unk
+                lbeq argerr
                 tfr d,u
                 jsr skipspace
                 cmpb #','
-                lbne unk
+                lbne argerr
                 jsr scanhex
-                lbeq unk
+                lbeq argerr
                 tfr d,y         ;Read the argument separated by commas
                 ldx temp3       ;src addr to x, dest addr to u, length to y
                                 ;Don't tolerate syntax deviations.
@@ -1132,8 +1260,8 @@ mvloop          lda ,x+
                 bne mvloop      ;Perform the block move.
                 jmp cmdline
 
-
-* This is the code for the F command, find byte/ascii string in memory.
+***************************************************************
+* Command: F, find byte/ascii string in memory.
 * Syntax: Faddr bytes or Faddr "ascii"
 find            ldx #linebuf+1
                 jsr scanhex
@@ -2103,7 +2231,7 @@ opdecpb         ldb ,y+
 odpa            stb postbyte
                 rts
 opdecidx        ldb ,y+
-                bpl odpa        ;postbytes <$80 have no extra operands.
+                bpl odpa             ;postbytes <$80 have no extra operands.
                 stb postbyte
                 andb #$0f
                 aslb
@@ -2114,13 +2242,13 @@ opdecidx        ldb ,y+
 * U points to mnemonic table entry.
 disdisp         tfr u,x
                 ldb #5
-                jsr putline      ;Display the mnemonic.
+                jsr putline          ;Display the mnemonic.
                 ldb #' '
                 jsr putchar
                 lda amode
                 asla
                 ldx #disdisptab
-                jmp [a,x]        ;Perform action dependent on mode.
+                jmp [a,x]            ;Perform action dependent on mode.
 disdisptab      fdb noop,disim8,disim16,disadr8,disadr16
                 fdb disidx,disrel8,disrel16,distfr,dispush
 disim8          bsr puthash
@@ -2152,32 +2280,32 @@ putspace        ldb #' '
                 jmp putchar
 
 dispush         ldb #12
-                ldx #asmregtab  ;Walk through the register table.
+                ldx #asmregtab       ;Walk through the register table.
                 clr temp
 regloop         lda postbyte
                 anda 4,x
-                beq dispush1    ;Is bit corresponding to reg set in postbyte
+                beq dispush1         ;Is bit corresponding to reg set in postbyte
                 cmpx #aregu
                 bne dispush3
                 sta temp+1
                 lda opcode
                 anda #2
-                bne dispush1    ;no u register in pshu pulu.
+                bne dispush1         ;no u register in pshu pulu.
                 lda temp+1
 dispush3        cmpx #aregs
                 bne dispush4
                 sta temp+1
                 lda opcode
                 anda #2
-                beq dispush1   ;no s register in pshs puls.
+                beq dispush1         ;no s register in pshs puls.
                 lda temp+1
 dispush4        coma
-                anda postbyte   ;remove the bits from postbyte.
+                anda postbyte        ;remove the bits from postbyte.
                 sta postbyte
                 pshs b
                 tst temp
                 beq dispush2
-                bsr putcomma    ;print comma after first register.
+                bsr putcomma         ;print comma after first register.
 dispush2        bsr disregname
                 inc temp
                 puls b
@@ -2337,7 +2465,8 @@ odb1            adda #'0'
                 tfr a,b
                 jmp putchar
 
-* This is the code for the U command, unassemble instructions in memory.
+***************************************************************
+* Command: U, unassemble instructions in memory.
 * Syntax: U or Uaddr or Uaddr,length
 unasm           bsr disasm
                 jmp cmdline
@@ -2443,7 +2572,7 @@ noexpr          orcc #$04
                 rts
 
 * Assemble the instruction pointed to by X.
-* Fisrt stage: copy mnemonic to mnemonic buffer.
+* Stage 1: copy mnemonic to mnemonic buffer.
 asminstr        lda #5
                 ldu #mnembuf
 mncploop        ldb ,x+
@@ -2465,7 +2594,7 @@ mncpexit        tsta
 mnfilloop       stb ,u+
                 deca
                 bne mnfilloop   ;Fill the rest of mnem buffer with spaces.
-* Second stage: look mnemonic up using binary search.
+* Stage 2: look mnemonic up using binary search.
 mncpdone        stx temp3
                 clr temp        ;Low index=0
                 lda #mnemsize
@@ -2683,7 +2812,7 @@ dormb           jsr startop
                 rts
 
 
-* Adjust opcdoe depending on mode (in $80-$FF range)
+* Adjust opcode depending on mode (in $80-$FF range)
 adjopc          ldb 7,u
                 lda amode
                 cmpa #2
@@ -2718,7 +2847,7 @@ noindir         cmpb #'#'
                 lbeq doimm
                 cmpb #','
                 lbeq dospecial
-                andb #CASEMASK    ;Convert to uppercase.
+                andb #CASEMASK  ;Convert to uppercase.
                 lda #$86
                 cmpb #'A'
                 beq scanacidx
@@ -2778,7 +2907,7 @@ doimm           jsr exprvec     ;Immediate addressing.
                 std operand
                 lda amode
                 cmpa #5
-                lbeq moderr     ;Inirect mode w/ imm is illegal.
+                lbeq moderr     ;Indirect mode w/ imm is illegal.
                 lda #$01
                 sta amode
                 rts
@@ -3008,7 +3137,8 @@ frfound         leau a,u
                 puls y,b
                 rts
 
-* This is the code for the A command, assemble instructions.
+***************************************************************
+* Command: A, assemble instructions.
 * Syntax: Aaddr
 asm             ldx #linebuf+1
                 jsr scanhex
@@ -3057,7 +3187,7 @@ asmend          clr disflg
 
 
 * Jump table for monitor routines that are usable by other programs.
-                org $ffc0
+                org $ffb0
                 jmp outbyte
                 jmp outd
                 jmp scanbyte
