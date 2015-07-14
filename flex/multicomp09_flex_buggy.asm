@@ -1,10 +1,4 @@
-* NEXT: Check in original and port slowly to this one
-* work out memory map changes and get assembler working
-* put harness in place to allow entry to and exit from FLEX
-* TODO .s19 file loads OK but .hex reports:
-*     line 222: invalid hex record information. (line 222 is the last line - a blank line)
-* might be due to file having DOS line endings (same problem does not occur with unix line
-* endings in 6809M.HEX)
+
 
 * Memory-resident monitor for Multicomp09 running FLEX
 *
@@ -80,21 +74,28 @@
 * bug/todo
 * 0. exec09 doesn't include LIST in help screen
 * 1. why does exec09 complain about final line of .hex file?
+*      line 222: invalid hex record information. (line 222 is the last line - a blank line)
+*    might be due to file having DOS line endings (same problem does not occur with unix line
+*    endings in 6809M.HEX)
 * 2. d,1000,70 prints 70 the first time but afterwards d prints
-* a default of 40. Why not 70? Likewise U,
+*    a default of 40. Why not 70? Likewise U,
 * 3. some commands *need* a comma (u 100,20 and d 100,69) some do not (e 400 "hello")
 * 4. how does bytes argument work for E and F?
 * 6. what do G vs I vs J do?
 * 7. what does P do?
-* 8. remove unusable commands
+* 8. remove unusable commands??
 * 9. add new commands
 * 10. add new entry points and exit vectors
-* 11. how does A work?
 * 12. can go e"hello world" and it goes somewhere. Dangerous, and not
 *     covered as legal syntax!
 * 13. e accepts 00 but not 0 as legal input - change scanbyte to
 *     accept 1 or 2 hex digits if delimited by space.
-* 14. A going wrong as you step through addresses and reach $0026
+* 14. make - go back in assembler. Need to remember what address we started at.
+*
+* NEXT: Check in original and port slowly to this one
+* work out memory map changes and get assembler working
+* put harness in place to allow entry to and exit from FLEX
+
 
 * Memory map of SBC
 * $0-$40 Zero page variables reserved by monitor and O.S.
@@ -141,7 +142,7 @@ xsum            rmb 1            ;XMODEM checksum
 lastok          rmb 1            ;flag to indicate last block was OK
 xcount          rmb 1            ;Count of characters in buffer.
 xmode           rmb 1            ;XMODEM mode, 0 none, 1 out, 2 in.
-disflg          rmb 1
+disflg          rmb 1            ;0: CRLF after disassembly 1: no CRLF
 
 * I/O buffers.
 buflen          equ 128         ;Length of input line buffer.
@@ -2087,10 +2088,10 @@ mnemjsr         fcc "JSR  "
                 fcc "SWI  "
                 fcb 0
                 fdb $3f
-                fcb "SWI2 "
+                fcc "SWI2 "     ;[NAC HACK 2015Jul14] bugfix! Was fcb instead of fcc
                 fcb 1
                 fdb $103f
-                fcb "SWI3 "
+                fcc "SWI3 "     ;[NAC HACK 2015Jul14] bugfix! Was fcb instead of fcc
                 fcb 1
                 fdb $113f
                 fcc "SYNC "
@@ -2109,7 +2110,11 @@ mnemjsr         fcc "JSR  "
                 fcb 0
                 fdb $5d
 
-mnemsize        equ (*-mnemtab)/8
+* [NAC HACK 2015Jul14] portability..
+* NO whitespace allowed in expressions with AS9
+* and NO braces, so need this 2-step computation.
+mnemtmp         equ *-mnemtab
+mnemsize        equ mnemtmp/8
 
 * Register table for PUSH/PULL and TFR/EXG instructions.
 * 3 bytes for name, 1 for tfr/exg, 1 for push/pull, 5 total
@@ -2500,7 +2505,7 @@ unadisspc       ldb #' '
                 bne unadishex
                 jsr disdisp    ;Display disassembled instruction.
                 tst disflg
-                bne skipcr
+                bne skipcr     ;Assembling; stay on this line
                 jsr putcr
 skipcr          cmpy length
                 bls unasmloop
@@ -3157,9 +3162,6 @@ asmloop         ldy #0
                 puls d
                 std addr
 
-*               ldd addr
-*               jsr outd
-
                 ldb #TAB
                 jsr putchar     ;Print TAB
                 ldx #linebuf
@@ -3168,12 +3170,11 @@ asmloop         ldy #0
                 tstb
                 beq next
 
-***             beq asmend      ;Exit on empty line.
                 abx
                 clr ,x          ;Make line zero terminated.
                 ldx #linebuf
                 lda ,x
-                cmpa #'.'
+                cmpa #'.'       ;Terminate on "."
                 beq asmend
                 jsr asminstr
                 bra asmloop
