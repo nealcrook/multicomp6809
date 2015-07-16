@@ -113,6 +113,7 @@
 
 * Define memory map
 ramstart        equ $6000       ;RAM start of local storage
+rambufs         equ ramstart+$100
 ramfree         equ ramstart+$400 ;free RAM after local storage
 codestart       equ $e400
 * review - whats this used for?
@@ -143,21 +144,22 @@ xclosein        rmb 3           ;Jump to xclosein routine.
 xcloseout       rmb 3           ;Jump to xcloseout routine.
 delay           rmb 3           ;Jump to delay routine.
 
-*Next the system variables in the zero page.
-temp            rmb 2            ;hex scanning/disasm
-temp2           rmb 2            ;Hex scanning/disasm
-temp3           rmb 2            ;Used in Srecords, H command
-timer           rmb 3            ;3 byte timer, incremented every 20ms
-xpacknum        rmb 1            ;Packet number for XMODEM block,
-xsum            rmb 1            ;XMODEM checksum
-lastok          rmb 1            ;flag to indicate last block was OK
-xcount          rmb 1            ;Count of characters in buffer.
-xmode           rmb 1            ;XMODEM mode, 0 none, 1 out, 2 in.
-disflg          rmb 1            ;0: CRLF after disassembly 1: no CRLF
+*Next the system variables in the direct page.
+temp            rmb 2           ;hex scanning/disasm
+temp2           rmb 2           ;Hex scanning/disasm
+temp3           rmb 2           ;Used in Srecords, H command
+timer           rmb 3           ;3 byte timer, incremented every 20ms
+xpacknum        rmb 1           ;Packet number for XMODEM block,
+xsum            rmb 1           ;XMODEM checksum
+lastok          rmb 1           ;flag to indicate last block was OK
+xcount          rmb 1           ;Count of characters in buffer.
+xmode           rmb 1           ;XMODEM mode, 0 none, 1 out, 2 in.
+disflg          rmb 1           ;0: CRLF after disassembly 1: no CRLF
 
 * I/O buffers.
 buflen          equ 128         ;Length of input line buffer.
-                org $100
+
+                org rambufs
 buf0            rmb 128         ;Xmodem buffer 0, serial input buffer.
 buf1            rmb 128         ;Xmodem buffer 1, serial output buffer.
 linebuf         rmb buflen      ;Input line buffer.
