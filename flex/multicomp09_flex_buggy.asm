@@ -1,9 +1,8 @@
-
-
 * Memory-resident monitor for Multicomp09 running FLEX
 *
 * Derived from Lennart Benschop's
 * "Buggy machine language monitor and rudimentary O.S. version 1.0"
+* by foofoobedoo@gmail.com
 *
 * After booting FLEX, load this program into memory thus:
 * +++MON09
@@ -55,7 +54,7 @@
 *
 *
 *
-* ** to delete:
+* ** to delete?:
 * xrecord step breakpoint
 * ** to add:
 * sdcard load
@@ -111,13 +110,25 @@
 * $E200-$E3FF Reserved.
 * $E400-$FFFF Monitor ROM
 
+
+* Define memory map
+ramstart        equ $6000       ;RAM start of local storage
+ramfree         equ ramstart+$400 ;free RAM after local storage
+codestart       equ $e400
+* review - whats this used for?
+ramtop          equ $8000       ;top of RAM.
+
+* MULTICOMP I/O port addresses
+aciasta         equ $ffd0       ;Status port of VDU pseudo ACIA
+aciadat         equ $ffd1       ;Data port of VDU pseudo ACIA
+
 * FLEX vectors
 flexwrm         equ $CD03
 monitr          equ $D3F3
 
 
-* Reserved Zero page addresses
-                org $0000
+* Reserved direct page addresses
+                org ramstart
 * First the I/O routine vectors.
 getchar         rmb 3           ;Jump to getchar routine.
 putchar         rmb 3           ;Jump to putchar routine.
@@ -151,6 +162,9 @@ buf0            rmb 128         ;Xmodem buffer 0, serial input buffer.
 buf1            rmb 128         ;Xmodem buffer 1, serial output buffer.
 linebuf         rmb buflen      ;Input line buffer.
 
+* [NAC HACK 2015Jul16] since the buffer uses X to address it (ie, non ZP)
+* move it elsewhere and use ZP for system variables! Likewise, the vectors
+* need not be in the ZP.
 
 * Interrupt vectors (start at $280)
 * All interrupts except RESET are vectored through jumps.
@@ -201,13 +215,7 @@ dpsetting       rmb 2
 
 endvars         equ *
 
-ramstart        equ $400        ;first free RAM address.
 
-ramtop          equ $8000       ;top of RAM.
-
-* MULTICOMP I/O port addresses
-aciasta         equ $ffd0       ;Status port of VDU pseudo ACIA
-aciadat         equ $ffd1       ;Data port of VDU pseudo ACIA
 
 
 
@@ -225,22 +233,23 @@ DEL             equ 127
 
 CASEMASK        equ $DF         ;Mask to make lowercase into uppercase.
 
-* Monitor ROM starts here.
-                org $E400
+* Monitor code starts here.
+                org codestart
 
 reset           orcc #$FF       ;Disable interrupts.
-                clra
-                tfr a,dp        ;Set direct page register to 0.
-                clr disflg
-                lds #ramstart
-                ldx #intvectbl
-                ldu #swi3vec
-                ldb #osvectbl-intvectbl
+                lda #ramstart/256
+                tfr a,dp        ;Set direct page register
+                clr <disflg
+                lds #ramfree    ;Stack grows down from here
+                ldx #intvectbl  ;ROM location of exception vector table
+                ldu #swi3vec    ;destination in RAM
+                ldb #intvecend-intvectbl
                 bsr blockmove   ;Initialize interrupt vectors from ROM.
-                ldx #osvectbl
-                ldu #0
-                ldb #endvecs-osvectbl
+                ldx #osvectbl   ;ROM location of I/O vector table
+                ldu #getchar    ;destination in RAM
+                ldb #osvecend-osvectbl
                 bsr blockmove   ;Initialize I/O vectors from ROM.
+
                 bsr initacia    ;Initialize serial port.
                 andcc #$0       ;Enable interrupts
 * Put the 'saved' registers of the program being monitored on top of the
@@ -261,7 +270,7 @@ clvar           clr ,x+
                 std filler      ;Set XMODEM filler and end-of-line.
                 ldx #welcome
                 jsr outcount
-                jsr putcr       ;Print a welcome message.
+                jsr <putcr       ;Print a welcome message.
                 jmp cmdline
 * Block move routine, from X to U length B. Modifies them all and A.
 blockmove       lda ,x+
@@ -305,9 +314,9 @@ putcloop        lda aciasta
 * O.S. routine to read a line into memory at address X, at most B chars
 * long, return actual length in B. Permit backspace editing.
 osgetl          pshs a,x
-                stb temp
+                stb <temp
                 clra
-osgetl1         jsr getchar
+osgetl1         jsr <getchar
                 andb #$7F
                 cmpb #BS
                 beq backsp
@@ -316,11 +325,11 @@ osgetl1         jsr getchar
 backsp          tsta                  ;Recognize BS and DEL as backspace key.
                 beq osgetl1           ;ignore if line already zero length.
                 ldb #BS
-                jsr putchar
+                jsr <putchar
                 ldb #' '
-                jsr putchar
+                jsr <putchar
                 ldb #BS               ;Send BS,space,BS. This erases last
-                jsr putchar           ;character on most terminals.
+                jsr <putchar           ;character on most terminals.
                 leax -1,x             ;Decrement address.
                 deca
                 bra osgetl1
@@ -333,7 +342,7 @@ osgetl2         cmpb #CR
                 beq osgetl1           ;Ignore LF if it comes after CR
                 ldb #LF
 newline         stb lastterm
-                jsr putcr
+                jsr <putcr
                 tfr a,b               ;Move length to B
                 puls a,x              ;restore registers.
                 rts                   ;<--- Here is the exit point.
@@ -341,16 +350,16 @@ osgetl3         cmpb #TAB
                 beq dotab
                 cmpb #' '
                 blo osgetl1           ;Ignore control characters.
-                cmpa temp
+                cmpa <temp
                 beq osgetl1           ;Ignore char if line full.
-                jsr putchar           ;Echo the character.
+                jsr <putchar          ;Echo the character.
                 stb ,x+               ;Store it in memory.
                 inca
                 bra osgetl1
 dotab           ldb #' '
-                cmpa temp
+                cmpa <temp
                 beq osgetl1
-                jsr putchar
+                jsr <putchar
                 stb ,x+
                 inca
                 bita #7               ;Insert spaces until length mod 8=0
@@ -363,7 +372,7 @@ osputl          pshs a,b,x
                 tsta
                 beq osputl1
 osputl2         ldb ,x+
-                jsr putchar
+                jsr <putchar
                 deca
                 bne osputl2
 osputl1         puls a,b,x
@@ -372,31 +381,31 @@ osputl1         puls a,b,x
 * O.S. routine to terminate a line.
 oscr            pshs b
                 ldb #CR
-                jsr putchar
+                jsr <putchar
                 ldb #LF
-                jsr putchar           ;Send the CR and LF characters.
+                jsr <putchar          ;Send the CR and LF characters.
                 puls b
                 rts
 
 * Output a counted string at addr X
 outcount        pshs x,b
                 ldb ,x+
-                jsr putline
+                jsr <putline
                 puls x,b
                 rts
 
-timerirq        inc timer+2
+timerirq        inc <timer+2     ; [NAC HACK 2015Jul15] surely this is backwards? LSbyte s/b timer
                 bne endirq
-                inc timer+1
+                inc <timer+1
                 bne endirq
-                inc timer
+                inc <timer
                 rti
 aciairq         nop
 endirq          rti
 
 * Wait D times 20ms.
-osdly           addd timer+1
-dlyloop         cmpd timer+1
+osdly           addd <timer+1
+dlyloop         cmpd <timer+1
                 bne dlyloop
                 rts
 
@@ -411,6 +420,8 @@ intvectbl       jmp endirq
                 jmp expr
                 jmp asmerrvec
                 jmp pseudo
+intvecend       equ *
+
 * And this one to the I/O vector table.
 osvectbl        jmp osgetc
                 jmp osputc
@@ -424,7 +435,7 @@ osvectbl        jmp osgetc
                 jmp xclsin
                 jmp xclsout
                 jmp osdly
-endvecs         equ *
+osvecend        equ *
 
 * The J command returns here.
 stakregs        pshs x               ;Stack something where the pc comes
@@ -440,13 +451,13 @@ unlaunch        ldd 10,s
 unlaunch1       andcc #$0            ;reenable the interrupts.
                 jsr disarm           ;Disarm the breakpoints.
                 jsr dispregs
-cmdline         jsr xcloseout
+cmdline         jsr <xcloseout
                 sts savesp
                 ldb #'.'
-                jsr putchar
+                jsr <putchar
                 ldx #linebuf
                 ldb #buflen
-                jsr getline
+                jsr <getline
                 tstb
                 beq cmdline          ;Ignore line if it is empty
                 abx
@@ -472,18 +483,18 @@ cmdtab          fdb asm,break,calc,dump
 
 ***************************************************************
 * Error: bad command arguments
-argerr          jsr xabortin
+argerr          jsr <xabortin
                 ldx #badargs
                 jsr outcount
-                jsr putcr
+                jsr <putcr
                 jmp cmdline
 
 ***************************************************************
 * Command: Unknown command handling routine.
-unk             jsr xabortin
+unk             jsr <xabortin
                 ldx #unknown
                 jsr outcount
-                jsr putcr
+                jsr <putcr
                 jmp cmdline
 
 ***************************************************************
@@ -604,7 +615,7 @@ hexdigit        adda #$90
                 adca #$40
                 daa             ;It's the standard conversion trick ascii
                 tfr a,b         ;to hex without branching.
-                jsr putchar
+                jsr <putchar
                 rts
 
 * Output contents of A as two hex digits
@@ -647,21 +658,21 @@ cb2             andcc #$FB      ;clear zero
 convexit        orcc #$04
                 rts
 
-scanexit        ldd temp
+scanexit        ldd <temp
                 leax -1,x
-                tst temp2
+                tst <temp2
                 rts             <-- exit point of scanhex
 
 * Scan for hexadecimal number at address X return in D.
 * Z flag is set if no number found.
-scanhex         clr temp
-                clr temp+1
-                clr temp2
+scanhex         clr <temp
+                clr <temp+1
+                clr <temp2
                 bsr skipspace
 scloop          jsr convb
                 beq scanexit
                 pshs b
-                ldd temp
+                ldd <temp
                 aslb
                 rola
                 aslb
@@ -671,8 +682,8 @@ scloop          jsr convb
                 aslb
                 rola
                 addb ,s+
-                std temp
-                inc temp2
+                std <temp
+                inc <temp2
                 ldb ,x+
                 bra scloop
 
@@ -700,8 +711,8 @@ scanbyte        bsr skipspace
                 asla
                 asla
                 asla
-                stb temp
-                adda temp
+                stb <temp
+                adda <temp
                 andcc #$fb      ;Clear zero flag
 sb1             rts
 
@@ -714,20 +725,20 @@ dump            ldx #linebuf+1
                 jsr scan2parms  ;Scan address and length, default length=64
                 ldy addr
 dh1             lda #16
-                sta temp+1
+                sta <temp+1
                 tfr y,d
                 jsr outd
                 ldb #' '
-                jsr putchar
+                jsr <putchar
 dh2             lda ,y+         ;display row of 16 mem locations as hex
                 jsr outbyte
                 ldb #' '
-                lda temp+1
+                lda <temp+1
                 cmpa #9
                 bne dh6
                 ldb #'-'        ;Do a - after the eighth byte.
-dh6             jsr putchar
-                dec temp+1
+dh6             jsr <putchar
+                dec <temp+1
                 bne dh2
                 leay -16,y      ;And now for the ascii dump.
                 lda #16
@@ -738,10 +749,10 @@ dh3             ldb ,y+
 dh4             cmpb #DEL
                 blo dh5
                 ldb #'.'        ;Convert all nonprintables to .
-dh5             jsr putchar
+dh5             jsr <putchar
                 deca
                 bne dh3
-                jsr putcr
+                jsr <putcr
                 ldd length
                 subd #16
                 std length
@@ -763,14 +774,14 @@ ent1            bsr entline
 ent2            ldd addr
                 jsr outd
                 ldb #' '
-                jsr putchar     ;Display addr + space
+                jsr <putchar     ;Display addr + space
                 lda [addr]
                 jsr outbyte
                 ldb #' '
-                jsr putchar
+                jsr <putchar
                 ldx #linebuf
                 ldb #buflen
-                jsr getline     ;Get the line.
+                jsr <getline     ;Get the line.
                 tstb
                 beq skipbyte
                 abx
@@ -828,7 +839,7 @@ inp             ldx #linebuf+1
                 tfr d,x
                 lda ,x          ;Read the byte from memory.
                 jsr outbyte     ;Display it in hex.
-                jsr putcr
+                jsr <putcr
                 jmp cmdline
 
 ***************************************************************
@@ -836,13 +847,13 @@ inp             ldx #linebuf+1
 *Syntax Chexnum{+|-hexnum}
 calc            ldx #linebuf+1
                 jsr scanhex
-                std temp3
+                std <temp3
 hexloop         jsr skipspace
                 cmpb #'+'
                 bne hex1
                 jsr scanhex
-                addd temp3
-                std temp3
+                addd <temp3
+                std <temp3
                 bra hexloop
 hex1            cmpb #'-'
                 bne hexend
@@ -850,12 +861,12 @@ hex1            cmpb #'-'
                 comb
                 coma
                 addd #1
-                addd temp3
-                std temp3
+                addd <temp3
+                std <temp3
                 bra hexloop
-hexend          ldd temp3
+hexend          ldd <temp3
                 jsr outd
-                jsr putcr
+                jsr <putcr
                 jmp cmdline
 
 ***************************************************************
@@ -897,6 +908,22 @@ prog            ldy 10,s        ;Get program counter value.
 ***************************************************************
 * Command: T, single step trace an instruction.
 * Syntax T
+
+*[NAC HACK 2015Jul15] this should work with multicomp09, too. It expects
+* a 50Hz timer, which I have. It expects the timer to be wired to FIRQ
+* but mine is wired to IRQ (easy to change..)
+* the timing below is tuned for clocks = processor cycles so needs
+* adjustment for my divided clock with accelerated internal cycles.
+* The idea of switching the interrupt vector seems to mean that the
+* timer will run slow when single step is in use: the interrupt that
+* goes through SYNC will not increment the timer and the single step
+* interrupt will not increment the timer.
+* might be nicer to have a flag in the ISR that determines whether a
+* single step is in progress. Then, can do the timer stuff as well.
+* Saves messing with the vector so might all take more or less the
+* same amount of code and complexity.
+
+        
 trace           jsr traceone
                 jsr dispregs
                 jmp cmdline
@@ -927,22 +954,22 @@ traceret        puls cc
 
 
 * Display the contents of 8 bit register, name in B, contents in A
-disp8           jsr putchar
+disp8           jsr <putchar
                 ldb #'='
-                jsr putchar
+                jsr <putchar
                 jsr outbyte
                 ldb #' '
-                jsr putchar
+                jsr <putchar
                 rts
 
 * Display the contents of 16 bit register, name in B, contents in Y
-disp16          jsr putchar
+disp16          jsr <putchar
                 ldb #'='
-                jsr putchar
+                jsr <putchar
                 tfr y,d
                 jsr outd
                 ldb #' '
-                jsr putchar
+                jsr <putchar
                 rts
 
 * Display the contents of the registers and disassemble instruction at
@@ -978,7 +1005,7 @@ dispregs        ldb #'X'
                 bsr disp16
                 jsr disdecode
                 jsr disdisp       ;Disassemble instruction at PC
-                jsr putcr
+                jsr <putcr
                 rts
 
 ***************************************************************
@@ -1043,7 +1070,7 @@ disarm2         deca
                 stu -3,x        ;Clear the step breakpoint.
                 rts
 
-* Arm the breakponts, this is replace the byte at the breakpoint address
+* Arm the breakpoints, this is replace the byte at the breakpoint address
 * with an SWI instruction.
 arm             ldx #bpaddr+brkpoints*3
                 lda #brkpoints+1  ;Arm them in reverse order of disarming.
@@ -1064,7 +1091,7 @@ arm2            leax -3,x
 * Command: B, set, clear display breakpoints.
 * Syntax B or B<addr>. B displays, B<addr> sets or clears breakpoint.
 break           lda #brkpoints
-                sta temp2+1     ;Store number of breakpoints to visit.
+                sta <temp2+1     ;Store number of breakpoints to visit.
                 ldx #linebuf+1
                 jsr scanhex
                 beq dispbp      ;No number then display breakpoints
@@ -1077,14 +1104,14 @@ bp1             cmpd ,x
                 bne bp2
                 tfr x,y         ;Set free address to y
 bp2             leax 3,x
-                dec temp2+1
+                dec <temp2+1
                 bne bp1
                 cmpy #0         ;Address not found in list of breakpoints
                 beq bpfull      ;Was free address found.
                 std ,y          ;If so, store breakpoint there.
                 ldx #brkmsg
 bpexit          jsr outcount
-                jsr putcr
+                jsr <putcr
                 jmp cmdline
 clearit         clra
                 clrb
@@ -1099,19 +1126,19 @@ dbp1            ldd ,x
                 beq dbp2
                 jsr outd
                 ldb #' '
-                jsr putchar
+                jsr <putchar
 dbp2            leax 3,x
-                dec temp2+1
+                dec <temp2+1
                 bne dbp1
-                jsr putcr
+                jsr <putcr
                 jmp cmdline
 
 * Scan hex byte into a and add it to check sum in temp2+1
 addchk          jsr scanbyte
                 lbeq srecerr
                 tfr a,b
-                addb temp2+1
-                stb temp2+1
+                addb <temp2+1
+                stb <temp2+1
                 rts
 
 ***************************************************************
@@ -1125,16 +1152,16 @@ srec            ldx #linebuf+1
                 cmpb #'S'
                 beq sendrec
                 ldb -1,x
-                clr temp3
+                clr <temp3
                 cmpb #'1'
                 beq readrec
                 cmpb #'9'
                 bne srecerr
-                inc temp3
-readrec         clr temp2+1     ;clear checksum.
+                inc <temp3
+readrec         clr <temp2+1     ;clear checksum.
                 bsr addchk
                 suba #2         ;discount the address bytes from the count.
-                sta temp3+1     ;Read length byte.
+                sta <temp3+1     ;Read length byte.
                 bsr addchk
                 pshs a
                 bsr addchk
@@ -1151,13 +1178,13 @@ readrec         clr temp2+1     ;clear checksum.
 rr1             subd soffs      ;Subtract the address offset.
                 tfr d,y
 rr2             bsr addchk
-                dec temp3+1
+                dec <temp3+1
                 beq endrec
                 sta ,y+
                 bra rr2
-endrec          inc temp2+1     ;Check checksum.
+endrec          inc <temp2+1     ;Check checksum.
                 bne srecerr
-                tst temp3
+                tst <temp3
                 lbeq cmdline    ;Was it no S9 record?
                 cmpy #0
                 beq endrec1
@@ -1167,10 +1194,10 @@ endrec1         clra
                 std sorg        ;Reset sorg, next S loads will be normal.
                 std soffs
                 jmp cmdline
-srecerr         jsr xabortin
+srecerr         jsr <xabortin
                 ldx #smsg       ;Error in srecord, display message.
                 jsr outcount
-                jsr putcr
+                jsr <putcr
                 jmp cmdline
 setsorg         jsr scanhex     ;Set S record origin.
                 std sorg
@@ -1191,17 +1218,17 @@ ss1             ldd length
                 cmpd #16
                 blo ss2
                 ldb #16         ;If more than 16 left, then send 16.
-ss2             stb temp
+ss2             stb <temp
                 negb
                 ldu length
                 leau b,u
                 stu length      ;Discount line length from length.
                 ldb #'S'
-                jsr putchar
+                jsr <putchar
                 ldb #'1'
-                jsr putchar
-                clr temp+1      ;Clear check sum
-                ldb temp
+                jsr <putchar
+                clr <temp+1      ;Clear check sum
+                ldb <temp
                 addb #3
                 bsr checkout    ;Output byte b as hex and add to check sum.
                 ldd addr
@@ -1213,23 +1240,23 @@ ss2             stb temp
                 bsr checkout    ;Output address (add into check sum)
 ss3             ldb ,y+
                 bsr checkout
-                dec temp
+                dec <temp
                 bne ss3
                 sty addr
-                ldb temp+1
+                ldb <temp+1
                 comb
                 bsr checkout    ;Output checksum byte.
-                jsr putcr
+                jsr <putcr
                 bra ss1
 endss           ldx #lastrec
                 jsr outcount
-                jsr putcr
+                jsr <putcr
                 jmp cmdline
 * Output byte in register B and add it into check sum at temp+1
 checkout        pshs a
                 tfr b,a
-                addb temp+1
-                stb temp+1
+                addb <temp+1
+                stb <temp+1
                 jsr outbyte
                 puls a
                 rts
@@ -1240,7 +1267,7 @@ checkout        pshs a
 move            ldx #linebuf+1
                 jsr scanhex
                 lbeq argerr
-                std temp3
+                std <temp3
                 jsr skipspace
                 cmpb #','
                 lbne argerr
@@ -1253,7 +1280,7 @@ move            ldx #linebuf+1
                 jsr scanhex
                 lbeq argerr
                 tfr d,y         ;Read the argument separated by commas
-                ldx temp3       ;src addr to x, dest addr to u, length to y
+                ldx <temp3       ;src addr to x, dest addr to u, length to y
                                 ;Don't tolerate syntax deviations.
 mvloop          lda ,x+
                 sta ,u+
@@ -1293,10 +1320,10 @@ fhexloop        pshs a          ;already converted string.
 startsrch       tsta            ;Start searching, start addr in Y,
                                 ;string starts at linebuf, length A
                 lbeq cmdline    ;Quit with zero length string.
-                clr temp3
-                sta temp3+1
+                clr <temp3
+                sta <temp3+1
 srchloop        tfr y,x
-                lda temp3+1
+                lda <temp3+1
                 cmpx #$e100
                 bcc srch1
                 leax a,x
@@ -1311,9 +1338,9 @@ srch2           ldb ,x+
                 bne srch2
                 tfr y,d
                 jsr outd        ;String found
-                jsr putcr
-                inc temp3
-                lda temp3
+                jsr <putcr
+                inc <temp3
+                lda <temp3
                 cmpa #$10
                 lbeq cmdline    ;If 10 matches found, just stop.
 srch3           leay 1,y
@@ -1323,21 +1350,21 @@ srch3           leay 1,y
 * is set if transfer aborted.
 xsendbuf        ldb #SOH
                 jsr osputc      ;Send SOH
-                ldb xpacknum
+                ldb <xpacknum
                 jsr osputc      ;Send block number.
                 comb
                 jsr osputc      ;and its complement.
-                clr xsum
+                clr <xsum
                 lda #128
                 ldx #buf0
 xsloop          ldb ,x
-                addb xsum
-                stb xsum
+                addb <xsum
+                stb <xsum
                 ldb ,x+
                 jsr osputc
                 deca
                 bne xsloop      ;Send the buffer contents.
-                ldb xsum
+                ldb <xsum
                 jsr osputc      ;Send the check sum
 waitack         jsr osgetc
                 cmpb #CAN
@@ -1346,13 +1373,13 @@ waitack         jsr osgetc
                 beq xsendbuf    ;Send again if NAK
                 cmpb #ACK
                 bne waitack
-                inc xpacknum
+                inc <xpacknum
 xsok            andcc #$fb      ;Clear zero flag after ACK
 xsabt           rts
 
 * Start an XMODEM send session.
 xsendinit       ldb #1
-                stb xpacknum    ;Initialize block number.
+                stb <xpacknum    ;Initialize block number.
 waitnak         jsr osgetc
                 cmpb #CAN
                 beq xsabt      ;If ^X exit with zero flag.
@@ -1377,11 +1404,11 @@ gettimeout      asla
                 ldb #50
                 mul
                 tfr b,a
-                adda timer+2
+                adda <timer+2
 gt1             jsr osgetpoll
                 tstb
                 bne gtexit
-                cmpa timer+2
+                cmpa <timer+2
                 bne gt1
                 orcc #$1
                 rts
@@ -1397,7 +1424,7 @@ purge           lda #3
 
 * Receive an XMODEM block and wait till it is OK, Z set if etx.
 xrcvbuf         lda #3
-                tst lastok
+                tst <lastok
                 beq sendnak
                 ldb #ACK
                 jsr osputc      ;Send an ack.
@@ -1405,7 +1432,7 @@ xrcvbuf         lda #3
                 bra startblock
 sendnak         ldb #NAK
                 jsr osputc      ;Send a NAK
-startblock      clr lastok
+startblock      clr <lastok
                 bsr gettimeout
                 lda #3
                 bcs sendnak     ;Keep sending NAKs when timed out.
@@ -1416,38 +1443,38 @@ startblock      clr lastok
                 lda #1
                 bsr gettimeout
                 bcs purgeit
-                cmpb xpacknum   ;Is it the right block?
+                cmpb <xpacknum   ;Is it the right block?
                 beq xr1
                 incb
-                cmpb xpacknum   ;Was it the previous block.
+                cmpb <xpacknum   ;Was it the previous block.
                 bne purgeit
-                inc lastok
-xr1             stb xsum
+                inc <lastok
+xr1             stb <xsum
                 lda #1
                 bsr gettimeout
                 bcs purgeit
                 comb
-                cmpb xsum       ;Is the complement of the block number OK
+                cmpb <xsum       ;Is the complement of the block number OK
                 bne purgeit
                 ldx #buf0
-                clr xsum
+                clr <xsum
 xrloop          lda #1
                 bsr gettimeout
                 bcs purgeit
                 stb ,x+
-                addb xsum
-                stb xsum
+                addb <xsum
+                stb <xsum
                 cmpx #buf0+128
                 bne xrloop       ;Get the data bytes.
                 lda #1
                 bsr gettimeout
                 bcs purgeit
-                cmpb xsum
+                cmpb <xsum
                 bne purgeit     ;Check the check sum.
-                tst lastok
+                tst <lastok
                 bne xrcvbuf     ;Block was the previous block, get next one
-                inc lastok
-                inc xpacknum
+                inc <lastok
+                inc <xpacknum
                 andcc #$fb
                 rts
 purgeit         jsr purge
@@ -1460,21 +1487,21 @@ ackloop         jsr osputc
                 rts
 
 
-savevecs        ldx getchar+1
+savevecs        ldx <getchar+1
                 stx oldgetc
-                ldx putchar+1
+                ldx <putchar+1
                 stx oldputc
-                ldx putcr+1
+                ldx <putcr+1
                 stx oldputcr
                 clr lastterm
                 rts
 
 rstvecs         ldx oldgetc
-                stx getchar+1
+                stx <getchar+1
                 ldx oldputc
-                stx putchar+1
+                stx <putchar+1
                 ldx oldputcr
-                stx putcr+1
+                stx <putcr+1
                 clr lastterm
                 rts
 
@@ -1482,18 +1509,18 @@ rstvecs         ldx oldgetc
 xopin           pshs x,a,b
                 ldx #xsmsg
                 jsr outcount
-                jsr putcr       ;Display message to start XMODEM send.
+                jsr <putcr       ;Display message to start XMODEM send.
                 bsr savevecs
                 ldx #noop
-                stx putchar+1   ;Disable character output.
+                stx <putchar+1   ;Disable character output.
                 ldx #xgetc
-                stx getchar+1   ;
-                clr lastok
-                clr xcount
+                stx <getchar+1   ;
+                clr <lastok
+                clr <xcount
                 lda #1
-                sta xpacknum
+                sta <xpacknum
                 inca
-                sta xmode       ;set xmode to 2.
+                sta <xmode       ;set xmode to 2.
                 puls x,a,b,pc
 
 * O.S. routine to open output through XMODEM transfer.
@@ -1501,21 +1528,21 @@ xopout          pshs x,a,b
                 bsr savevecs
                 ldx #xrmsg
                 jsr outcount    ;Display message to start XMODEM receive
-                jsr putcr
+                jsr <putcr
                 ldx #xputc
-                stx putchar+1
+                stx <putchar+1
                 ldx #xputcr
-                stx putcr+1
+                stx <putcr+1
                 jsr xsendinit
                 lbeq xerror
-                clr xcount
+                clr <xcount
                 lda #1
-                sta xmode
+                sta <xmode
                 puls x,a,b,pc
 
 
 * O.S. routine to abort input through XMODEM transfer.
-xabtin          lda xmode
+xabtin          lda <xmode
                 cmpa #2
                 bne xclsend
                 jsr purge
@@ -1525,20 +1552,20 @@ xabtloop        jsr osputc
                 deca
                 bne xabtloop    ;Send 8 CAN characters to kill transfer.
                 bsr rstvecs
-                clr xmode
+                clr <xmode
                 ldx #xamsg
                 jsr outcount
-                jsr putcr       ;Send diagnostic message.
+                jsr <putcr       ;Send diagnostic message.
                 rts
 
 * O.S. routine to close output through XMODEM transfer.
-xclsout         lda xmode
+xclsout         lda <xmode
                 cmpa #1
                 bne xclsend
-                tst xcount
+                tst <xcount
                 beq xclsdone
                 lda #128
-                suba xcount
+                suba <xcount
 xclsloop        ldb filler
                 bsr xputc
                 deca
@@ -1546,26 +1573,26 @@ xclsloop        ldb filler
 xclsdone        jsr xsendeot    ;Send EOT
                 lbeq xerror
                 jsr rstvecs
-                clr xmode
+                clr <xmode
 xclsend         rts
 
 * O.S. routine to close input through XMODEM, by gobbling up the remaining
 * bytes.
-xclsin          ldb xmode
+xclsin          ldb <xmode
                 cmpb #2
                 bne xclsend
-                jsr putchar
+                jsr <putchar
                 bra xclsin
 
 * putchar routine for XMODEM
 xputc           pshs x,a,b
-                lda xcount
-                inc xcount
+                lda <xcount
+                inc <xcount
                 ldx #buf0
                 stb a,x         ;Store character in XMODEM buffer.
                 cmpa #127
                 bne xputc1      ;is buffer full?
-                clr xcount
+                clr <xcount
                 pshs y,u
                 jsr xsendbuf
                 lbeq xerror
@@ -1589,30 +1616,30 @@ xputcr2         puls b
 
 * getchar routine for XMODEM
 xgetc           pshs x,a
-                tst xcount      ;No characters left?
+                tst <xcount      ;No characters left?
                 bne xgetc1
                 pshs y,u
                 jsr xrcvbuf     ;Receive new block.
                 puls y,u
                 beq xgetcterm   ;End of input?
                 lda #128
-                sta xcount
-xgetc1          lda xcount
+                sta <xcount
+xgetc1          lda <xcount
                 nega
                 ldx #buf0+128
                 ldb a,x         ;Get character from buffer
-                dec xcount
+                dec <xcount
                 puls x,a,pc
 xgetcterm       jsr rstvecs
-                clr xmode
+                clr <xmode
                 ldb filler
                 puls x,a,pc
 
 xerror          jsr rstvecs     ;Restore I/O vectors
-                clr xmode
+                clr <xmode
                 ldx #xamsg
                 jsr outcount
-                jsr putcr
+                jsr <putcr
                 jmp xerrvec
 
 xerrhand        lds savesp
@@ -1637,26 +1664,26 @@ xmodem          ldx #linebuf+1
                 beq xss
                 ldd #$100            ;XSaddr,len command.
                 jsr scan2parms       ;Send binary through XMODEM
-                jsr xopenout
+                jsr <xopenout
                 ldu addr
                 ldy length
 xsbinloop       ldb ,u+
-                jsr putchar
+                jsr <putchar
                 leay -1,y
                 bne xsbinloop        ;Send all the bytes through XMODEM.
                 jmp cmdline
 xss             leax 1,x             ;XSSaddr,len command.
-                jsr xopenout         ;Send Srecords through XMODEM
+                jsr <xopenout        ;Send Srecords through XMODEM
                 jmp sendrec
 xload           jsr scanhex          ;XLaddr command
                 tfr d,y              ;Load binary through XMODEM
-                jsr xopenin
-xlodloop        jsr getchar
-                tst xmode            ;File ended? then done
+                jsr <xopenin
+xlodloop        jsr <getchar
+                tst <xmode           ;File ended? then done
                 lbeq cmdline
                 stb ,y+
                 bra xlodloop
-xeq             jsr xopenin          ;XX command
+xeq             jsr <xopenin          ;XX command
                 jmp cmdline          ;Execute commands received from XMODEM
 xopts           ldd #$1a
                 jsr scan2parms
@@ -2247,9 +2274,9 @@ opdecidx        ldb ,y+
 * U points to mnemonic table entry.
 disdisp         tfr u,x
                 ldb #5
-                jsr putline          ;Display the mnemonic.
+                jsr <putline          ;Display the mnemonic.
                 ldb #' '
-                jsr putchar
+                jsr <putchar
                 lda amode
                 asla
                 ldx #disdisptab
@@ -2268,51 +2295,51 @@ disadr8         bsr putdol
 disrel8         bsr putdol
                 ldb operand+1
                 sex
-dr8a            sty temp
-                addd temp
+dr8a            sty <temp
+                addd <temp
                 jmp outd
 disrel16        bsr putdol
                 ldd operand
                 bra dr8a
 
 puthash         ldb #'#'
-                jmp putchar
+                jmp <putchar
 putdol          ldb #'$'
-                jmp putchar
+                jmp <putchar
 putcomma        ldb #','
-                jmp putchar
+                jmp <putchar
 putspace        ldb #' '
-                jmp putchar
+                jmp <putchar
 
 dispush         ldb #12
                 ldx #asmregtab       ;Walk through the register table.
-                clr temp
+                clr <temp
 regloop         lda postbyte
                 anda 4,x
                 beq dispush1         ;Is bit corresponding to reg set in postbyte
                 cmpx #aregu
                 bne dispush3
-                sta temp+1
+                sta <temp+1
                 lda opcode
                 anda #2
                 bne dispush1         ;no u register in pshu pulu.
-                lda temp+1
+                lda <temp+1
 dispush3        cmpx #aregs
                 bne dispush4
-                sta temp+1
+                sta <temp+1
                 lda opcode
                 anda #2
                 beq dispush1         ;no s register in pshs puls.
-                lda temp+1
+                lda <temp+1
 dispush4        coma
                 anda postbyte        ;remove the bits from postbyte.
                 sta postbyte
                 pshs b
-                tst temp
+                tst <temp
                 beq dispush2
                 bsr putcomma         ;print comma after first register.
 dispush2        bsr disregname
-                inc temp
+                inc <temp
                 puls b
 dispush1        leax 5,x
                 decb
@@ -2343,7 +2370,7 @@ disregname      lda #3
 drnloop         ldb ,u+
                 cmpb #' '
                 beq drnend
-                jsr putchar
+                jsr <putchar
                 deca
                 bne drnloop
 drnend          rts
@@ -2357,9 +2384,9 @@ disidxreg       lda postbyte
                 anda #3
                 ldx #ixregs
                 ldb a,x
-                jmp putchar
+                jmp <putchar
 
-disidx          clr temp
+disidx          clr <temp
                 lda postbyte
                 bmi disidx1
                 anda #$1f
@@ -2368,22 +2395,22 @@ disidx          clr temp
                 jsr outdecbyte
                 bra discomma
 negoffs         ldb #'-'
-                jsr putchar
+                jsr <putchar
                 ora #$f0
                 nega
                 jsr outdecbyte
 discomma        jsr putcomma         ;Display ,Xreg and terminating ]
 disindex        bsr disidxreg
-disindir        tst temp             ;Display ] if indirect.
+disindir        tst <temp             ;Display ] if indirect.
                 beq disidxend
                 ldb #']'
-                jsr putchar
+                jsr <putchar
 disidxend       rts
 disidx1         bita #$10
                 beq disidx2
                 ldb #'['
-                jsr putchar
-                inc temp
+                jsr <putchar
+                inc <temp
 disidx2         lda postbyte
                 anda #$0f
                 asla
@@ -2394,33 +2421,33 @@ disadec2        lda #2
 disadec1        lda #1
 disadeca        jsr putcomma
 disadloop       ldb #'-'
-                jsr putchar
+                jsr <putchar
                 deca
                 bne disadloop
                 bra disindex
 disainc2        lda #2
                 bra disainca
 disainc1        lda #1
-disainca        sta temp+1
+disainca        sta <temp+1
                 jsr putcomma
                 jsr disidxreg
-                lda temp+1
+                lda <temp+1
 disailoop       ldb #'+'
-                jsr putchar
+                jsr <putchar
                 deca
                 bne disailoop
                 jmp disindir
 disax           ldb #'A'
-                jsr putchar
+                jsr <putchar
                 jmp discomma
 disbx           ldb #'B'
-                jsr putchar
+                jsr <putchar
                 jmp discomma
 disdx           ldb #'D'
-                jsr putchar
+                jsr <putchar
                 jmp discomma
 disinval        ldb #'?'
-                jsr putchar
+                jsr <putchar
                 jmp disindir
 disnx           lda operand+1
                 bmi disnxneg
@@ -2428,7 +2455,7 @@ disnx1          jsr putdol
                 jsr outbyte
                 jmp discomma
 disnxneg        ldb #'-'
-                jsr putchar
+                jsr <putchar
                 nega
                 bra disnx1
 disnnx          jsr putdol
@@ -2438,12 +2465,12 @@ disnnx          jsr putdol
 disnpc          jsr putdol
                 ldb operand+1
                 sex
-disnpca         sty temp2
-                addd temp2
+disnpca         sty <temp2
+                addd <temp2
                 jsr outd
                 ldx #commapc
                 ldb #4
-                jsr putline
+                jsr <putline
                 jmp disindir
 disnnpc         jsr putdol
                 ldd operand
@@ -2465,10 +2492,10 @@ outdecbyte      cmpa #10
                 blo odb1
                 suba #10
                 ldb #'1'
-                jsr putchar
+                jsr <putchar
 odb1            adda #'0'
                 tfr a,b
-                jmp putchar
+                jmp <putchar
 
 ***************************************************************
 * Command: U, unassemble instructions in memory.
@@ -2488,25 +2515,25 @@ unasmloop       tfr y,d
                 pshs y
                 jsr disdecode
                 puls x
-                sty temp
-                clr temp2
+                sty <temp
+                clr <temp2
 unadishex       lda ,x+
                 jsr outbyte
-                inc temp2
-                inc temp2
-                cmpx temp
+                inc <temp2
+                inc <temp2
+                cmpx <temp
                 bne unadishex  ;Display instruction bytes as hex.
 unadisspc       ldb #' '
-                jsr putchar
-                inc temp2
+                jsr <putchar
+                inc <temp2
                 lda #11
-                cmpa temp2     ;Fill out with spaces to width 11.
+                cmpa <temp2     ;Fill out with spaces to width 11.
                 bne unadisspc
                 bne unadishex
                 jsr disdisp    ;Display disassembled instruction.
-                tst disflg
+                tst <disflg
                 bne skipcr     ;Assembling; stay on this line
-                jsr putcr
+                jsr <putcr
 skipcr          cmpy length
                 bls unasmloop
                 sty addr
@@ -2548,14 +2575,14 @@ scandec         cmpb #'0'
                 blo noexpr
                 cmpb #'9'
                 bhi noexpr
-                clr temp
-                clr temp+1
+                clr <temp
+                clr <temp+1
 scandloop       subb #'0'
                 bcs sdexit
                 cmpb #10
                 bcc sdexit
                 pshs b
-                ldd temp
+                ldd <temp
                 aslb
                 rola
                 pshs d
@@ -2566,10 +2593,10 @@ scandloop       subb #'0'
                 addd ,s++     ;Multiply number by 10.
                 addb ,s+
                 adca #0       ;Add digit to 10.
-                std temp
+                std <temp
                 ldb ,x+       ;Get next character.
                 bra scandloop
-sdexit          ldd temp
+sdexit          ldd <temp
                 leax -1,x
                 andcc #$fb
                 rts
@@ -2600,21 +2627,21 @@ mnfilloop       stb ,u+
                 deca
                 bne mnfilloop   ;Fill the rest of mnem buffer with spaces.
 * Stage 2: look mnemonic up using binary search.
-mncpdone        stx temp3
-                clr temp        ;Low index=0
+mncpdone        stx <temp3
+                clr <temp       ;Low index=0
                 lda #mnemsize
-                sta temp+1      ;High index=mnemsize.
-bsrchloop       ldb temp+1
+                sta <temp+1     ;High index=mnemsize.
+bsrchloop       ldb <temp+1
                 cmpb #$ff
                 beq invmnem     ;lower limit -1?
-                cmpb temp
+                cmpb <temp
                 blo invmnem     ;hi index lower than low index?
                 clra
-                addb temp       ;Add indexes.
+                addb <temp      ;Add indexes.
                 adca #0
                 lsra
                 rorb            ;Divide by 2 to get average
-                stb temp2
+                stb <temp2
                 aslb
                 rola
                 aslb
@@ -2632,13 +2659,13 @@ bscmploop       ldb ,x+
                 deca
                 bne bscmploop
                 jmp mnemfound   ;We found the mnemonic.
-bscmpexit       ldb temp2
+bscmpexit       ldb <temp2
                 bcc bscmplower
                 decb
-                stb temp+1      ;mnembuf<table, adjust high limit.
+                stb <temp+1      ;mnembuf<table, adjust high limit.
                 bra bsrchloop
 bscmplower      incb
-                stb temp        ;mnembuf>table, adjust low limit.
+                stb <temp        ;mnembuf>table, adjust low limit.
                 bra bsrchloop
 invmnem         ldx #invmmsg
                 jmp asmerrvec
@@ -2834,7 +2861,7 @@ adjdir          addb #$10       ;Add $10 to opcode for direct8
                 rts
 
 * Start scanning of operands.
-startop         ldx temp3
+startop         ldx <temp3
                 clr amode
                 jmp skipspace
 
@@ -3105,10 +3132,10 @@ exprerr         ldx #exprmsg
 moderr          ldx #modemsg
                 jmp asmerrvec
 asmerr          pshs x
-                jsr xabortin
+                jsr <xabortin
                 puls x
                 jsr outcount
-                jsr putcr
+                jsr <putcr
                 lds savesp
                 jmp cmdline
 
@@ -3148,7 +3175,7 @@ frfound         leau a,u
 asm             ldx #linebuf+1
                 jsr scanhex
                 std addr
-                inc disflg
+                inc <disflg
 
 
 asmloop         ldy #0
@@ -3163,10 +3190,10 @@ asmloop         ldy #0
                 std addr
 
                 ldb #TAB
-                jsr putchar     ;Print TAB
+                jsr <putchar    ;Print TAB
                 ldx #linebuf
                 ldb #128
-                jsr getline     ;Get new line
+                jsr <getline    ;Get new line
                 tstb
                 beq next
 
@@ -3183,7 +3210,7 @@ next            ldd nxtadd
                 std addr
                 bra asmloop
 
-asmend          clr disflg
+asmend          clr <disflg
                 jmp cmdline
 
 
