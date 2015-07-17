@@ -15,7 +15,6 @@ SDLBA0         EQU $FFDA
 SDLBA1         EQU $FFDB
 SDLBA2         EQU $FFDC
 
-
 **************************************************************
 * DISK DRIVER JUMP TABLE
 *
@@ -71,28 +70,32 @@ SDTMP          FCB $00, $00, $00
 * B HAS ERROR CODE
 READ           BSR LDSDADRS     T,S -> BLOCK, LD HW REGISTERS
 
+* WAIT FOR PREVIOUS COMMAND (IF ANY) TO COMPLETE
+RDBIZ          LDA SDCTL
+               CMPA #$80
+               BNE RDBIZ
+
 * ISSUE THE READ COMMAND TO THE SDCARD CONTROLLER
                CLRA
                STA  SDCTL
-               BSR WAIT
 
 * TRANSFER 512 BYTES, WAITING FOR EACH IN TURN. ONLY WANT 256
 * OF THEM - DISCARD THE REST
                CLRB             ZERO IS LIKE 256
-SDBIZ          LDA SDCTL
+SDRBIZ         LDA SDCTL
                CMPA #$E0
-               BNE SDBIZ        BYTE NOT READY
+               BNE SDRBIZ       BYTE NOT READY
                LDA SDDATA       GET BYTE
                STA ,X+          STORE IN SECTOR BUFFER
                DECB
-               BNE SDBIZ        NEXT
+               BNE SDRBIZ       NEXT
 
-SDBIZ2         LDA SDCTL        B IS ALREADY ZERO (LIKE 256)
+SDRBIZ2        LDA SDCTL        B IS ALREADY ZERO (LIKE 256)
                CMPA #$E0
-               BNE SDBIZ2       BYTE NOT READY
+               BNE SDRBIZ2      BYTE NOT READY
                LDA SDDATA       GET BYTE (BUT DO NOTHING WITH IT)
                DECB
-               BNE SDBIZ2       NEXT
+               BNE SDRBIZ2      NEXT
 
                CLRA             SET Z TO INDICATE SUCCESSFUL COMPLETION
                RTS
@@ -140,30 +143,20 @@ LDSDADRS       PSHS X           PRESERVE IT
                PULS X
                RTS
 
-* UNDER SOME CIRCUMSTANCES (NOT YET CHARACTERISED) THE
-* SDCONTROLLER NEEDS A DELAY BETWEEN WRITING THE COMMAND AND
-* CHECKING THE STATUS. NEED TO SIMULATE THIS TO UNDERSTAND
-* BETTER (AND ELIMINATE THE NEED FOR IT). SYSTEM SEEMS TO BOOT
-* OK WITHOUT THIS DELAY BUT WITHOUT IT, THE ACCESS TO (EG)
-* ERRORS.SYS DID NOT WORK CORRECTLY.
-* HAVE NOT EXPERIMENTED WITH HOW SMALL THE DELAY COULD BE..
-WAIT           PSHS A
-               LDA #$80
-WAIT1          DECA
-               BNE WAIT1
-               PULS A
-               RTS
-
 **************************************************************
 * SUBROUTINE WRITE
 *
 * WRITE ONE SECTOR
-WRITE          BSR LDSDADRS     T,S -> BLOCK, LD HW REGISTERS
+WRITE          LBSR LDSDADRS     T,S -> BLOCK, LD HW REGISTERS
+
+* WAIT FOR PREVIOUS COMMAND (IF ANY) TO COMPLETE
+WRBIZ          LDA SDCTL
+               CMPA #$80
+               BNE WRBIZ
 
 * ISSUE THE WRITE COMMAND TO THE SDCARD CONTROLLER
                LDA  #1
                STA  SDCTL
-               BSR  WAIT
 
 * TRANSFER 512 BYTES, WAITING FOR EACH IN TURN. ONLY HAVE 256
 * BYTES SO TRANSFER THEM TWICE

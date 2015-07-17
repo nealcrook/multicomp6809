@@ -41,6 +41,13 @@ dd if=multicomp09_flex_io.bin    of=multicomp09_sd.img obs=256K seek=269
 # Block offset 256*1024 * 270/512 = 0x2.1c00
 dd if=multicomp09_flex_sd.bin    of=multicomp09_sd.img obs=256K seek=270
 
+# Binary for bootstrap of debug monitor (14 blocks)
+# Block offset 256*1024 * 271/512 = 0x2.1e00
+dd if=../../sbc09_mon2_for_multicomp/mon2.bin  of=multicomp09_sd.img obs=256K seek=271
+
+
+
+
 
 # Drive 0: FLEX system disk
 # (Allow) 3MBytes at offset 68MByte
