@@ -1,0 +1,472 @@
+#!/usr/bin/perl
+#
+# Manipulator for FLEX disk images. Designed to act as a virtual file system
+# for disk analysis, extract, import, copy, creation, conversion.
+#
+# Mostly designed for interactive use but also allows limited non-interactive
+# use.
+#
+# Neal Crook, July 2015.
+
+use strict;
+no strict 'refs'; # CLI makes subroutine from command name.
+use warnings;
+
+# Data structure
+# $dsk[0..3]
+# $dsk[n]->{mounted} boolean
+# $dsk[n]->{handle} file handle
+# $dsk[n]->{bytes_blk} 256 for dsk file, 512 for img file
+# $dsk[n]->{filename} file name by which file was accessed
+# filled in by reading SIR when disk was mounted
+# $dsk[n]->{sir}->{}
+# $dsk[n]->{sir}->{}
+# $dsk[n]->{sir}->{}
+
+my @dsk;
+
+# Boot sector. Binary string. Undefined if not loaded.
+my $boot;
+
+
+# Command-line interpreter
+while (1) {
+    print "flex_vfs: ";
+    my $cmd = <>;
+    chomp $cmd;
+    next if ($cmd eq "");
+    my @bits = split " ", $cmd;
+    my $sub = "cmd_$bits[0]";
+    shift @bits;
+    if (defined(&{$sub})) {
+        &{$sub}(@bits);
+    }
+    else {
+        print "ERROR: no command $bits[0]\n";
+    }
+}
+
+#################################################################
+#################################################################
+## Commands
+
+sub cmd_mount {
+    print "mount TODO - not yet implemented\n";
+}
+
+
+sub cmd_clone {
+    print "clone TODO - not yet implemented\n";
+}
+
+
+sub cmd_info {
+    print "info TODO - not yet implemented\n";
+}
+
+
+sub cmd_umount {
+    print "umount TODO - not yet implemented\n";
+}
+
+
+sub cmd_new {
+    print "new TODO - not yet implemented\n";
+}
+
+
+sub cmd_copy {
+    print "copy TODO - not yet implemented\n";
+}
+
+
+sub cmd_label {
+    print "label TODO - not yet implemented\n";
+}
+
+
+sub cmd_export {
+    print "export TODO - not yet implemented\n";
+}
+
+
+sub cmd_import {
+    print "import TODO - not yet implemented\n";
+}
+
+
+sub cmd_dir {
+    print "dir TODO - not yet implemented\n";
+}
+
+
+sub cmd_delete {
+    print "delete TODO - not yet implemented\n";
+}
+
+
+sub cmd_link {
+    print "link TODO - not yet implemented\n";
+}
+
+
+sub cmd_fix {
+    print "fix TODO - not yet implemented\n";
+}
+
+
+sub cmd_rdboot {
+    print "rdboot TODO - not yet implemented\n";
+}
+
+
+sub cmd_wrboot {
+    print "wrboot TODO - not yet implemented\n";
+}
+
+
+sub cmd_rdbootfile {
+    my $file = $_[0];
+    if (open IN, $file) {
+        my $data;
+        my $got = read IN, $data, 256;
+        if ($got == 256) {
+            my $tmp;
+            $got = read IN, $tmp, 1;
+            if ($got == 0) {
+                # it's all good.
+                $boot = $data;
+            }
+            else {
+                print "ERROR too much data - expected exactly 256 bytes\n";
+            }
+        }
+        else {
+            print "ERROR not enough data - expected 256 bytes\n";
+        }
+        close IN;
+    }
+    else {
+        print "ERROR could not open $file\n";
+    }
+}
+
+
+sub cmd_check {
+    print "check TODO - not yet implemented\n";
+}
+
+
+sub cmd_scrub {
+    print "scrub TODO - not yet implemented\n";
+}
+
+
+sub cmd_repair {
+    print "repair TODO - not yet implemented\n";
+}
+
+
+sub cmd_exit {
+    cmd_umount(0);
+    cmd_umount(1);
+    cmd_umount(2);
+    cmd_umount(3);
+    exit;
+}
+
+
+sub cmd_help {
+    my $help_for = $_[1];
+    if (defined $help_for) {
+        help_for($help_for);
+    }
+    else {
+        help_generic();
+    }
+}
+
+
+#################################################################
+#################################################################
+# Subrioutines
+
+sub help_for {
+    my $cmd = $_[0];
+    if ($cmd eq 'mount') {
+        print <<EOF
+    mount <virtual drive number> <file on host filesystem> [format]
+
+    Associate a file on the host filesystem with a virtual drive number.
+
+    Virtual drive number is 0,1,2 or 3.
+    Legal formats are "dsk" (256 bytes per sector) and "img" (256
+    bytes per sector but doubled, on a 512-byte boundary)
+
+    If the file extension is .dsk or .img the format is inferred and
+    the format is optional.
+
+    If the format is specified, it overrides any inference made on
+    the basis of the file extension.
+
+    Examples:
+    mount 1 ../../foo.dsk
+    mount 0 advent.dsk
+    mount 2 system.img
+    mount 0 flex09.zzz img
+    mount 0 flex09.dsk dsk
+EOF
+    }
+    elsif ($cmd eq 'clone') {
+        print <<EOF
+    clone <virtual drive number> <file on host filesystem> [format]
+
+    Make a copy of a virtual drive as a file on the host filesystem
+
+    Virtual drive number is 0,1,2 or 3.
+    Legal formats are "dsk" (256 bytes per sector) and "img" (256
+    bytes per sector but doubled, on a 512-byte boundary)
+
+    If the file extension is .dsk or .img the format is inferred and
+    the format is optional.
+
+    If the format is specified, it overrides any inference made on
+    the basis of the file extension.
+
+    If the format is different from the format of the virtual drive,
+    format conversion will be performed.
+
+    Examples:
+    clone 1 ../../foo.dsk
+    clone 0 advent.dsk
+    clone 2 system.img
+    clone 0 flex09.zzz img
+    clone 0 flex09.dsk dsk
+EOF
+    }
+    elsif ($cmd eq 'umount') {
+        print <<EOF
+    umount <virtual drive number>
+
+    Close file associated with virtual drive number and make that virtual
+    drive number available for reuse.
+
+    Examples:
+    umount 0
+    umount 2
+EOF
+    }
+    elsif ($cmd eq 'new') {
+        print <<EOF
+TODO
+EOF
+    }
+    elsif ($cmd eq 'copy') {
+        print <<EOF
+TODO
+EOF
+    }
+    elsif ($cmd eq 'label') {
+        print <<EOF
+    label <virtual drive number> mydisk
+
+    change the label for the specified virtual drive number. The
+    label is truncated after TODO characters.
+
+    Example:
+    label 1 mydisk
+    label 0 flex_09
+EOF
+    }
+    elsif ($cmd eq 'export') {
+        print <<EOF
+TODO
+EOF
+    }
+    elsif ($cmd eq 'import') {
+        print <<EOF
+TODO
+EOF
+    }
+    elsif ($cmd eq 'dir') {
+        print <<EOF
+TODO
+EOF
+    }
+    elsif ($cmd eq 'delete') {
+        print <<EOF
+TODO
+EOF
+    }
+    elsif ($cmd eq 'link') {
+        print <<EOF
+TODO
+EOF
+    }
+    elsif ($cmd eq 'fix') {
+        print <<EOF
+TODO
+EOF
+    }
+    elsif ($cmd eq 'rdboot') {
+        print <<EOF
+TODO
+EOF
+    }
+    elsif ($cmd eq 'wrboot') {
+        print <<EOF
+TODO
+EOF
+    }
+    elsif ($cmd eq 'rdbootfile') {
+        print <<EOF
+TODO
+EOF
+    }
+    elsif ($cmd eq 'check') {
+        print <<EOF
+TODO
+EOF
+    }
+    elsif ($cmd eq 'scrub') {
+        print <<EOF
+TODO
+EOF
+    }
+    elsif ($cmd eq 'repair') {
+        print <<EOF
+TODO
+EOF
+    }
+    else {
+        # no more to say about info, help, exit (or any non-existent command)
+        print <<EOF
+    No additional help is available on that topic
+EOF
+    }
+}
+
+
+sub help_generic {
+    print <<EOF
+
+flex_vfs allows manipulation of up to 4 virtual drives, numbered 0 through 3.
+Each drive can be associated with a file on the host filesystem. Files
+can be copied between virtual drives or transferred between virtual drives
+and the host filesystem. Virtual drives can be inspected and manipulated.
+
+Commands are:
+
+    mount      - associate disk image with virtual drive number
+    clone      - make copy of virtual drive (optional format conversion)
+    info       - report virtual drives currently mounted
+    umount     - disconnect disk image from drive number
+    new        - create new empty disk image (optional geometry specification)
+    copy       - copy file(s) from one virtual drive to another
+    label      - change disk label
+    export     - copy file from virtual drive to local file system (optional format conversion)
+    import     - copy file from local file system to virtual drive (optional format conversion)
+    dir        - directory of virtual drive
+    delete     - delete file(s) from virtual drive
+    link       - patch boot sector on virtual drive
+    fix        - perform low-level edit on virtual drive
+    rdboot     - copy boot sector from virtual drive
+    wrboot     - write boot sector to virtual drive
+    rdbootfile - read boot sector from file on local file system
+    check      - check integrity of virtual drive
+    scrub      - null out deleted file names and unused sectors
+    repair     - repair virtual drive
+    exit       - leave flex_vfs
+    help       - this is it.
+
+Type help <command name> for more help.
+EOF
+}
+
+
+
+
+
+
+
+
+
+
+#########------------
+sub help_exit {
+    print <<EOF
+
+Virtual file system for FLEX disk images.
+
+> new 0 fred.dsk t=45 s=90
+> copy 1.temp.txt 2
+> export 2.advent.c textconvert
+> export 2.advent.c binconvert
+> import 2.test.txt ../../hello.c textconvert
+> import 3.file.cmd file.bin binconvert
+> dir 1
+> dir 2
+> copy 1.*.cmd 2
+> delete 1.fred.bin
+> delete 2.*.bin
+> link 1.flex.sys
+> fix 1.flex.sys
+> rdboot 1
+> wrboot 2
+> rdbootfile multicomp_flex_loader.bin
+> check 1
+> check 2
+> exit
+>
+
+
+
+
+
+ Usage:
+
+flex_disk_manip [-help] [INFILE <options>]
+
+    -help              print usage information and terminate
+    INFILE             name of a FLEX disk image file (usually .dsk)
+    -info              perform integrity check and report information about the
+                       image
+    -dir               report names of all files contained in the image
+    -insd              by default input files are in .dsk format. This specifies
+                       that the input file is in SD file format (notes below)
+    -out OUTFILE       write disk image out in .dsk file format
+    -outsd OUTFILE     write disk image out in SD file format (notes below)
+    -extract [name1 name2..] extract files from disk (notes below)
+    -extractall        extract all files from disk
+    -extractloader     extract FLEX loader (notes below)
+
+SD File format
+
+A FLEX disk image has a fixed sector size of 256 bytes. In order to transfer it to an SDCARD it
+is convenient (though inefficient) to place each sector in the first half of a 512 byte block.
+This has the effect of generating an output image that is exactly twice the size of the input
+image.
+
+For no particularly good reason (but maybe for integrity checking later) "-outsd" achieves this
+by duplicating each 256 byte data chunk.
+
+"-insd" performs the opposite check: for each 512 bytes in, it reports whether the first and
+second half of each 512 byte block contain identical data or not.
+
+Extracting files
+
+If the "-extract" option is used, the remaining command-line parameters are assumed to be the
+names of files in the disk image. Each file is extracted to the current directory as a file
+with the same name as it had in the disk image.
+
+The "-extractloader" option extracts track 0 sector 1 and saves it as "flex_loader.bin". For
+a system disk this expected to contain the FLEX boot loader -- but note that this is target
+system dependent as some target systems may boot straight from ROM with no need for this
+intermediate bootstrap. Other systems may have a loader that extends beyond this one sector.
+If this image is a valid FLEX boot loader it will be designed to load at address \$C100 and to
+be executed from that address. The bytes at address \$C105, \$C106 specify the track and
+sector at which the FLEX image is stored on the disk.
+
+EOF
+}
+
