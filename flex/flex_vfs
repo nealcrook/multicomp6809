@@ -8,6 +8,11 @@
 #
 # Neal Crook, July 2015.
 
+# TODO have generic arguments checker to make sure command is in the right
+# format otherwise have per-command checking ad-nauseum. List of argument
+# types.
+
+
 use strict;
 no strict 'refs'; # CLI makes subroutine from command name.
 use warnings;
@@ -51,7 +56,27 @@ while (1) {
 ## Commands
 
 sub cmd_mount {
-    print "mount TODO - not yet implemented\n";
+    my ($drive, $file, $format) = @_;
+    if (legal_drive($drive)) {
+        if (my $actual_format = infer_format($file, $format)) {
+            if (open $dsk[$drive]->{handle}, '+<', $file) {
+                # all good
+                $dsk[$drive]->{mounted} = 1;
+                $dsk[$drive]->{bytes_blk} = $actual_format eq 'dsk' ? 256 : 512;
+
+                # TODO read SIR to load geometry and other basic sanity check
+            }
+            else {
+                print "ERROR could not open $file\n";
+            }
+        }
+        else {
+            print "ERROR could not infer format. Specify dsk or img\n";
+        }
+    }
+    else {
+        print "ERROR $drive is not a legal virtual drive number\n";
+    }
 }
 
 
@@ -61,12 +86,32 @@ sub cmd_clone {
 
 
 sub cmd_info {
-    print "info TODO - not yet implemented\n";
+    for my $drive (0..3) {
+        print "Drive $drive: ";
+        if ($dsk[$drive]->{mounted}) {
+            print "mounted\n";
+            # TODO report host file, label, geometry, free sector count? creation date?
+        }
+        else {
+            print "not mounted\n";
+        }
+    }
 }
 
 
 sub cmd_umount {
-    print "umount TODO - not yet implemented\n";
+    my $drive = $_[0];
+    if (legal_drive($drive)) {
+        # silently ignored if this drive number is not currently in use.
+        if ($dsk[$drive]->{mounted}) {
+            close $dsk[$drive]->{handle};
+            $dsk[$drive]->{mounted} = 0;
+        }
+    }
+    else {
+        # TODO could be blank in which case get uninit msg.
+        print "ERROR $drive is not a legal virtual drive number\n";
+    }
 }
 
 
@@ -189,7 +234,34 @@ sub cmd_help {
 
 #################################################################
 #################################################################
-# Subrioutines
+# Subroutines
+
+# return true if $drive is 0-3, false otherwise.
+sub legal_drive {
+    my $drive = $_[0];
+    return ((defined $drive) && (($drive eq '0') or ($drive eq '1') or ($drive eq '2') or ($drive eq '3')));
+}
+
+# if $format is non-blank it must be img or dsk.
+# if $format is blank infer format from extension of $file
+# return format or '' if unknown.
+sub infer_format {
+    my ($file, $format) = @_;
+
+    if ((defined $format) && (($format eq 'img') or ($format eq 'dsk'))) {
+        # explicit format takes priority
+        return $format;
+    }
+    else {
+        my @ext = split /\./, $file;
+        print "Got $file $ext[0] $ext[1] $ext[-1]\n";
+        if ((defined $ext[-1]) && (($ext[-1] eq 'img') or ($ext[-1] eq 'dsk'))) {
+            return $ext[-1];
+        }
+    }
+    return '';
+}
+
 
 sub help_for {
     my $cmd = $_[0];
@@ -376,7 +448,7 @@ Commands are:
     check      - check integrity of virtual drive
     scrub      - null out deleted file names and unused sectors
     repair     - repair virtual drive
-    exit       - leave flex_vfs
+    exit       - unmount all mounted drives and leave flex_vfs
     help       - this is it.
 
 Type help <command name> for more help.
