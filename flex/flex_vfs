@@ -8,10 +8,14 @@
 #
 # Neal Crook, July 2015.
 
+# next: revamp dir to extract directory at mount time, a general-purpose file list filter
+# and a directory lister
+# next: arg checker for fs (File Specifier) and ufs (Unique File Specifier)
 # next: re-pack and commit SIR
 # next: label
 # next: implement "then" as command separator and allow command-line and add to help.
-# implement clone label dir link
+# implement clone label link
+# improve dir to allow wildcard
 # then new info copy delete check scrub
 # finally import export repair
 # TODO: record inode so that we cannot double-mount a drive?
@@ -35,6 +39,7 @@ use warnings;
 # in order to do conversions beyond the first track.
 my %flx;
 $flx{BYTES_SECTOR} = 256;
+#TODO not using these. Represent as a triplet and then use them?
 $flx{SIR_BLK} = 2; # Track=0 Sector=3
 $flx{LDR_BLK} = 0; # Track=0 Sector=1
 $flx{DIR_BLK} = 4; # Track=0 Sector=5
@@ -203,8 +208,88 @@ sub cmd_import {
 }
 
 
+# TODO might have different invocations. For now just handle the first
+# dir 1
+# dir 1.fred.bin
+# dir 1.*.bin
 sub cmd_dir {
-    print "dir TODO - not yet implemented\n";
+    my ($drive) = arg_check('v', @_);
+    return unless defined($drive);
+
+    if (not $dsk[$drive]->{mounted}) {
+        print "ERROR drive $drive is not mounted\n";
+        return;
+    }
+
+    # first sector of directory.
+    # Directory format is described in FLEXAPG
+    my $trk = 0;
+    my $sct = 5;
+
+    # TODO HACK - probably want to abstract this in order to deal with wildcards and to
+    # allow us to eg find parameters for a specific file (eg for LINK command).
+    # Do this at Mount time and store it in $dsk, then change dir to filter and print
+    # the filtered results. Write a general-purpose filter for use elsewhere.
+    my @dir;
+
+    while (($trk != 0) or ($sct != 0)) {
+        # process a directory sector
+        my $data = rd_dts($drive, $trk, $sct);
+        my @data = unpack("C*", $data);
+
+        my $offset = 16;
+        foreach my $entry(0..9) {
+            my %d;
+
+            # first byte of filename is 0 if it has never been used
+            # or has bit 7 set if it has been deleted.
+            my $nstart = 4 -4+$offset+($entry*24);
+            my $first = ord substr($data, $nstart, 1);
+            next if (($first == 0) || ($first & 0x80));
+
+# TODO convert to ONLY use @data instead
+            # the name can be null-terminated, which is non-printing but tidiest to remove them
+            my $name = substr($data, $nstart, 8);
+            $name =~ /(^[a-zA-Z0-9\-\_]+)/;
+            $d{NAME} = $1;
+
+            # likewise the extension
+            my $ext = substr($data, $nstart+8, 3);
+            $ext =~ /(^[a-zA-Z]+)/;
+            $d{EXT} = $1;
+
+            $d{ATTR}    = $data[15-4+$offset+($entry*24)];
+            $d{FIRST_T} = $data[17-4+$offset+($entry*24)];
+            $d{FIRST_S} = $data[18-4+$offset+($entry*24)];
+            $d{LAST_T}  = $data[19-4+$offset+($entry*24)];
+            $d{LAST_S}  = $data[20-4+$offset+($entry*24)];
+            $d{SIZE}    = 256 * $data[21+0-4+$offset+($entry*24)] +
+                                $data[21+1-4+$offset+($entry*24)];
+            $d{FSM}     = $data[23-4+$offset+($entry*24)];
+            $d{DATE_M}  = $data[25+0-4+$offset+($entry*24)];
+            $d{DATE_D}  = $data[25+1-4+$offset+($entry*24)];
+            $d{DATE_Y}  = $data[25+2-4+$offset+($entry*24)] %100; # Y2K fixup
+
+            push @dir,\%d;
+        }
+        # next
+        $trk = $data[0];
+        $sct = $data[1];
+    }
+
+    # TODO hack now print it?
+    print "               NAME ATTR START     END          SIZE    DATE\n";
+    foreach my $i (@dir) {
+        # attributes
+        my $attr = "     ";
+        if ($i->{ATTR} & 0x80) {substr($attr, 0, 1) = "W"};
+        if ($i->{ATTR} & 0x40) {substr($attr, 1, 1) = "D"};
+        if ($i->{ATTR} & 0x20) {substr($attr, 2, 1) = "R"};
+        if ($i->{ATTR} & 0x10) {substr($attr, 3, 1) = "C"};
+        if ($i->{FSM} != 0   ) {substr($attr, 4, 1) = "r"};
+        printf "% 15s.%-3s $attr t%02d,s%02d - t%02d,s%02d %4d sectors %02d-%02d-%02d\n", $i->{NAME}, $i->{EXT}, $i->{FIRST_T}, $i->{FIRST_S}, $i->{LAST_T}, $i->{LAST_S}, $i->{SIZE}, $i->{DATE_M}, $i->{DATE_D}, $i->{DATE_Y};
+    }
+
 }
 
 
@@ -413,7 +498,14 @@ sub rd_dts {
         $seek = ($sct - 1) * $dsk[$drive]->{bytes_blk};
     }
     else {
-        die "Need to know geometry in rd_dts";
+        if ($trk > $dsk[$drive]->{sir}->{MAX_T}) {
+            die "FATAL ERROR track $trk is out of range";
+        }
+        if ($sct > $dsk[$drive]->{sir}->{MAX_S}) {
+            die "FATAL ERROR sector $sct is out of range";
+        }
+
+        $seek = (($sct - 1) + ($trk * $dsk[$drive]->{sir}->{MAX_S})) * $dsk[$drive]->{bytes_blk};
     }
     if (seek $dsk[$drive]->{handle}, $seek, 0) {
         my $got = read $dsk[$drive]->{handle}, $data, $flx{BYTES_SECTOR};
@@ -442,7 +534,14 @@ sub wr_dts {
         $seek = ($sct - 1) * $dsk[$drive]->{bytes_blk};
     }
     else {
-        die "Need to know geometry in rd_dts";
+        if ($trk > $dsk[$drive]->{sir}->{MAX_T}) {
+            die "FATAL ERROR track $trk is out of range";
+        }
+        if ($sct > $dsk[$drive]->{sir}->{MAX_S}) {
+            die "FATAL ERROR sector $sct is out of range";
+        }
+
+        $seek = (($sct - 1) + ($trk * $dsk[$drive]->{sir}->{MAX_S})) * $dsk[$drive]->{bytes_blk};
     }
     if (seek $dsk[$drive]->{handle}, $seek, 0) {
         my $fh = $dsk[$drive]->{handle};
