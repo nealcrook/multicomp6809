@@ -8,10 +8,9 @@
 #
 # Neal Crook, July 2015.
 
-# next: break down SIR
+# next: re-pack and commit SIR
 # next: label
-# next: implement "then" as command separator and allow command-line
-# and add to help.
+# next: implement "then" as command separator and allow command-line and add to help.
 # implement clone label dir link
 # then new info copy delete check scrub
 # finally import export repair
@@ -87,34 +86,53 @@ sub cmd_mount {
 
     if ($dsk[$drive]->{mounted}) {
         print "ERROR virtual drive $drive is already mounted.\n";
+        return;
     }
-    else {
-        if (open $dsk[$drive]->{handle}, '+<', $file) {
-            # so far so good
-            $dsk[$drive]->{bytes_blk} = $format eq 'dsk' ? 256 : 512;
 
-            my $sir = rd_dts($drive, 0, 3);
-            my @sir = unpack("C*", $sir);
-            $dsk[$drive]->{sir}->{data} = \@sir;
+    if (open $dsk[$drive]->{handle}, '+<', $file) {
+        # so far so good
+        $dsk[$drive]->{filename} = $file;
+        $dsk[$drive]->{bytes_blk} = $format eq 'dsk' ? 256 : 512;
 
-            # TODO read through file to deduce this
-            $dsk[$drive]->{blks} = 24;
+        my $sir = rd_dts($drive, 0, 3);
+        my @sir = unpack("C*", $sir);
+        $dsk[$drive]->{sir}->{data} = \@sir;
+        decode_sir($drive);
 
-            decode_sir($drive);
-
-            # sanity check
-            if (($dsk[$drive]->{sir}->{data}->[0] == 0) and ($dsk[$drive]->{sir}->{data}->[1] == 0)) {
-                $dsk[$drive]->{filename} = $file;
-                $dsk[$drive]->{mounted} = 1;
+        # size the disk image
+        my $tmp;
+        $dsk[$drive]->{blks} = 0;
+        seek $dsk[$drive]->{handle}, 0, 0;
+        while (my $actual = read $dsk[$drive]->{handle}, $tmp, $dsk[$drive]->{bytes_blk}) {
+            if ($actual == $dsk[$drive]->{bytes_blk}) {
+                $dsk[$drive]->{blks} = $dsk[$drive]->{blks} + 1;
             }
             else {
-                print "ERROR first two bytes of SIR were non-zero. Mount aborted.\n"
+                print "ERROR image is not a multiple of $dsk[$drive]->{bytes_blk}. Mount aborted.\n";
+                return;
             }
         }
-        else {
-            # Unlikely - it opened OK in arg_check
-            print "ERROR could not re-open $file\n";
+
+        # is the sir believable?
+        if (($dsk[$drive]->{sir}->{data}->[0] != 0) or ($dsk[$drive]->{sir}->{data}->[1] != 0)) {
+            print "ERROR first two bytes of SIR were non-zero. Mount aborted.\n";
+            return;
         }
+
+        # is the block count consistent with track/sector count
+        if ($dsk[$drive]->{blks} != ($dsk[$drive]->{sir}->{MAX_T} + 1) * $dsk[$drive]->{sir}->{MAX_S}) {
+            printf "ERROR block count (%d) is inconsistent with track range (0-%d) and sector range (1-%d). Mount aborted.\n",
+            $dsk[$drive]->{blks},
+            $dsk[$drive]->{sir}->{MAX_T}, $dsk[$drive]->{sir}->{MAX_S};
+            return;
+        }
+
+        # finally
+        $dsk[$drive]->{mounted} = 1;
+    }
+    else {
+        # Unlikely - it opened OK in arg_check
+        print "ERROR could not re-open $file\n";
     }
 }
 
