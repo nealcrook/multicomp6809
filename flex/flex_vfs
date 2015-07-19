@@ -8,14 +8,37 @@
 #
 # Neal Crook, July 2015.
 
-# TODO have generic arguments checker to make sure command is in the right
-# format otherwise have per-command checking ad-nauseum. List of argument
-# types.
+# next: implement "then" as command separator and allow command-line
+# and add to help.
+# implement clone label dir link
+# then new info copy delete check scrub
+# finally import export repair
+# TODO: record inode so that we cannot double-mount a drive?
 
 
 use strict;
 no strict 'refs'; # CLI makes subroutine from command name.
 use warnings;
+
+
+# FLEX constants
+#
+# Tracks are numbered 0..n
+# Sectors are numbered 1..n
+#
+# The .dsk image contains a linear sequence of sector-sized data.
+# This program uses the word "block" to refer to the linear offset.
+# For example, track=0, sector=1 is block 0.
+# block <-> track/sector conversion is easy for the first track
+# but requires knowledge of the system information record (SIR)
+# in order to do conversions beyond the first track.
+my %flx;
+$flx{BYTES_SECTOR} = 256;
+$flx{SIR_BLK} = 2; # Track=0 Sector=3
+$flx{LDR_BLK} = 0; # Track=0 Sector=1
+$flx{DIR_BLK} = 4; # Track=0 Sector=5
+
+
 
 # Data structure
 # $dsk[0..3]
@@ -42,8 +65,8 @@ while (1) {
     next if ($cmd eq "");
     my @bits = split " ", $cmd;
     my $sub = "cmd_$bits[0]";
-    shift @bits;
     if (defined(&{$sub})) {
+        shift @bits;
         &{$sub}(@bits);
     }
     else {
@@ -56,32 +79,31 @@ while (1) {
 ## Commands
 
 sub cmd_mount {
-    my ($drive, $file, $format) = @_;
-    if (legal_drive($drive)) {
-        if (my $actual_format = infer_format($file, $format)) {
-            if (open $dsk[$drive]->{handle}, '+<', $file) {
-                # all good
-                $dsk[$drive]->{mounted} = 1;
-                $dsk[$drive]->{bytes_blk} = $actual_format eq 'dsk' ? 256 : 512;
+    my ($drive, $file, $format) = arg_check('v h of', @_);
+    return unless defined($drive);
 
-                # TODO read SIR to load geometry and other basic sanity check
-            }
-            else {
-                print "ERROR could not open $file\n";
-            }
-        }
-        else {
-            print "ERROR could not infer format. Specify dsk or img\n";
-        }
+    if ($dsk[$drive]->{mounted}) {
+        print "ERROR virtual drive $drive is already mounted.\n";
     }
     else {
-        print "ERROR $drive is not a legal virtual drive number\n";
+        if (open $dsk[$drive]->{handle}, '+<', $file) {
+            # all good
+            $dsk[$drive]->{mounted} = 1;
+            $dsk[$drive]->{bytes_blk} = $format eq 'dsk' ? 256 : 512;
+
+            # TODO read SIR to load geometry and other basic sanity check
+        }
+        else {
+            # Unlikely - it opened OK in arg_check
+            print "ERROR could not re-open $file\n";
+        }
     }
 }
 
 
 sub cmd_clone {
     print "clone TODO - not yet implemented\n";
+# quite easy - copy from other prog
 }
 
 
@@ -100,17 +122,13 @@ sub cmd_info {
 
 
 sub cmd_umount {
-    my $drive = $_[0];
-    if (legal_drive($drive)) {
-        # silently ignored if this drive number is not currently in use.
-        if ($dsk[$drive]->{mounted}) {
-            close $dsk[$drive]->{handle};
-            $dsk[$drive]->{mounted} = 0;
-        }
-    }
-    else {
-        # TODO could be blank in which case get uninit msg.
-        print "ERROR $drive is not a legal virtual drive number\n";
+    my ($drive) = arg_check('v', @_);
+    return unless defined($drive);
+
+    # silently ignored if this drive number is not currently in use.
+    if ($dsk[$drive]->{mounted}) {
+        close $dsk[$drive]->{handle};
+        $dsk[$drive]->{mounted} = 0;
     }
 }
 
@@ -161,12 +179,36 @@ sub cmd_fix {
 
 
 sub cmd_rdboot {
-    print "rdboot TODO - not yet implemented\n";
+    my ($drive) = arg_check('v', @_);
+    return unless defined($drive);
+
+    if ($dsk[$drive]->{mounted}) {
+        my $data = rd_dts($drive, 0, 0);
+        if (defined $data) {
+            $boot = $data;
+        }
+    }
+    else {
+        print "ERROR virtual drive $drive is not mounted\n";
+    }
 }
 
 
 sub cmd_wrboot {
-    print "wrboot TODO - not yet implemented\n";
+    my ($drive) = arg_check('v', @_);
+    return unless defined($drive);
+
+    if (defined $boot) {
+        if ($dsk[$drive]->{mounted}) {
+            wr_dts($drive, 0, 0, $boot);
+        }
+        else {
+            print "ERROR virtual drive $drive is not mounted\n";
+        }
+    }
+    else {
+        print "ERROR boot sector not loaded. Use rdboot or rdbootfile\n";
+    }
 }
 
 
@@ -174,8 +216,8 @@ sub cmd_rdbootfile {
     my $file = $_[0];
     if (open IN, $file) {
         my $data;
-        my $got = read IN, $data, 256;
-        if ($got == 256) {
+        my $got = read IN, $data, $flx{BYTES_SECTOR};
+        if ($got == $flx{BYTES_SECTOR}) {
             my $tmp;
             $got = read IN, $tmp, 1;
             if ($got == 0) {
@@ -183,11 +225,11 @@ sub cmd_rdbootfile {
                 $boot = $data;
             }
             else {
-                print "ERROR too much data - expected exactly 256 bytes\n";
+                print "ERROR too much data - expected exactly $flx{BYTES_SECTOR} bytes\n";
             }
         }
         else {
-            print "ERROR not enough data - expected 256 bytes\n";
+            print "ERROR not enough data - expected $flx{BYTES_SECTOR} bytes\n";
         }
         close IN;
     }
@@ -222,7 +264,7 @@ sub cmd_exit {
 
 
 sub cmd_help {
-    my $help_for = $_[1];
+    my $help_for = $_[0];
     if (defined $help_for) {
         help_for($help_for);
     }
@@ -236,7 +278,138 @@ sub cmd_help {
 #################################################################
 # Subroutines
 
+# string of expected argument formats, followed by argument list
+# prints error message for any mismatch.
+# returns args if all OK.
+# otherwise returns nothing.
+# "v a b", ("arg1", "arg2", "arg3", "arg4)
+# argument formats are:
+# v - virtual drive number
+# h - existing file in host filesystem
+# of - optional file format: dsk or img, also inferred from h
+sub arg_check {
+    my @expected = split " ",(shift @_);
+    my %format;
+    my $i = 0;
+    foreach my $f (@expected) {
+        # allows random access later on..
+        $format{$f} = $i;
+
+        if ($f eq 'v') {
+            if (not defined $_[$i]) {
+                print "ERROR missing argument - expected virtual drive number\n";
+                return;
+            }
+            if (($_[$i] ne "0") and ($_[$i] ne "1") and
+                ($_[$i] ne "2") and($_[$i] ne "3")) {
+                print "ERROR $_[$i] is not a legal virtual drive number\n";
+                return;
+            }
+        }
+        elsif ($f eq 'h') {
+            if (not defined $_[$i]) {
+                print "ERROR missing argument - expected host file name\n";
+                return;
+            }
+            if (open my $tmp, '+<', $_[$i]) {
+                # all good
+                close $tmp;
+            }
+            else {
+                print "ERROR could not open $_[$i]\n";
+                return;
+            }
+        }
+        elsif ($f eq 'of') {
+            # optional format. If present, takes precedence and must be img or dsk
+            # If absent, inferred from file extension of {h} argument. Incoming
+            # arguments changed to declare the format.
+
+            if ((defined $_[$i]) && (($_[$i] eq 'img') or ($_[$i] eq 'dsk'))) {
+                # explicit format takes priority. Nothing more to do.
+            }
+            else {
+                # extract extension from filename elsewhere in argument list
+                my @ext = split /\./, $_[$format{h}];
+                if ((defined $ext[-1]) && (($ext[-1] eq 'img') or ($ext[-1] eq 'dsk'))) {
+                    # change incoming argument so it's always present/valid
+                    $_[$i] = $ext[-1];
+                }
+                else {
+                    print "ERROR could not infer format. Specify dsk or img\n";
+                    return;
+                }
+            }
+        }
+        else {
+            die "FATAL interal error - unknown format $f\n";
+        }
+        $i = $i + 1;
+    }
+    return @_;
+}
+
+
+# read a sector, return data as a string.
+# sector specified by drive,track,sector
+# If disk in dsk format, it's 256 bytes per sector.
+# If disk in img format, seek twice as far and read 1st copy of the data
+sub rd_dts {
+    my ($drive, $trk, $sct) = @_;
+    my $seek;
+    my $data;
+    if ($trk == 0) {
+        # don't need to know geometry
+        $seek = $sct * $dsk[$drive]->{bytes_blk};
+    }
+    else {
+        die "Need to know geometry in rd_dts";
+    }
+    if (seek $dsk[$drive]->{handle}, $seek, 0) {
+        my $got = read $dsk[$drive]->{handle}, $data, $flx{BYTES_SECTOR};
+        if ($got == $flx{BYTES_SECTOR}) {
+            return $data;
+        }
+        else {
+            die "Could not read $flx{BYTES_SECTOR} bytes at offset $seek on drive $drive";
+        }
+    }
+    else {
+        die "Could not reach offset $seek on drive $drive";
+    }
+}
+
+
+# write a sector, incoming data is a string.
+# sector specified by drive,track,sector
+# If disk in dsk format, it's 256 bytes per sector.
+# If disk in img format, seek twice as far and write 2 copies of the data
+sub wr_dts {
+    my ($drive, $trk, $sct, $data) = @_;
+    my $seek;
+    if ($trk == 0) {
+        # don't need to know geometry
+        $seek = $sct * $dsk[$drive]->{bytes_blk};
+    }
+    else {
+        die "Need to know geometry in rd_dts";
+    }
+    if (seek $dsk[$drive]->{handle}, $seek, 0) {
+        my $fh = $dsk[$drive]->{handle};
+        print $fh $data;
+        if ($dsk[$drive]->{bytes_blk} != $flx{BYTES_SECTOR}) {
+            # 2nd copy
+            print $fh $data;
+        }
+    }
+    else {
+        die "Could not reach offset $seek on drive $drive";
+    }
+}
+
+
 # return true if $drive is 0-3, false otherwise.
+# TODO may never be called now?
 sub legal_drive {
     my $drive = $_[0];
     return ((defined $drive) && (($drive eq '0') or ($drive eq '1') or ($drive eq '2') or ($drive eq '3')));
@@ -245,6 +418,7 @@ sub legal_drive {
 # if $format is non-blank it must be img or dsk.
 # if $format is blank infer format from extension of $file
 # return format or '' if unknown.
+# TODO may never be called now?
 sub infer_format {
     my ($file, $format) = @_;
 
@@ -382,17 +556,28 @@ EOF
     }
     elsif ($cmd eq 'rdboot') {
         print <<EOF
-TODO
+    rdboot <virtual drive number>
+
+    Read the boot sector from the specified virtual drive. Store it
+    for use with the wrboot command.
 EOF
     }
     elsif ($cmd eq 'wrboot') {
         print <<EOF
-TODO
+    wrboot <virtual drive number>
+
+    A boot sector can be loaded using rdboot or rdbootfile. Write
+    the most recently loaded boot sector to the specified virtual
+    drive. After doing this, you will need to use the link command
+    in order to make the disk bootable.
 EOF
     }
     elsif ($cmd eq 'rdbootfile') {
         print <<EOF
-TODO
+    rdbootfile <file on host filesystem>
+
+    Read a binary blob (required to be exactly 256 bytes in size) and
+    store it for use with the wrboot command.
 EOF
     }
     elsif ($cmd eq 'check') {
