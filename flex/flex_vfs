@@ -8,6 +8,8 @@
 #
 # Neal Crook, July 2015.
 
+# next: break down SIR
+# next: label
 # next: implement "then" as command separator and allow command-line
 # and add to help.
 # implement clone label dir link
@@ -45,11 +47,12 @@ $flx{DIR_BLK} = 4; # Track=0 Sector=5
 # $dsk[n]->{mounted} boolean
 # $dsk[n]->{handle} file handle
 # $dsk[n]->{bytes_blk} 256 for dsk file, 512 for img file
+# $dsk[n]->{blks} number of blocks
 # $dsk[n]->{filename} file name by which file was accessed
 # filled in by reading SIR when disk was mounted
-# $dsk[n]->{sir}->{}
-# $dsk[n]->{sir}->{}
-# $dsk[n]->{sir}->{}
+# $dsk[n]->{sir}->{data} array of data
+# $dsk[n]->{sir}->{NAME} decoded fields of sir.
+# $dsk[n]->{sir}->{NUM}
 
 my @dsk;
 
@@ -87,11 +90,26 @@ sub cmd_mount {
     }
     else {
         if (open $dsk[$drive]->{handle}, '+<', $file) {
-            # all good
-            $dsk[$drive]->{mounted} = 1;
+            # so far so good
             $dsk[$drive]->{bytes_blk} = $format eq 'dsk' ? 256 : 512;
 
-            # TODO read SIR to load geometry and other basic sanity check
+            my $sir = rd_dts($drive, 0, 3);
+            my @sir = unpack("C*", $sir);
+            $dsk[$drive]->{sir}->{data} = \@sir;
+
+            # TODO read through file to deduce this
+            $dsk[$drive]->{blks} = 24;
+
+            decode_sir($drive);
+
+            # sanity check
+            if (($dsk[$drive]->{sir}->{data}->[0] == 0) and ($dsk[$drive]->{sir}->{data}->[1] == 0)) {
+                $dsk[$drive]->{filename} = $file;
+                $dsk[$drive]->{mounted} = 1;
+            }
+            else {
+                print "ERROR first two bytes of SIR were non-zero. Mount aborted.\n"
+            }
         }
         else {
             # Unlikely - it opened OK in arg_check
@@ -111,8 +129,8 @@ sub cmd_info {
     for my $drive (0..3) {
         print "Drive $drive: ";
         if ($dsk[$drive]->{mounted}) {
-            print "mounted\n";
-            # TODO report host file, label, geometry, free sector count? creation date?
+            print "Host file:    $dsk[$drive]->{filename}\n";
+            describe_sir($drive);
         }
         else {
             print "not mounted\n";
@@ -144,7 +162,16 @@ sub cmd_copy {
 
 
 sub cmd_label {
-    print "label TODO - not yet implemented\n";
+    my ($drive) = arg_check('v', @_);
+    return unless defined($drive);
+
+    if ($dsk[$drive]->{mounted}) {
+# TODO
+# TODO update in {sir} and then flush to disk? 
+    }
+    else {
+        print "ERROR virtual drive $drive is not mounted\n";
+    }
 }
 
 
@@ -183,7 +210,7 @@ sub cmd_rdboot {
     return unless defined($drive);
 
     if ($dsk[$drive]->{mounted}) {
-        my $data = rd_dts($drive, 0, 0);
+        my $data = rd_dts($drive, 0, 1);
         if (defined $data) {
             $boot = $data;
         }
@@ -200,7 +227,7 @@ sub cmd_wrboot {
 
     if (defined $boot) {
         if ($dsk[$drive]->{mounted}) {
-            wr_dts($drive, 0, 0, $boot);
+            wr_dts($drive, 0, 1, $boot);
         }
         else {
             print "ERROR virtual drive $drive is not mounted\n";
@@ -251,6 +278,11 @@ sub cmd_scrub {
 
 sub cmd_repair {
     print "repair TODO - not yet implemented\n";
+}
+
+
+sub cmd_quit {
+    cmd_exit();
 }
 
 
@@ -360,7 +392,7 @@ sub rd_dts {
     my $data;
     if ($trk == 0) {
         # don't need to know geometry
-        $seek = $sct * $dsk[$drive]->{bytes_blk};
+        $seek = ($sct - 1) * $dsk[$drive]->{bytes_blk};
     }
     else {
         die "Need to know geometry in rd_dts";
@@ -389,7 +421,7 @@ sub wr_dts {
     my $seek;
     if ($trk == 0) {
         # don't need to know geometry
-        $seek = $sct * $dsk[$drive]->{bytes_blk};
+        $seek = ($sct - 1) * $dsk[$drive]->{bytes_blk};
     }
     else {
         die "Need to know geometry in rd_dts";
@@ -406,6 +438,61 @@ sub wr_dts {
         die "Could not reach offset $seek on drive $drive";
     }
 }
+
+# decode bytes of the sir into a data structure that makes it
+# easy to access
+sub decode_sir {
+    my $drive = $_[0];
+
+    my $sir = $dsk[$drive]->{sir}->{data};
+
+    # SIR format is described in section 9.1.5 of the 6809FAG
+    $dsk[$drive]->{sir}->{LNK}     = 256 * $sir->[0] + $sir->[1];
+    my $name = '';
+    for my $i (16..16+11-1) {
+        $name = $name . chr $dsk[$drive]->{sir}->{data}->[$i];
+    }
+    $dsk[$drive]->{sir}->{NAME}    = $name;
+    $dsk[$drive]->{sir}->{NUM}     = 256 * $sir->[27] + $sir->[28];
+    $dsk[$drive]->{sir}->{FIRST_T} = $sir->[29];
+    $dsk[$drive]->{sir}->{FIRST_S} = $sir->[30];
+    $dsk[$drive]->{sir}->{LAST_T}  = $sir->[31];
+    $dsk[$drive]->{sir}->{LAST_S}  = $sir->[32];
+    $dsk[$drive]->{sir}->{FREE}    = 256 * $sir->[33] + $sir->[34];
+    $dsk[$drive]->{sir}->{DATE_M}  = $sir->[35];
+    $dsk[$drive]->{sir}->{DATE_D}  = $sir->[36];
+    $dsk[$drive]->{sir}->{DATE_Y}  = $sir->[37] %100; # Y2K fixup
+    $dsk[$drive]->{sir}->{MAX_T}   = $sir->[38];
+    $dsk[$drive]->{sir}->{MAX_S}   = $sir->[39];
+
+    # need to make a guess now so that the directory can be inspected. Verify the guess
+    # later on and confess if we got it wrong.
+    $dsk[$drive]->{sir}->{T1_OFFSET} = $dsk[$drive]->{sir}->{MAX_S};
+}
+
+# Dump the SIR in human-readable format
+sub describe_sir {
+    my $drive = $_[0];
+    my $i = "        ";
+
+    printf "$i Image size:   %d blocks (%d bytes)\n",
+    $dsk[$drive]->{blks}, $dsk[$drive]->{blks} * $dsk[$drive]->{bytes_blk};
+# TODO
+#        printf "%d blocks with data first/second half mismatches\n", $dsk[$drive]->{sir}->{SDMISMATCH};
+
+    printf "$i Disk name:   %12s\n", $dsk[$drive]->{sir}->{NAME};
+    printf "$i Disk number:  %d\n",  $dsk[$drive]->{sir}->{NUM};
+    printf "$i Disk date:    %02d-%02d-%02d\n", $dsk[$drive]->{sir}->{DATE_M},
+    $dsk[$drive]->{sir}->{DATE_D}, $dsk[$drive]->{sir}->{DATE_Y};
+    printf "$i Free sectors: %d. Free chain t%02d,s%02d - t%02d,s%02d\n",
+    $dsk[$drive]->{sir}->{FREE},
+    $dsk[$drive]->{sir}->{FIRST_T}, $dsk[$drive]->{sir}->{FIRST_S},
+    $dsk[$drive]->{sir}->{LAST_T}, $dsk[$drive]->{sir}->{LAST_S};
+    printf "$i Range:        t00-t%02s, s01-s%02s\n",
+    $dsk[$drive]->{sir}->{MAX_T}, $dsk[$drive]->{sir}->{MAX_S};
+    printf "$i Trk0 sectors: $dsk[$drive]->{sir}->{T1_OFFSET}\n";
+}
+
 
 
 # return true if $drive is 0-3, false otherwise.
@@ -634,6 +721,7 @@ Commands are:
     scrub      - null out deleted file names and unused sectors
     repair     - repair virtual drive
     exit       - unmount all mounted drives and leave flex_vfs
+    quit       - synonym for exit
     help       - this is it.
 
 Type help <command name> for more help.
