@@ -56,10 +56,13 @@ $flx{DIR_BLK} = 4; # Track=0 Sector=5
 # $dsk[n]->{bytes_blk} 256 for dsk file, 512 for img file
 # $dsk[n]->{blks} number of blocks
 # $dsk[n]->{filename} file name by which file was accessed
-# filled in by reading SIR when disk was mounted
+# filled in by rd_sir when disk was mounted:
 # $dsk[n]->{sir}->{data} array of data
 # $dsk[n]->{sir}->{NAME} decoded fields of sir.
 # $dsk[n]->{sir}->{NUM}
+# filled in by rd_dir when disk was mounted:
+# $dsk[n]->{dir}->[n]->{NAME} array of directory entries
+# $dsk[n]->{dir}->[n]->{EXT} etc.
 
 my @dsk;
 
@@ -89,7 +92,7 @@ while (1) {
 ## Commands
 
 sub cmd_mount {
-    my ($drive, $file, $format) = arg_check('v h of', @_);
+    my ($drive, $file, $format) = check_arg('v h of', @_);
     return unless defined($drive);
 
     if ($dsk[$drive]->{mounted}) {
@@ -105,7 +108,7 @@ sub cmd_mount {
         my $sir = rd_dts($drive, 0, 3);
         my @sir = unpack("C*", $sir);
         $dsk[$drive]->{sir}->{data} = \@sir;
-        decode_sir($drive);
+        rd_sir($drive);
 
         # size the disk image
         my $tmp;
@@ -135,18 +138,21 @@ sub cmd_mount {
             return;
         }
 
+        # cache it for easy access
+        rd_dir($drive);
+
         # finally
         $dsk[$drive]->{mounted} = 1;
     }
     else {
-        # Unlikely - it opened OK in arg_check
+        # Unlikely - it opened OK in check_arg
         print "ERROR could not re-open $file\n";
     }
 }
 
 
 sub cmd_clone {
-    my ($drive, $file, $format) = arg_check('v nh of', @_);
+    my ($drive, $file, $format) = check_arg('v nh of', @_);
     return unless defined($drive);
 
     if (not $dsk[$drive]->{mounted}) {
@@ -184,7 +190,7 @@ sub cmd_clone {
         close $handle;
     }
     else {
-        # Unlikely - it opened OK in arg_check
+        # Unlikely - it opened OK in check_arg
         print "ERROR could not re-open $file\n";
     }
 }
@@ -205,7 +211,7 @@ sub cmd_info {
 
 
 sub cmd_umount {
-    my ($drive) = arg_check('v', @_);
+    my ($drive) = check_arg('v', @_);
     return unless defined($drive);
 
     # silently ignored if this drive number is not currently in use.
@@ -227,7 +233,7 @@ sub cmd_copy {
 
 
 sub cmd_label {
-    my ($drive) = arg_check('v', @_);
+    my ($drive) = check_arg('v', @_);
     return unless defined($drive);
 
     if ($dsk[$drive]->{mounted}) {
@@ -251,11 +257,15 @@ sub cmd_import {
 
 
 # TODO might have different invocations. For now just handle the first
-# dir 1
-# dir 1.fred.bin
-# dir 1.*.bin
+#
+# load directory at mount time, just filter it here.
+# change check_arg to fs (file specifier). Can be any of
+# 1    1.fred.bin    1.*.bin    2.fr*.*
+# the first (just the drive specified) is a special case and is
+# converted into 1.*.*
+
 sub cmd_dir {
-    my ($drive) = arg_check('v', @_);
+    my ($drive) = check_arg('v', @_);
     return unless defined($drive);
 
     if (not $dsk[$drive]->{mounted}) {
@@ -263,65 +273,14 @@ sub cmd_dir {
         return;
     }
 
-    # first sector of directory.
-    # Directory format is described in FLEXAPG
-    my $trk = 0;
-    my $sct = 5;
+    # array reference.
+    my $dir = $dsk[$drive]->{dir};
 
-    # TODO HACK - probably want to abstract this in order to deal with wildcards and to
-    # allow us to eg find parameters for a specific file (eg for LINK command).
-    # Do this at Mount time and store it in $dsk, then change dir to filter and print
-    # the filtered results. Write a general-purpose filter for use elsewhere.
-    my @dir;
+    # TODO filter it into a copy that contains the files we want to see.
 
-    while (($trk != 0) or ($sct != 0)) {
-        # process a directory sector
-        my $data = rd_dts($drive, $trk, $sct);
-        my @data = unpack("C*", $data);
 
-        my $offset = 16;
-        foreach my $entry(0..9) {
-            my %d;
-
-            # first byte of filename is 0 if it has never been used
-            # or has bit 7 set if it has been deleted.
-            my $nstart = 4 -4+$offset+($entry*24);
-            my $first = ord substr($data, $nstart, 1);
-            next if (($first == 0) || ($first & 0x80));
-
-# TODO convert to ONLY use @data instead
-            # the name can be null-terminated, which is non-printing but tidiest to remove them
-            my $name = substr($data, $nstart, 8);
-            $name =~ /(^[a-zA-Z0-9\-\_]+)/;
-            $d{NAME} = $1;
-
-            # likewise the extension
-            my $ext = substr($data, $nstart+8, 3);
-            $ext =~ /(^[a-zA-Z]+)/;
-            $d{EXT} = $1;
-
-            $d{ATTR}    = $data[15-4+$offset+($entry*24)];
-            $d{FIRST_T} = $data[17-4+$offset+($entry*24)];
-            $d{FIRST_S} = $data[18-4+$offset+($entry*24)];
-            $d{LAST_T}  = $data[19-4+$offset+($entry*24)];
-            $d{LAST_S}  = $data[20-4+$offset+($entry*24)];
-            $d{SIZE}    = 256 * $data[21+0-4+$offset+($entry*24)] +
-                                $data[21+1-4+$offset+($entry*24)];
-            $d{FSM}     = $data[23-4+$offset+($entry*24)];
-            $d{DATE_M}  = $data[25+0-4+$offset+($entry*24)];
-            $d{DATE_D}  = $data[25+1-4+$offset+($entry*24)];
-            $d{DATE_Y}  = $data[25+2-4+$offset+($entry*24)] %100; # Y2K fixup
-
-            push @dir,\%d;
-        }
-        # next
-        $trk = $data[0];
-        $sct = $data[1];
-    }
-
-    # TODO hack now print it?
     print "               NAME ATTR START     END          SIZE    DATE\n";
-    foreach my $i (@dir) {
+    foreach my $i (@{$dir}) {
         # attributes
         my $attr = "     ";
         if ($i->{ATTR} & 0x80) {substr($attr, 0, 1) = "W"};
@@ -329,9 +288,11 @@ sub cmd_dir {
         if ($i->{ATTR} & 0x20) {substr($attr, 2, 1) = "R"};
         if ($i->{ATTR} & 0x10) {substr($attr, 3, 1) = "C"};
         if ($i->{FSM} != 0   ) {substr($attr, 4, 1) = "r"};
-        printf "% 15s.%-3s $attr t%02d,s%02d - t%02d,s%02d %4d sectors %02d-%02d-%02d\n", $i->{NAME}, $i->{EXT}, $i->{FIRST_T}, $i->{FIRST_S}, $i->{LAST_T}, $i->{LAST_S}, $i->{SIZE}, $i->{DATE_M}, $i->{DATE_D}, $i->{DATE_Y};
+        printf "% 15s.%-3s $attr t%02d,s%02d - t%02d,s%02d %4d sectors %02d-%02d-%02d\n",
+        $i->{NAME}, $i->{EXT},
+        $i->{FIRST_T}, $i->{FIRST_S}, $i->{LAST_T}, $i->{LAST_S},
+        $i->{SIZE}, $i->{DATE_M}, $i->{DATE_D}, $i->{DATE_Y};
     }
-
 }
 
 
@@ -351,7 +312,7 @@ sub cmd_fix {
 
 
 sub cmd_rdboot {
-    my ($drive) = arg_check('v', @_);
+    my ($drive) = check_arg('v', @_);
     return unless defined($drive);
 
     if ($dsk[$drive]->{mounted}) {
@@ -367,7 +328,7 @@ sub cmd_rdboot {
 
 
 sub cmd_wrboot {
-    my ($drive) = arg_check('v', @_);
+    my ($drive) = check_arg('v', @_);
     return unless defined($drive);
 
     if (defined $boot) {
@@ -465,7 +426,7 @@ sub cmd_help {
 # h - existing file in host filesystem
 # nh - file in host filesystem (may or may not exist)
 # of - optional file format: dsk or img, also inferred from h
-sub arg_check {
+sub check_arg {
     my @expected = split " ",(shift @_);
     my %format;
     my $i = 0;
@@ -618,7 +579,7 @@ sub wr_dts {
 
 # decode bytes of the sir into a data structure that makes it
 # easy to access
-sub decode_sir {
+sub rd_sir {
     my $drive = $_[0];
 
     my $sir = $dsk[$drive]->{sir}->{data};
@@ -668,6 +629,64 @@ sub describe_sir {
     printf "$i Range:        t00-t%02s, s01-s%02s\n",
     $dsk[$drive]->{sir}->{MAX_T}, $dsk[$drive]->{sir}->{MAX_S};
     printf "$i Trk0 sectors: $dsk[$drive]->{sir}->{T1_OFFSET}\n";
+}
+
+
+# read directory and attach data structure to $dsk
+sub rd_dir {
+    my $drive = $_[0];
+
+    # Directory format is described in FLEXAPG. This is the first sector.
+    my $trk = 0;
+    my $sct = 5;
+
+    my @dir;
+
+    while (($trk != 0) or ($sct != 0)) {
+        # process a directory sector
+        my $data = rd_dts($drive, $trk, $sct);
+        my @data = unpack("C*", $data);
+
+        my $offset = 16;
+        foreach my $entry(0..9) {
+            my %d;
+
+            # first byte of filename is 0 if it has never been used
+            # or has bit 7 set if it has been deleted.
+            my $nstart = 4 -4+$offset+($entry*24);
+            my $first = ord substr($data, $nstart, 1);
+            next if (($first == 0) || ($first & 0x80));
+
+# TODO convert to ONLY use @data instead
+            # the name can be null-terminated, which is non-printing but tidiest to remove them
+            my $name = substr($data, $nstart, 8);
+            $name =~ /(^[a-zA-Z0-9\-\_]+)/;
+            $d{NAME} = $1;
+
+            # likewise the extension
+            my $ext = substr($data, $nstart+8, 3);
+            $ext =~ /(^[a-zA-Z]+)/;
+            $d{EXT} = $1;
+
+            $d{ATTR}    = $data[15-4+$offset+($entry*24)];
+            $d{FIRST_T} = $data[17-4+$offset+($entry*24)];
+            $d{FIRST_S} = $data[18-4+$offset+($entry*24)];
+            $d{LAST_T}  = $data[19-4+$offset+($entry*24)];
+            $d{LAST_S}  = $data[20-4+$offset+($entry*24)];
+            $d{SIZE}    = 256 * $data[21+0-4+$offset+($entry*24)] +
+                                $data[21+1-4+$offset+($entry*24)];
+            $d{FSM}     = $data[23-4+$offset+($entry*24)];
+            $d{DATE_M}  = $data[25+0-4+$offset+($entry*24)];
+            $d{DATE_D}  = $data[25+1-4+$offset+($entry*24)];
+            $d{DATE_Y}  = $data[25+2-4+$offset+($entry*24)] %100; # Y2K fixup
+
+            push @dir,\%d;
+        }
+        # next
+        $trk = $data[0];
+        $sct = $data[1];
+    }
+    $dsk[$drive]->{dir} = \@dir;
 }
 
 
