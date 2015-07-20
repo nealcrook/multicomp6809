@@ -12,14 +12,17 @@
 # and a directory lister
 # next: arg checker for fs (File Specifier) and ufs (Unique File Specifier)
 # next: re-pack and commit SIR
+# next: make sure directory and sir are never dirty, otherwise have to trap ^C and
+# any fatal error in order to avoid file corruption. It's just not worth it.
 # next: label
 # next: implement "then" as command separator and allow command-line and add to help.
-# implement clone label link
+# implement label link
 # improve dir to allow wildcard
-# then new info copy delete check scrub
+# then new copy delete check scrub
 # finally import export repair
+# maybe have commands extend (add n sectors) and truncate (remove n sectors)
 # TODO: record inode so that we cannot double-mount a drive?
-
+# TODO: add mixedcase toggle command
 
 use strict;
 no strict 'refs'; # CLI makes subroutine from command name.
@@ -143,8 +146,47 @@ sub cmd_mount {
 
 
 sub cmd_clone {
-    print "clone TODO - not yet implemented\n";
-# quite easy - copy from other prog
+    my ($drive, $file, $format) = arg_check('v nh of', @_);
+    return unless defined($drive);
+
+    if (not $dsk[$drive]->{mounted}) {
+        print "ERROR virtual drive $drive is not mounted.\n";
+        return;
+    }
+
+    my $bb_in = $dsk[$drive]->{bytes_blk};
+    my $bb_out = $format eq 'dsk' ? 256 : 512;
+
+    if (open my $handle, '>', $file) {
+        seek $dsk[$drive]->{handle}, 0, 0;
+        my $data;
+        for my $blk (1..$dsk[$drive]->{blks}) {
+            # read a block
+            my $actual = read $dsk[$drive]->{handle}, $data, $bb_in;
+            if ($actual == $bb_in) {
+                if ($bb_in == $bb_out) {
+                    print $handle $data;
+                }
+                elsif ($bb_in < $bb_out) {
+                    print $handle $data;
+                    print $handle $data;
+                }
+                else {
+                    my $half = substr $data, $bb_out, $bb_out;
+                    print $handle $half;
+                }
+            }
+            else {
+                close $handle;
+                die "FATAL internal error - failed to read data\n";
+            }
+        }
+        close $handle;
+    }
+    else {
+        # Unlikely - it opened OK in arg_check
+        print "ERROR could not re-open $file\n";
+    }
 }
 
 
@@ -421,6 +463,7 @@ sub cmd_help {
 # argument formats are:
 # v - virtual drive number
 # h - existing file in host filesystem
+# nh - file in host filesystem (may or may not exist)
 # of - optional file format: dsk or img, also inferred from h
 sub arg_check {
     my @expected = split " ",(shift @_);
@@ -455,6 +498,23 @@ sub arg_check {
                 return;
             }
         }
+        elsif ($f eq 'nh') {
+            if (not defined $_[$i]) {
+                print "ERROR missing argument - expected host file name\n";
+                return;
+            }
+            # file may not exist so open for output
+            if (open my $tmp, '>', $_[$i]) {
+                # all good
+                close $tmp;
+                # make 'nh' look equivalent to 'n' coz we may need the extension
+                $format{h} = $i;
+            }
+            else {
+                print "ERROR could not open $_[$i]\n";
+                return;
+            }
+        }
         elsif ($f eq 'of') {
             # optional format. If present, takes precedence and must be img or dsk
             # If absent, inferred from file extension of {h} argument. Incoming
@@ -477,7 +537,7 @@ sub arg_check {
             }
         }
         else {
-            die "FATAL interal error - unknown format $f\n";
+            die "FATAL internal error - unknown format $f\n";
         }
         $i = $i + 1;
     }
@@ -650,8 +710,9 @@ sub help_for {
     Associate a file on the host filesystem with a virtual drive number.
 
     Virtual drive number is 0,1,2 or 3.
-    Legal formats are "dsk" (256 bytes per sector) and "img" (256
-    bytes per sector but doubled, on a 512-byte boundary)
+
+    Legal formats are dsk and img (use "help formats" for
+    more information).
 
     If the file extension is .dsk or .img the format is inferred and
     the format is optional.
@@ -750,7 +811,17 @@ EOF
     }
     elsif ($cmd eq 'link') {
         print <<EOF
-TODO
+    link <full file specifier>
+
+    Patch the boot sector of the disk holding the specified
+    file (usually FLEX.SYS) so that a subsequent boot of the
+    system will load and start the specified file.
+
+    Example:
+    link 1.FLEX.SYS
+
+    Background:
+    use "help wrboot" for background on the Flex boot sector.
 EOF
     }
     elsif ($cmd eq 'fix') {
@@ -762,26 +833,47 @@ EOF
         print <<EOF
     rdboot <virtual drive number>
 
-    Read the boot sector from the specified virtual drive. Store it
-    for use with the wrboot command.
+    Read the boot sector from the specified virtual drive. It is
+    then available for use by the wrboot command.
 EOF
     }
     elsif ($cmd eq 'wrboot') {
         print <<EOF
     wrboot <virtual drive number>
 
-    A boot sector can be loaded using rdboot or rdbootfile. Write
-    the most recently loaded boot sector to the specified virtual
-    drive. After doing this, you will need to use the link command
-    in order to make the disk bootable.
+    Write the current boot loader (read using the rdboot or
+    rdbootfile commands) to the boot sector of the specified
+    virtual drive. After doing this, you will need to use the
+    link command in order to make the disk bootable.
+
+    Examples:
+    rdboot 2
+    wrboot 1
+    link 1.FLEX.SYS
+
+    Background:
+    Track 0 sector 1 of a Flex disk is designated as the Flex boot
+    sector, and usually holds the Flex boot loader -- this is
+    target system dependent as some systems boot straight from ROM
+    with no need for this intermediate bootstrap. Other systems may
+    have a loader that extends beyond this one sector. A Flex boot
+    loader is designed to load at address \$C100 and to be executed
+    from that address. The bytes at address \$C105, \$C106 specify
+    the track and sector at which the Flex image (usually named
+    FLEX.SYS) is stored on the disk.
+
+    The Flex LINK command (and the flex_vfs link command) locate
+    a named file (eg FLEX.SYS) and patch the boot sector with the
+    start track/sector of that image. This makes the function of
+    the boot loader simpler.
 EOF
     }
     elsif ($cmd eq 'rdbootfile') {
         print <<EOF
     rdbootfile <file on host filesystem>
 
-    Read a binary blob (required to be exactly 256 bytes in size) and
-    store it for use with the wrboot command.
+    Read a binary blob (required to be exactly 256 bytes in size). It
+    is then available for use by the wrboot command.
 EOF
     }
     elsif ($cmd eq 'check') {
@@ -797,6 +889,39 @@ EOF
     elsif ($cmd eq 'repair') {
         print <<EOF
 TODO
+EOF
+    }
+    elsif ($cmd eq 'formats') {
+        print <<EOF
+    Flex disks use a fixed sector size of 256 bytes, but varying
+    geometries (the sector count and head count). Since the geometry
+    is described within the SIR on the 3rd sector of the disk, it's
+    possible to write a disk driver that can read the geometry from
+    the SIR and then access any track/sector correctly. Thanks to
+    this far-sight on behalf of the Flex designers, a Flex disk
+    image can simply be represented as a sequence of 256-byte
+    blocks and is "self-describing" thanks to its SIR. The normal
+    file extension used for a Flex disk in this format is .dsk.
+
+    In order to use an SDcard as a virtual floppy disk, it's
+    necessary to translate between the track/sector number (which
+    the Flex disk routines understand) and a linear block number
+    (which the SDcard addressing understands). Also, the block
+    size on an SDcard is 512 bytes.
+
+    It would be possible to store 2 Flex sectors in each SDcard
+    block but it is simpler (though inefficient) to store each
+    sector in the first half of a 512 byte block. This has the
+    effect of generating an image that is exactly twice the size
+    of the .dsk file. In flex_vfs, the file extension used for
+    this double-sized file is .img.
+
+    flex_vfs can mount .img and .dsk files and can convert from
+    one to the other using the clone command.
+
+    For no particularly good reason (but maybe for integrity
+    checking later) flex_vfs stores 2 copies of a Flex sector in
+    each SDcard block. On reads, the first copy is used.
 EOF
     }
     else {
@@ -848,12 +973,6 @@ EOF
 
 
 
-
-
-
-
-
-
 #########------------
 sub help_exit {
     print <<EOF
@@ -871,7 +990,6 @@ Virtual file system for FLEX disk images.
 > copy 1.*.cmd 2
 > delete 1.fred.bin
 > delete 2.*.bin
-> link 1.flex.sys
 > fix 1.flex.sys
 > rdboot 1
 > wrboot 2
@@ -880,54 +998,6 @@ Virtual file system for FLEX disk images.
 > check 2
 > exit
 >
-
-
-
-
-
- Usage:
-
-flex_disk_manip [-help] [INFILE <options>]
-
-    -help              print usage information and terminate
-    INFILE             name of a FLEX disk image file (usually .dsk)
-    -info              perform integrity check and report information about the
-                       image
-    -dir               report names of all files contained in the image
-    -insd              by default input files are in .dsk format. This specifies
-                       that the input file is in SD file format (notes below)
-    -out OUTFILE       write disk image out in .dsk file format
-    -outsd OUTFILE     write disk image out in SD file format (notes below)
-    -extract [name1 name2..] extract files from disk (notes below)
-    -extractall        extract all files from disk
-    -extractloader     extract FLEX loader (notes below)
-
-SD File format
-
-A FLEX disk image has a fixed sector size of 256 bytes. In order to transfer it to an SDCARD it
-is convenient (though inefficient) to place each sector in the first half of a 512 byte block.
-This has the effect of generating an output image that is exactly twice the size of the input
-image.
-
-For no particularly good reason (but maybe for integrity checking later) "-outsd" achieves this
-by duplicating each 256 byte data chunk.
-
-"-insd" performs the opposite check: for each 512 bytes in, it reports whether the first and
-second half of each 512 byte block contain identical data or not.
-
-Extracting files
-
-If the "-extract" option is used, the remaining command-line parameters are assumed to be the
-names of files in the disk image. Each file is extracted to the current directory as a file
-with the same name as it had in the disk image.
-
-The "-extractloader" option extracts track 0 sector 1 and saves it as "flex_loader.bin". For
-a system disk this expected to contain the FLEX boot loader -- but note that this is target
-system dependent as some target systems may boot straight from ROM with no need for this
-intermediate bootstrap. Other systems may have a loader that extends beyond this one sector.
-If this image is a valid FLEX boot loader it will be designed to load at address \$C100 and to
-be executed from that address. The bytes at address \$C105, \$C106 specify the track and
-sector at which the FLEX image is stored on the disk.
 
 EOF
 }
