@@ -13,14 +13,12 @@
 # any fatal error in order to avoid file corruption. It's just not worth it.
 # next: label
 # next: implement "then" as command separator and allow command-line and add to help.
-# implement label link
 # then new copy delete check scrub
 # finally import export repair
-# maybe have commands extend (add n sectors) and truncate (remove n sectors)
 # TODO: record inode so that we cannot double-mount a drive?
-# TODO: add mixedcase toggle command
 # TODO: it is NOT legal to have a null file name. It is legal to have a null extension?
-# FUTURE: DATE command and RENAME command
+# FUTURE: DATE command, RENAME command, mixedcase-toggle command
+# FUTURE: TRUNCATE (remove sectors) and EXTEND (add sectors) commands
 # FUTURE: allow target of copy to be unique fs rather than simply drive name (ie copy
 # file with different name)
 
@@ -299,7 +297,31 @@ sub cmd_delete {
 
 
 sub cmd_link {
-    print "link TODO - not yet implemented\n";
+    my ($fs) = check_arg('fs', @_);
+    return unless defined($fs);
+
+    my ($drive,$file,$ext) = split /\./, $fs;
+
+    if (not $dsk[$drive]->{mounted}) {
+        print "ERROR drive $drive is not mounted\n";
+        return;
+    }
+
+    my $match = filter_dir($drive,$file,$ext);
+
+    if (scalar @$match == 0) {
+        print "ERROR no file found matching $drive.$file.$ext\n";
+    }
+    elsif (scalar @$match > 1) {
+        print "ERROR multiple files found matching $drive.$file.$ext\n";
+    }
+    else {
+        my $data = rd_dts($drive, 0, 1);
+        my @data = unpack("C*", $data);
+        $data[5] = $dsk[$drive]->{dir}->[$match->[0]]->{FIRST_T};
+        $data[6] = $dsk[$drive]->{dir}->[$match->[0]]->{FIRST_S};
+        wr_dts($drive, 0, 1, pack("C*", @data));
+    }
 }
 
 
