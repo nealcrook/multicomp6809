@@ -8,7 +8,8 @@
 #
 # Neal Crook, July 2015.
 
-# next: re-pack and commit SIR
+# next: implement cp_files rm_files
+# add deleted sectors to the END of the free list.
 # next: make sure directory and sir are never dirty, otherwise have to trap ^C and
 # any fatal error in order to avoid file corruption. It's just not worth it.
 # next: label
@@ -17,6 +18,7 @@
 # finally import export repair
 # TODO: record inode so that we cannot double-mount a drive?
 # TODO: it is NOT legal to have a null file name. It is legal to have a null extension?
+# TODO: add optional y/n arg to delete.
 # FUTURE: DATE command, RENAME command, mixedcase-toggle command
 # FUTURE: TRUNCATE (remove sectors) and EXTEND (add sectors) commands
 # FUTURE: allow target of copy to be unique fs rather than simply drive name (ie copy
@@ -226,7 +228,39 @@ sub cmd_new {
 
 
 sub cmd_copy {
-    print "copy TODO - not yet implemented\n";
+    my ($fs, $dst) = check_arg('fs v', @_);
+    return unless defined($fs);
+
+    my ($src,$file,$ext) = split /\./, $fs;
+
+    if (not $dsk[$src]->{mounted}) {
+        print "ERROR source drive $src is not mounted\n";
+        return;
+    }
+    if (not $dsk[$dst]->{mounted}) {
+        print "ERROR destination drive $dst is not mounted\n";
+        return;
+    }
+    if ($src == $dst) {
+        print "ERROR cannot copy to the same drive\n";
+        return;
+    }
+
+    my $cp_match = filter_dir($src,$file,$ext);
+    # which of those names already in use at the destination?
+    my $rm_match = exact_match_dir($src,$cp_match,$dst);
+
+    # is there enough space for the copy?
+    my $dst_free = $dsk[$dst]->{sir}->{FREE} + sectors($dst, $rm_match);
+    if ($dst_free < sectors($src, $cp_match)) {
+        print "ERROR insufficient space for copy\n";
+        return;
+    }
+
+    rm_files($dst, $rm_match);
+    rd_dir($dst);
+    cp_files($src, $cp_match, $dst);
+    rd_dir($dst);
 }
 
 
@@ -236,7 +270,7 @@ sub cmd_label {
 
     if ($dsk[$drive]->{mounted}) {
 # TODO
-# TODO update in {sir} and then flush to disk? 
+# TODO update in {sir} and then flush to disk?
     }
     else {
         print "ERROR virtual drive $drive is not mounted\n";
@@ -274,8 +308,9 @@ sub cmd_dir {
     my $match = filter_dir($drive,$file,$ext);
 
     print "               NAME  ATTR START     END          SIZE    DATE\n";
-    for my $i (0.. $#{$match}) {
-        my $j = $dsk[$drive]->{dir}->[$match->[$i]];
+
+    foreach my $i (@{$match}) {
+        my $j = $dsk[$drive]->{dir}->[$i];
         # attributes
         my $attr = "     ";
         if ($j->{ATTR} & 0x80) {substr($attr, 0, 1) = "W"};
@@ -292,7 +327,23 @@ sub cmd_dir {
 
 
 sub cmd_delete {
-    print "delete TODO - not yet implemented\n";
+    my ($fs) = check_arg('fs', @_);
+    return unless defined($fs);
+
+    my ($drive,$file,$ext) = split /\./, $fs;
+
+    if (not $dsk[$drive]->{mounted}) {
+        print "ERROR drive $drive is not mounted\n";
+        return;
+    }
+
+    my $match = filter_dir($drive,$file,$ext);
+
+    printf "INFO %d files match $drive.$file.$ext\n", scalar @$match;
+
+    rm_files($drive, $match);
+    # directory copy is out-of-date now so revise it
+    rd_dir($drive);
 }
 
 
@@ -448,12 +499,9 @@ sub cmd_help {
 # fs - flex file specifier: 1 or 1.foo.bar
 sub check_arg {
     my @expected = split " ",(shift @_);
-    my %format;
+    my $host_file;  # stored for use by subsequent 'of' argument
     my $i = 0;
     foreach my $f (@expected) {
-        # allows random access later on..
-        $format{$f} = $i;
-
         if ($f eq 'v') {
             if (not defined $_[$i]) {
                 print "ERROR missing argument - expected virtual drive number\n";
@@ -473,6 +521,8 @@ sub check_arg {
             if (open my $tmp, '+<', $_[$i]) {
                 # all good
                 close $tmp;
+                # 'of' will use this
+                $host_file = $_[$i];
             }
             else {
                 print "ERROR could not open $_[$i]\n";
@@ -488,8 +538,8 @@ sub check_arg {
             if (open my $tmp, '>', $_[$i]) {
                 # all good
                 close $tmp;
-                # make 'nh' look equivalent to 'n' coz we may need the extension
-                $format{h} = $i;
+                # 'of' will use this
+                $host_file = $_[$i];
             }
             else {
                 print "ERROR could not open $_[$i]\n";
@@ -498,15 +548,16 @@ sub check_arg {
         }
         elsif ($f eq 'of') {
             # optional format. If present, takes precedence and must be img or dsk
-            # If absent, inferred from file extension of {h} argument. Incoming
+            # If absent, inferred from file extension of host file. Incoming
             # arguments changed to declare the format.
 
             if ((defined $_[$i]) && (($_[$i] eq 'img') or ($_[$i] eq 'dsk'))) {
                 # explicit format takes priority. Nothing more to do.
             }
             else {
-                # extract extension from filename elsewhere in argument list
-                my @ext = split /\./, $_[$format{h}];
+                # extract extension from host file.. which is required to
+                # occur earlier in the argument list.
+                my @ext = split /\./, $host_file;
                 if ((defined $ext[-1]) && (($ext[-1] eq 'img') or ($ext[-1] eq 'dsk'))) {
                     # change incoming argument so it's always present/valid
                     $_[$i] = $ext[-1];
@@ -547,6 +598,30 @@ sub check_arg {
 }
 
 
+# copy zero or more files
+# files specified by list of directory indices
+sub cp_files {
+    my ($src, $match, $dst) = @_;
+
+    foreach my $i (@{$match}) {
+        my $j = $dsk[$src]->{dir}->[$i];
+        print "TODO copy file $src.$j->{NAME}.$j->{EXT} to $dst\n";
+    }
+}
+
+
+# delete zero or more files
+# files specified by list of directory indices
+sub rm_files {
+    my ($drive, $match) = @_;
+
+    foreach my $i (@{$match}) {
+        my $j = $dsk[$drive]->{dir}->[$i];
+        print "TODO delete file $drive.$j->{NAME}.$j->{EXT}\n";
+    }
+}
+
+
 # read a sector, return data as a string.
 # sector specified by drive,track,sector
 # If disk in dsk format, it's 256 bytes per sector.
@@ -575,6 +650,7 @@ sub rd_dts {
             return $data;
         }
         else {
+            # TODO BUG: this makes it a fatal error to mount a bad file. Fix that!
             die "Could not read $flx{BYTES_SECTOR} bytes at offset $seek on drive $drive";
         }
     }
@@ -734,9 +810,7 @@ sub rd_dir {
 # Given a drive number and (potentially wildcarded) file name/extension,
 # return a reference to a list of the directory entries that match.
 sub filter_dir {
-    my $drive = $_[0];
-    my $file = $_[1];
-    my $ext = $_[2];
+    my ($drive, $file, $ext) = @_;
     my @matches;
 
     # turn the file specifier into a legal PERL regex: * -> [-\w]*
@@ -753,32 +827,42 @@ sub filter_dir {
 }
 
 
-# return true if $drive is 0-3, false otherwise.
-# TODO may never be called now?
-sub legal_drive {
-    my $drive = $_[0];
-    return ((defined $drive) && (($drive eq '0') or ($drive eq '1') or ($drive eq '2') or ($drive eq '3')));
-}
+# $files1 is a list of indices to files on $drive1. Look for
+# filename matches on $drive2 and return a reference to a
+# list of the directory entries that match - that list
+# corresponds to indices in drive2, NOT drive1.
+sub exact_match_dir {
+    my ($drive1, $files1, $drive2) = @_;
+    my @matches;
+    my %drive1_names;
 
-# if $format is non-blank it must be img or dsk.
-# if $format is blank infer format from extension of $file
-# return format or '' if unknown.
-# TODO may never be called now?
-sub infer_format {
-    my ($file, $format) = @_;
-
-    if ((defined $format) && (($format eq 'img') or ($format eq 'dsk'))) {
-        # explicit format takes priority
-        return $format;
+    # build a hash of the names we're looking for
+    foreach my $i (@{$files1}) {
+        my $name = "$dsk[$drive1]->{dir}->[$i]->{NAME}.$dsk[$drive1]->{dir}->[$i]->{EXT}";
+        $drive1_names{$name} = 1;
     }
-    else {
-        my @ext = split /\./, $file;
-        print "Got $file $ext[0] $ext[1] $ext[-1]\n";
-        if ((defined $ext[-1]) && (($ext[-1] eq 'img') or ($ext[-1] eq 'dsk'))) {
-            return $ext[-1];
+
+    for my $i (0.. $#{$dsk[$drive2]->{dir}}) {
+        my $name = "$dsk[$drive2]->{dir}->[$i]->{NAME}.$dsk[$drive2]->{dir}->[$i]->{EXT}";
+        if (exists $drive1_names{$name}) {
+            push @matches, $i;
         }
     }
-    return '';
+
+    return \@matches;
+}
+
+
+# sum the sectors needed to hold the specified files
+sub sectors {
+    my ($drive, $match) = @_;
+    my $sum = 0;
+
+    foreach my $i (@{$match}) {
+        $sum = $sum + $dsk[$drive]->{dir}->[$i]->{SIZE};
+    }
+
+    return $sum;
 }
 
 
@@ -855,7 +939,22 @@ EOF
     }
     elsif ($cmd eq 'copy') {
         print <<EOF
-TODO
+    copy <file specifier> <virtual drive specifier>
+
+    Copy all of the files that match the file specifier (source)
+    to the specified virtual drive (destination). Any files of
+    the same name on the specified virtual drive are deleted.
+
+    The syntax of this command does not allow the name of the
+    file to be changed as a side-effect of the copy. Therefore,
+    it is not legal for the source drive to match the destination
+    drive. This restriction may be removed in the future.
+
+    Examples:
+    copy 2 3
+    copy 2.*.* 3
+    copy 2.*.CMD 3
+    copy 1.FLEX.SYS 2
 EOF
     }
     elsif ($cmd eq 'label') {
@@ -882,12 +981,36 @@ EOF
     }
     elsif ($cmd eq 'dir') {
         print <<EOF
-    dir <virtual drive number> | <
+    dir <virtual drive number> | <file specifier>
+
+    List all of the files on the specified virtual drive, or
+    all of the files that match the file specifier. The file
+    specifier can include * used as a wildcard.
+
+    Examples:
+    dir 2
+    dir 1.FLEX.SYS
+    dir 1.F*.*
+    dir 1.*.CMD
+    dir 1.*A*.*
 EOF
     }
     elsif ($cmd eq 'delete') {
         print <<EOF
-TODO
+    delete <virtual drive number> | <file specifier>
+
+    Delete all of the files on the specified virtual drive, or
+    all of the files that match the file specifier. The file
+    specifier can include * used as a wildcard.
+
+    BE CAREFUL BECAUSE NO CONFIRMATION IS ASKED FOR!
+
+    Examples:
+    delete 2
+    delete 1.FLEX.SYS
+    delete 1.F*.*
+    delete 1.*.CMD
+    delete 1.*A*.*
 EOF
     }
     elsif ($cmd eq 'link') {
