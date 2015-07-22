@@ -8,21 +8,21 @@
 #
 # Neal Crook, July 2015.
 
-# next: revamp dir to extract directory at mount time, a general-purpose file list filter
-# and a directory lister
-# next: arg checker for fs (File Specifier) and ufs (Unique File Specifier)
 # next: re-pack and commit SIR
 # next: make sure directory and sir are never dirty, otherwise have to trap ^C and
 # any fatal error in order to avoid file corruption. It's just not worth it.
 # next: label
 # next: implement "then" as command separator and allow command-line and add to help.
 # implement label link
-# improve dir to allow wildcard
 # then new copy delete check scrub
 # finally import export repair
 # maybe have commands extend (add n sectors) and truncate (remove n sectors)
 # TODO: record inode so that we cannot double-mount a drive?
 # TODO: add mixedcase toggle command
+# TODO: it is NOT legal to have a null file name. It is legal to have a null extension?
+# FUTURE: DATE command and RENAME command
+# FUTURE: allow target of copy to be unique fs rather than simply drive name (ie copy
+# file with different name)
 
 use strict;
 no strict 'refs'; # CLI makes subroutine from command name.
@@ -256,42 +256,39 @@ sub cmd_import {
 }
 
 
-# TODO might have different invocations. For now just handle the first
-#
-# load directory at mount time, just filter it here.
-# change check_arg to fs (file specifier). Can be any of
-# 1    1.fred.bin    1.*.bin    2.fr*.*
-# the first (just the drive specified) is a special case and is
-# converted into 1.*.*
-
+# directory is in $dsk - just filter/print it here.
+# All of these are legal:
+# dir 1    dir 1.fred.bin   dir 1.*.bin   dir 2.fr*.*
+# the first (just the drive specified) is a special case and
+# is converted (by check_arg) into 1.*.* so that can be treated
+# in the same way as the other forms.
 sub cmd_dir {
-    my ($drive) = check_arg('v', @_);
-    return unless defined($drive);
+    my ($fs) = check_arg('fs', @_);
+    return unless defined($fs);
+
+    my ($drive,$file,$ext) = split /\./, $fs;
 
     if (not $dsk[$drive]->{mounted}) {
         print "ERROR drive $drive is not mounted\n";
         return;
     }
 
-    # array reference.
-    my $dir = $dsk[$drive]->{dir};
+    my $match = filter_dir($drive,$file,$ext);
 
-    # TODO filter it into a copy that contains the files we want to see.
-
-
-    print "               NAME ATTR START     END          SIZE    DATE\n";
-    foreach my $i (@{$dir}) {
+    print "               NAME  ATTR START     END          SIZE    DATE\n";
+    for my $i (0.. $#{$match}) {
+        my $j = $dsk[$drive]->{dir}->[$match->[$i]];
         # attributes
         my $attr = "     ";
-        if ($i->{ATTR} & 0x80) {substr($attr, 0, 1) = "W"};
-        if ($i->{ATTR} & 0x40) {substr($attr, 1, 1) = "D"};
-        if ($i->{ATTR} & 0x20) {substr($attr, 2, 1) = "R"};
-        if ($i->{ATTR} & 0x10) {substr($attr, 3, 1) = "C"};
-        if ($i->{FSM} != 0   ) {substr($attr, 4, 1) = "r"};
+        if ($j->{ATTR} & 0x80) {substr($attr, 0, 1) = "W"};
+        if ($j->{ATTR} & 0x40) {substr($attr, 1, 1) = "D"};
+        if ($j->{ATTR} & 0x20) {substr($attr, 2, 1) = "R"};
+        if ($j->{ATTR} & 0x10) {substr($attr, 3, 1) = "C"};
+        if ($j->{FSM} != 0   ) {substr($attr, 4, 1) = "r"};
         printf "% 15s.%-3s $attr t%02d,s%02d - t%02d,s%02d %4d sectors %02d-%02d-%02d\n",
-        $i->{NAME}, $i->{EXT},
-        $i->{FIRST_T}, $i->{FIRST_S}, $i->{LAST_T}, $i->{LAST_S},
-        $i->{SIZE}, $i->{DATE_M}, $i->{DATE_D}, $i->{DATE_Y};
+        $j->{NAME}, $j->{EXT},
+        $j->{FIRST_T}, $j->{FIRST_S}, $j->{LAST_T}, $j->{LAST_S},
+        $j->{SIZE}, $j->{DATE_M}, $j->{DATE_D}, $j->{DATE_Y};
     }
 }
 
@@ -426,6 +423,7 @@ sub cmd_help {
 # h - existing file in host filesystem
 # nh - file in host filesystem (may or may not exist)
 # of - optional file format: dsk or img, also inferred from h
+# fs - flex file specifier: 1 or 1.foo.bar
 sub check_arg {
     my @expected = split " ",(shift @_);
     my %format;
@@ -495,6 +493,27 @@ sub check_arg {
                     print "ERROR could not infer format. Specify dsk or img\n";
                     return;
                 }
+            }
+        }
+        elsif ($f eq 'fs') {
+            # Flex file specifier
+            if (not defined $_[$i]) {
+                print "ERROR missing argument - expected flex file specifier\n";
+                return;
+            }
+            if (($_[$i] eq "0") or ($_[$i] eq "1") or
+                ($_[$i] eq "2") or ($_[$i] eq "3")) {
+                # make it more regular and we're done
+                $_[$i] = "$_[$i].*.*";
+            }
+            # From Flex User Manual
+            # 0-3 for drive, 1-8 character name, 1-3 character extension
+            # extension must start with a letter
+            # otherwise both can contain 0-9 a-z A-Z _ -
+            # in addition, name and extension can contain * to wildcard.
+            if ($_[$i] !~ /^[0123]\.[\*\w\-]{1,8}\.[\*a-zA-Z][\*\w\-]{0,2}$/) {
+                print "ERROR $_[$i] is not a legal file specifier\n";
+                return;
             }
         }
         else {
@@ -690,6 +709,27 @@ sub rd_dir {
 }
 
 
+# Given a drive number and (potentially wildcarded) file name/extension,
+# return a reference to a list of the directory entries that match.
+sub filter_dir {
+    my $drive = $_[0];
+    my $file = $_[1];
+    my $ext = $_[2];
+    my @matches;
+
+    # turn the file specifier into a legal PERL regex: * -> [-\w]*
+    $file =~ s|\*|\[-\\w\]\*|g;
+    $ext =~  s|\*|\[-\\w\]\*|g;
+
+    for my $i (0.. $#{$dsk[$drive]->{dir}}) {
+        if (($dsk[$drive]->{dir}->[$i]->{NAME} =~ /^$file$/)
+            and ($dsk[$drive]->{dir}->[$i]->{EXT} =~ /^$ext$/)) {
+            push @matches, $i;
+        }
+    }
+    return \@matches;
+}
+
 
 # return true if $drive is 0-3, false otherwise.
 # TODO may never be called now?
@@ -820,7 +860,7 @@ EOF
     }
     elsif ($cmd eq 'dir') {
         print <<EOF
-TODO
+    dir <virtual drive number> | <
 EOF
     }
     elsif ($cmd eq 'delete') {
@@ -830,7 +870,7 @@ EOF
     }
     elsif ($cmd eq 'link') {
         print <<EOF
-    link <full file specifier>
+    link <file specifier>
 
     Patch the boot sector of the disk holding the specified
     file (usually FLEX.SYS) so that a subsequent boot of the
@@ -838,6 +878,10 @@ EOF
 
     Example:
     link 1.FLEX.SYS
+    link 1.F*
+
+    Wildcarding will generate an error if it resolves to more
+    than one file.
 
     Background:
     use "help wrboot" for background on the Flex boot sector.
