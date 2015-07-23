@@ -23,6 +23,8 @@
 # FUTURE: TRUNCATE (remove sectors) and EXTEND (add sectors) commands
 # FUTURE: allow target of copy to be unique fs rather than simply drive name (ie copy
 # file with different name)
+# TODO: verify assertion that bytes 2,3 on each sector are an incrementing sector
+# number starting at 1.
 
 use strict;
 no strict 'refs'; # CLI makes subroutine from command name.
@@ -40,14 +42,11 @@ use warnings;
 # block <-> track/sector conversion is easy for the first track
 # but requires knowledge of the system information record (SIR)
 # in order to do conversions beyond the first track.
-my %flx;
-$flx{BYTES_SECTOR} = 256;
-#TODO not using these. Represent as a triplet and then use them?
-$flx{SIR_BLK} = 2; # Track=0 Sector=3
-$flx{LDR_BLK} = 0; # Track=0 Sector=1
-$flx{DIR_BLK} = 4; # Track=0 Sector=5
-
-
+# Flex constants.
+my $BYTES_SECTOR = 256;
+my @FLEX_SIR_TS = (0,3); # track/sector of SIR
+my @FLEX_LDR_TS = (0,1); # track/sector of boot loader
+my @FLEX_DIR_TS = (0,5); # track/sector of directory
 
 # Data structure
 # $dsk[0..3]
@@ -105,9 +104,6 @@ sub cmd_mount {
         $dsk[$drive]->{filename} = $file;
         $dsk[$drive]->{bytes_blk} = $format eq 'dsk' ? 256 : 512;
 
-        my $sir = rd_dts($drive, 0, 3);
-        my @sir = unpack("C*", $sir);
-        $dsk[$drive]->{sir}->{data} = \@sir;
         rd_sir($drive);
 
         # size the disk image
@@ -386,7 +382,7 @@ sub cmd_rdboot {
     return unless defined($drive);
 
     if ($dsk[$drive]->{mounted}) {
-        my $data = rd_dts($drive, 0, 1);
+        my $data = rd_dts($drive, @FLEX_LDR_TS);
         if (defined $data) {
             $boot = $data;
         }
@@ -403,7 +399,7 @@ sub cmd_wrboot {
 
     if (defined $boot) {
         if ($dsk[$drive]->{mounted}) {
-            wr_dts($drive, 0, 1, $boot);
+            wr_dts($drive, @FLEX_LDR_TS, $boot);
         }
         else {
             print "ERROR virtual drive $drive is not mounted\n";
@@ -416,11 +412,11 @@ sub cmd_wrboot {
 
 
 sub cmd_rdbootfile {
-    my $file = $_[0];
+    my ($file) = @_;
     if (open IN, $file) {
         my $data;
-        my $got = read IN, $data, $flx{BYTES_SECTOR};
-        if ($got == $flx{BYTES_SECTOR}) {
+        my $got = read IN, $data, $BYTES_SECTOR;
+        if ($got == $BYTES_SECTOR) {
             my $tmp;
             $got = read IN, $tmp, 1;
             if ($got == 0) {
@@ -428,11 +424,11 @@ sub cmd_rdbootfile {
                 $boot = $data;
             }
             else {
-                print "ERROR too much data - expected exactly $flx{BYTES_SECTOR} bytes\n";
+                print "ERROR too much data - expected exactly $BYTES_SECTOR bytes\n";
             }
         }
         else {
-            print "ERROR not enough data - expected $flx{BYTES_SECTOR} bytes\n";
+            print "ERROR not enough data - expected $BYTES_SECTOR bytes\n";
         }
         close IN;
     }
@@ -472,7 +468,7 @@ sub cmd_exit {
 
 
 sub cmd_help {
-    my $help_for = $_[0];
+    my ($help_for) = @_;
     if (defined $help_for) {
         help_for($help_for);
     }
@@ -606,6 +602,42 @@ sub cp_files {
     foreach my $i (@{$match}) {
         my $j = $dsk[$src]->{dir}->[$i];
         print "TODO copy file $src.$j->{NAME}.$j->{EXT} to $dst\n";
+
+# ** put directory sector and offset into data structure
+# get sir freelist start ts
+# get sir free sector count
+# FOREACH {
+# construct directory entry - new_dir_entry(date, $file, $ext) returns $dir_entry_ref
+# copy fields from original (name, ext, attributes)
+# get src start ts from directory entry
+# get src end ts from directory entry
+# get src sector count from directory entry
+# fill in directory entry start ts
+# while src ts != 0,0 {
+#   read src sector
+#   read dst sector (from sir freelist)
+#   copy all bytes but the first 2 from src to dst
+#   write src sector
+#   increment sector copied count
+#   decrement sir free sector count
+#   next src ts = ts from read src sector
+#   next dst ts = ts from written dst sector
+# }
+# sanity: src sector count == sector copied count
+# fill in directory entry end ts
+# fill in directory entry sector count
+# find next empty directory entry } add_dir_entry($drive,$dir_entry_ref)
+# read sector                     }
+# insert new directory entry      }
+# write directory sector
+# } # all files copied
+# update sir free sector count
+# update sir freelist start ts
+# write sir
+# refresh sir
+# TODO need to know how many free directory entries there are.. and check before copy, else
+# add_dir_entry could fail.
+
     }
 }
 
@@ -618,6 +650,27 @@ sub rm_files {
     foreach my $i (@{$match}) {
         my $j = $dsk[$drive]->{dir}->[$i];
         print "TODO delete file $drive.$j->{NAME}.$j->{EXT}\n";
+
+
+# ** put directory sector and offset into data structure
+# FOREACH {
+# get start ts from directory entry
+# get end ts from directory entry
+# get sector count from directory entry
+# read directory sector   }
+# null out filename       } rm_dir_entry($drive, ??index is no good.. need to have stored sector and offset)
+# write directory sector  }
+# get sir freelist end ts
+# get sir free count
+# read end sector
+# change link in end sector from 00 to point to start ts of deleted file
+# write end sector
+# compute new sir freelist end ts
+# compute new sir free count
+# edit sir (4 bytes)
+# pack and store sir
+# }
+# refresh directory (no need to do that entry by entry)
     }
 }
 
@@ -645,13 +698,13 @@ sub rd_dts {
         $seek = (($sct - 1) + ($trk * $dsk[$drive]->{sir}->{MAX_S})) * $dsk[$drive]->{bytes_blk};
     }
     if (seek $dsk[$drive]->{handle}, $seek, 0) {
-        my $got = read $dsk[$drive]->{handle}, $data, $flx{BYTES_SECTOR};
-        if ($got == $flx{BYTES_SECTOR}) {
+        my $got = read $dsk[$drive]->{handle}, $data, $BYTES_SECTOR;
+        if ($got == $BYTES_SECTOR) {
             return $data;
         }
         else {
             # TODO BUG: this makes it a fatal error to mount a bad file. Fix that!
-            die "Could not read $flx{BYTES_SECTOR} bytes at offset $seek on drive $drive";
+            die "Could not read $BYTES_SECTOR bytes at offset $seek on drive $drive";
         }
     }
     else {
@@ -684,7 +737,7 @@ sub wr_dts {
     if (seek $dsk[$drive]->{handle}, $seek, 0) {
         my $fh = $dsk[$drive]->{handle};
         print $fh $data;
-        if ($dsk[$drive]->{bytes_blk} != $flx{BYTES_SECTOR}) {
+        if ($dsk[$drive]->{bytes_blk} != $BYTES_SECTOR) {
             # 2nd copy
             print $fh $data;
         }
@@ -694,12 +747,22 @@ sub wr_dts {
     }
 }
 
-# decode bytes of the sir into a data structure that makes it
-# easy to access
+# read SIR and store it both as an array and as a decoded
+# data structure that makes it easy to access.
+# must NEVER write to the {sir}->{BLAH} hash.
+# ONLY write to the SIR via the wr_sir_XX routines in
+# order to keep everything sane. Those routines have the
+# responsibility of calling rd_sir() in order to keep the
+# local data-structure in sync.
 sub rd_sir {
-    my $drive = $_[0];
+    my ($drive) = @_;
 
-    my $sir = $dsk[$drive]->{sir}->{data};
+    my $sir = rd_dts($drive, @FLEX_SIR_TS);
+    my @sir = unpack("C*", $sir);
+    $dsk[$drive]->{sir}->{data} = \@sir;
+
+    # reference to data array
+    $sir = $dsk[$drive]->{sir}->{data};
 
     # SIR format is described in section 9.1.5 of the 6809FAG
     $dsk[$drive]->{sir}->{LNK}     = 256 * $sir->[0] + $sir->[1];
@@ -725,9 +788,15 @@ sub rd_sir {
     $dsk[$drive]->{sir}->{T1_OFFSET} = $dsk[$drive]->{sir}->{MAX_S};
 }
 
+# pack the SIR data and write it to disk
+sub wr_sir {
+    # TODO
+    print "TODO\n";
+}
+
 # Dump the SIR in human-readable format
 sub describe_sir {
-    my $drive = $_[0];
+    my ($drive) = @_;
     my $i = "        ";
 
     printf "$i Image size:   %d blocks (%d bytes)\n",
@@ -751,11 +820,10 @@ sub describe_sir {
 
 # read directory and attach data structure to $dsk
 sub rd_dir {
-    my $drive = $_[0];
+    my ($drive) = @_;
 
     # Directory format is described in FLEXAPG. This is the first sector.
-    my $trk = 0;
-    my $sct = 5;
+    my ($trk, $sct) = @FLEX_DIR_TS;
 
     my @dir;
 
@@ -867,7 +935,7 @@ sub sectors {
 
 
 sub help_for {
-    my $cmd = $_[0];
+    my ($cmd) = @_;
     if ($cmd eq 'mount') {
         print <<EOF
     mount <virtual drive number> <file on host filesystem> [format]
