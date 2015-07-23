@@ -8,8 +8,7 @@
 #
 # Neal Crook, July 2015.
 
-# next: implement cp_files rm_files
-# add deleted sectors to the END of the free list.
+# next: implement rm_files
 # next: make sure directory and sir are never dirty, otherwise have to trap ^C and
 # any fatal error in order to avoid file corruption. It's just not worth it.
 # next: label
@@ -62,7 +61,6 @@ my @FLEX_DIR_TS = (0,5); # track/sector of directory
 # filled in by rd_dir when disk was mounted:
 # $dsk[n]->{dir}->[n]->{NAME} array of directory entries
 # $dsk[n]->{dir}->[n]->{EXT} etc.
-
 my @dsk;
 
 # Boot sector. Binary string. Undefined if not loaded.
@@ -253,9 +251,16 @@ sub cmd_copy {
         return;
     }
 
+    # are there enough directory entries for the copy?
+    my $dst_dir_entries = dir_entries($dst) + scalar(@$rm_match);
+    if (scalar(@$cp_match) > $dst_dir_entries) {
+        print "ERROR insufficient directory entries for copy\n";
+        return;
+    }
+
     rm_files($dst, $rm_match);
-    rd_dir($dst);
     cp_files($src, $cp_match, $dst);
+    # TODO do I need this?
     rd_dir($dst);
 }
 
@@ -363,11 +368,11 @@ sub cmd_link {
         print "ERROR multiple files found matching $drive.$file.$ext\n";
     }
     else {
-        my $data = rd_dts($drive, 0, 1);
+        my $data = rd_dts($drive, @FLEX_LDR_TS);
         my @data = unpack("C*", $data);
         $data[5] = $dsk[$drive]->{dir}->[$match->[0]]->{FIRST_T};
         $data[6] = $dsk[$drive]->{dir}->[$match->[0]]->{FIRST_S};
-        wr_dts($drive, 0, 1, pack("C*", @data));
+        wr_dts($drive, @FLEX_LDR_TS, pack("C*", @data));
     }
 }
 
@@ -635,8 +640,6 @@ sub cp_files {
 # update sir freelist start ts
 # write sir
 # refresh sir
-# TODO need to know how many free directory entries there are.. and check before copy, else
-# add_dir_entry could fail.
 
     }
 }
@@ -646,32 +649,44 @@ sub cp_files {
 # files specified by list of directory indices
 sub rm_files {
     my ($drive, $match) = @_;
+    my $TRK = 0;
+    my $SCT = 1;
+    my $SIZ = 2;
+
+    my @end_free_tsc = ($dsk[$drive]->{sir}->{LAST_T},
+                        $dsk[$drive]->{sir}->{LAST_S},
+                        $dsk[$drive]->{sir}->{FREE});
 
     foreach my $i (@{$match}) {
         my $j = $dsk[$drive]->{dir}->[$i];
-        print "TODO delete file $drive.$j->{NAME}.$j->{EXT}\n";
 
+        my @start_file_tsc = rd_file_start_tsc($drive,$i);
+        my @end_file_tsc = rd_file_end_tsc($drive,$i);
 
-# ** put directory sector and offset into data structure
-# FOREACH {
-# get start ts from directory entry
-# get end ts from directory entry
-# get sector count from directory entry
-# read directory sector   }
-# null out filename       } rm_dir_entry($drive, ??index is no good.. need to have stored sector and offset)
-# write directory sector  }
-# get sir freelist end ts
-# get sir free count
-# read end sector
-# change link in end sector from 00 to point to start ts of deleted file
-# write end sector
-# compute new sir freelist end ts
-# compute new sir free count
-# edit sir (4 bytes)
-# pack and store sir
-# }
-# refresh directory (no need to do that entry by entry)
+        rm_dir_entry($drive, $i);
+
+        # 2 steps to add sectors that used to belong to the file onto
+        # the end of the free list (adding to the end gives more chance
+        # of being able to undelete if needed!)
+
+        # First: link from old end of free list to start of chain formed
+        # by sectors released by file deletion
+        my $data = rd_dts($drive, $end_free_tsc[$TRK], $end_free_tsc[$SCT]);
+        my @data = unpack("C*", $data);
+        $data[0] = $start_file_tsc[$TRK];
+        $data[1] = $start_file_tsc[$SCT];
+        wr_dts($drive, $end_free_tsc[$TRK], $end_free_tsc[$SCT], pack("C*", @data));
+
+        # Last: update the free list chain and count.. no need to write it back yet.
+        $end_free_tsc[$TRK] = $end_file_tsc[$TRK];
+        $end_free_tsc[$SCT] = $end_file_tsc[$SCT];
+        $end_free_tsc[$SIZ] = $end_free_tsc[$SIZ] + $end_file_tsc[$SIZ];
     }
+
+    # Finally, update the SIR
+    wr_sir_end_free($drive, @end_free_tsc);
+    # and refresh the local copy
+    rd_sir($drive);
 }
 
 
@@ -788,10 +803,15 @@ sub rd_sir {
     $dsk[$drive]->{sir}->{T1_OFFSET} = $dsk[$drive]->{sir}->{MAX_S};
 }
 
-# pack the SIR data and write it to disk
-sub wr_sir {
-    # TODO
-    print "TODO\n";
+# Update the end of the free list and the free sector count in the SIR
+# commit to disk and refresh local copy
+sub wr_sir_end_free {
+    my ($drive, $trk, $sct, $count) = @_;
+    $dsk[$drive]->{sir}->{data}->[31] = $trk;
+    $dsk[$drive]->{sir}->{data}->[32] = $sct;
+    $dsk[$drive]->{sir}->{data}->[33] = ($count >> 8) & 0xff; # MS
+    $dsk[$drive]->{sir}->{data}->[34] = $count & 0xff; # LS
+    wr_dts($drive, @FLEX_SIR_TS, pack("C*", @{$dsk[$drive]->{sir}->{data}}));
 }
 
 # Dump the SIR in human-readable format
@@ -832,26 +852,44 @@ sub rd_dir {
         my $data = rd_dts($drive, $trk, $sct);
         my @data = unpack("C*", $data);
 
+        # Each sector contains 10, 24-byte entries
+        # The first entry starts in the 16th byte.
         my $offset = 16;
         foreach my $entry(0..9) {
             my %d;
 
-            # first byte of filename is 0 if it has never been used
-            # or has bit 7 set if it has been deleted.
-            my $nstart = 4 -4+$offset+($entry*24);
-            my $first = ord substr($data, $nstart, 1);
-            next if (($first == 0) || ($first & 0x80));
+            $d{T} = $trk;
+            $d{S} = $sct;
+            $d{ENTRY} = $entry;
 
 # TODO convert to ONLY use @data instead
-            # the name can be null-terminated, which is non-printing but tidiest to remove them
-            my $name = substr($data, $nstart, 8);
-            $name =~ /(^[a-zA-Z0-9\-\_]+)/;
-            $d{NAME} = $1;
 
-            # likewise the extension
-            my $ext = substr($data, $nstart+8, 3);
-            $ext =~ /(^[a-zA-Z]+)/;
-            $d{EXT} = $1;
+            # first byte of filename is 0 if it has never been used
+            # or has bit 7 set if it has been deleted.
+            my $nstart = $offset+($entry*24);
+            my $first = ord substr($data, $nstart, 1);
+            if ($first == 0) {
+                # illegal Flex name so will never match directory listing
+                $d{NAME} = "%UNUSED";
+                $d{EXT} = "%";
+            }
+            elsif ($first & 0x80) {
+                # illegal Flex name so will never match directory listing
+                $d{NAME} = "%DELETED";
+                $d{EXT} = "%";
+            }
+            else {
+
+                # the name can be null-terminated, which is non-printing but tidiest to remove them
+                my $name = substr($data, $nstart, 8);
+                $name =~ /(^[a-zA-Z0-9\-\_]+)/;
+                $d{NAME} = $1;
+
+                # likewise the extension
+                my $ext = substr($data, $nstart+8, 3);
+                $ext =~ /(^[a-zA-Z]+)/;
+                $d{EXT} = $1;
+            }
 
             $d{ATTR}    = $data[15-4+$offset+($entry*24)];
             $d{FIRST_T} = $data[17-4+$offset+($entry*24)];
@@ -921,6 +959,49 @@ sub exact_match_dir {
 }
 
 
+# delete an entry from the directory by editing the sector
+sub rm_dir_entry {
+    my ($drive, $index) = @_;
+
+    my $trk = $dsk[$drive]->{dir}->[$index]->{T};
+    my $sct = $dsk[$drive]->{dir}->[$index]->{S};
+    my $entry = $dsk[$drive]->{dir}->[$index]->{ENTRY};
+
+    # set MSB of the first byte of the name
+    my $offset = 16 + ($entry * 24);
+
+    # keep local data structure intact
+    $dsk[$drive]->{dir}->[$index]->{NAME} = "%DELETED";
+    $dsk[$drive]->{dir}->[$index]->{EXT} = "%";
+
+    my $data = rd_dts($drive, $trk, $sct);
+    my @data = unpack("C*", $data);
+    $data[$offset] = $data[$offset] | 0x80;
+
+    wr_dts($drive, $trk, $sct, pack("C*", @data));
+}
+
+
+# return start track/sector and sector count for specified file
+sub rd_file_start_tsc {
+    my ($drive, $index) = @_;
+
+    return ($dsk[$drive]->{dir}->[$index]->{FIRST_T},
+            $dsk[$drive]->{dir}->[$index]->{FIRST_S},
+            $dsk[$drive]->{dir}->[$index]->{SIZE});
+}
+
+
+# return last track/sector and sector count for specified file
+sub rd_file_end_tsc {
+    my ($drive, $index) = @_;
+
+    return ($dsk[$drive]->{dir}->[$index]->{LAST_T},
+            $dsk[$drive]->{dir}->[$index]->{LAST_S},
+            $dsk[$drive]->{dir}->[$index]->{SIZE});
+}
+
+
 # sum the sectors needed to hold the specified files
 sub sectors {
     my ($drive, $match) = @_;
@@ -928,6 +1009,22 @@ sub sectors {
 
     foreach my $i (@{$match}) {
         $sum = $sum + $dsk[$drive]->{dir}->[$i]->{SIZE};
+    }
+
+    return $sum;
+}
+
+
+# count the number of free directory entries
+sub dir_entries {
+    my ($drive) = @_;
+    my $sum = 0;
+
+    for my $i (0.. $#{$dsk[$drive]->{dir}}) {
+        my $j = $dsk[$drive]->{dir}->[$i];
+        if (($j->{NAME} eq "%UNUSED") or ($j->{NAME} eq "%DELETED")) {
+            $sum = $sum + 1;
+        }
     }
 
     return $sum;
