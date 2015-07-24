@@ -7,21 +7,19 @@
 # use.
 #
 # Neal Crook, July 2015.
+# foofoobedoo@gmail.com
+#
 
-# next: implement rm_files
-# next: make sure directory and sir are never dirty, otherwise have to trap ^C and
-# any fatal error in order to avoid file corruption. It's just not worth it.
-# next: label
-# next: implement "then" as command separator and allow command-line and add to help.
-# then new copy delete check scrub
-# finally import export repair
-# TODO: record inode so that we cannot double-mount a drive?
-# TODO: it is NOT legal to have a null file name. It is legal to have a null extension?
-# TODO: add optional y/n arg to delete.
+# not yet implemented: new export import fix check scrub repair label
+
+# FUTURE: it is NOT legal to have a null file name. It is legal to have a null extension?
+# FUTURE: add optional y/n arg to delete.
 # FUTURE: DATE command, RENAME command, mixedcase-toggle command
+# FUTURE: THEN (command separator)
 # FUTURE: TRUNCATE (remove sectors) and EXTEND (add sectors) commands
 # FUTURE: allow target of copy to be unique fs rather than simply drive name (ie copy
 # file with different name)
+# FUTURE: record inode so that we cannot double-mount a drive.
 # TODO: verify assertion that bytes 2,3 on each sector are an incrementing sector
 # number starting at 1.
 
@@ -72,6 +70,9 @@ while (1) {
     print "flex_vfs: ";
     my $cmd = <>;
     chomp $cmd;
+    # remove comments
+    $cmd =~ s/\(.*\)//g;
+    $cmd =~ s/\#.*$//;
     next if ($cmd eq "");
     my @bits = split " ", $cmd;
     my $sub = "cmd_$bits[0]";
@@ -172,7 +173,7 @@ sub cmd_clone {
                     print $handle $data;
                 }
                 else {
-                    my $half = substr $data, $bb_out, $bb_out;
+                    my $half = substr($data, $bb_out, $bb_out);
                     print $handle $half;
                 }
             }
@@ -260,8 +261,6 @@ sub cmd_copy {
 
     rm_files($dst, $rm_match);
     cp_files($src, $cp_match, $dst);
-    # TODO do I need this?
-    rd_dir($dst);
 }
 
 
@@ -603,45 +602,86 @@ sub check_arg {
 # files specified by list of directory indices
 sub cp_files {
     my ($src, $match, $dst) = @_;
+    my $TRK = 0;
+    my $SCT = 1;
+    my $SIZ = 2;
+
+    my @start_free_tsc = ($dsk[$dst]->{sir}->{FIRST_T},
+                          $dsk[$dst]->{sir}->{FIRST_S},
+                          $dsk[$dst]->{sir}->{FREE});
 
     foreach my $i (@{$match}) {
         my $j = $dsk[$src]->{dir}->[$i];
-        print "TODO copy file $src.$j->{NAME}.$j->{EXT} to $dst\n";
 
-# ** put directory sector and offset into data structure
-# get sir freelist start ts
-# get sir free sector count
-# FOREACH {
-# construct directory entry - new_dir_entry(date, $file, $ext) returns $dir_entry_ref
-# copy fields from original (name, ext, attributes)
-# get src start ts from directory entry
-# get src end ts from directory entry
-# get src sector count from directory entry
-# fill in directory entry start ts
-# while src ts != 0,0 {
-#   read src sector
-#   read dst sector (from sir freelist)
-#   copy all bytes but the first 2 from src to dst
-#   write src sector
-#   increment sector copied count
-#   decrement sir free sector count
-#   next src ts = ts from read src sector
-#   next dst ts = ts from written dst sector
-# }
-# sanity: src sector count == sector copied count
-# fill in directory entry end ts
-# fill in directory entry sector count
-# find next empty directory entry } add_dir_entry($drive,$dir_entry_ref)
-# read sector                     }
-# insert new directory entry      }
-# write directory sector
-# } # all files copied
-# update sir free sector count
-# update sir freelist start ts
-# write sir
-# refresh sir
+        my @src_start_file_tsc = rd_file_start_tsc($src,$i);
+        my $trk = $src_start_file_tsc[$TRK];
+        my $sct = $src_start_file_tsc[$SCT];
+        my $copied = 0;
 
+        # Use directory entry from src as starting point.
+        # *must* update start ts, end ts. Everything else
+        # can stay as-is.
+        my $dir_entry_data = rd_dir_entry($src, $i);
+
+        # copied file starts at first sector of
+        # destination free-list.
+        $dir_entry_data->[17-4] = $start_free_tsc[$TRK];
+        $dir_entry_data->[18-4] = $start_free_tsc[$SCT];
+
+        while (($trk != 0) or ($sct != 0)) {
+            $copied = $copied + 1;
+            my $data = rd_dts($src, $trk, $sct);
+            my @data = unpack("C*", $data);
+
+            my $dst_data = rd_dts($dst,
+                                  $start_free_tsc[$TRK],
+                                  $start_free_tsc[$SCT]);
+            my @dst_data = unpack("C*", $dst_data);
+
+            # next to read
+            $trk = $data[0];
+            $sct = $data[1];
+
+            # copy the sector from src to dst. First, need
+            # to update its link field so that the destination
+            # sector links to the next sector on dst.. unless
+            # this was the last sector, in which case we break
+            # the chain.
+            if (($trk == 0) and ($sct == 0)) {
+                $data[0] = 0;
+                $data[1] = 0;
+
+                # copied file ends at this sector of
+                # destination free-list.
+                $dir_entry_data->[17-4] = $start_free_tsc[$TRK];
+                $dir_entry_data->[18-4] = $start_free_tsc[$SCT];
+            }
+            else {
+                $data[0] = $dst_data[0];
+                $data[1] = $dst_data[1];
+            }
+            wr_dts($dst, $start_free_tsc[$TRK], $start_free_tsc[$SCT], pack("C*", @data));
+
+            # update free list at destination
+            $start_free_tsc[$TRK] = $dst_data[0];
+            $start_free_tsc[$SCT] = $dst_data[1];
+            $start_free_tsc[$SIZ] = $start_free_tsc[$SIZ] - 1;
+        }
+
+        # sanity
+        if ($copied != $src_start_file_tsc[$SIZ]) {
+            print "ERROR - copied file chain longer than file declared\n";
+        }
+
+        my $index = allocate_dir_entry($dst);
+        wr_dir_entry($dst, $index, $dir_entry_data);
     }
+
+    # Finally, update the SIR
+    wr_sir_start_free($dst, @start_free_tsc);
+    # and refresh the local data
+    rd_sir($dst);
+    rd_dir($dst);
 }
 
 
@@ -803,6 +843,7 @@ sub rd_sir {
     $dsk[$drive]->{sir}->{T1_OFFSET} = $dsk[$drive]->{sir}->{MAX_S};
 }
 
+
 # Update the end of the free list and the free sector count in the SIR
 # commit to disk and refresh local copy
 sub wr_sir_end_free {
@@ -813,6 +854,19 @@ sub wr_sir_end_free {
     $dsk[$drive]->{sir}->{data}->[34] = $count & 0xff; # LS
     wr_dts($drive, @FLEX_SIR_TS, pack("C*", @{$dsk[$drive]->{sir}->{data}}));
 }
+
+
+# Update the start of the free list and the free sector count in the SIR
+# commit to disk and refresh local copy
+sub wr_sir_start_free {
+    my ($drive, $trk, $sct, $count) = @_;
+    $dsk[$drive]->{sir}->{data}->[29] = $trk;
+    $dsk[$drive]->{sir}->{data}->[30] = $sct;
+    $dsk[$drive]->{sir}->{data}->[33] = ($count >> 8) & 0xff; # MS
+    $dsk[$drive]->{sir}->{data}->[34] = $count & 0xff; # LS
+    wr_dts($drive, @FLEX_SIR_TS, pack("C*", @{$dsk[$drive]->{sir}->{data}}));
+}
+
 
 # Dump the SIR in human-readable format
 sub describe_sir {
@@ -891,17 +945,17 @@ sub rd_dir {
                 $d{EXT} = $1;
             }
 
-            $d{ATTR}    = $data[15-4+$offset+($entry*24)];
-            $d{FIRST_T} = $data[17-4+$offset+($entry*24)];
-            $d{FIRST_S} = $data[18-4+$offset+($entry*24)];
-            $d{LAST_T}  = $data[19-4+$offset+($entry*24)];
-            $d{LAST_S}  = $data[20-4+$offset+($entry*24)];
-            $d{SIZE}    = 256 * $data[21+0-4+$offset+($entry*24)] +
-                                $data[21+1-4+$offset+($entry*24)];
-            $d{FSM}     = $data[23-4+$offset+($entry*24)];
-            $d{DATE_M}  = $data[25+0-4+$offset+($entry*24)];
-            $d{DATE_D}  = $data[25+1-4+$offset+($entry*24)];
-            $d{DATE_Y}  = $data[25+2-4+$offset+($entry*24)] %100; # Y2K fixup
+            $d{ATTR}    = $data[15-4+$nstart];
+            $d{FIRST_T} = $data[17-4+$nstart];
+            $d{FIRST_S} = $data[18-4+$nstart];
+            $d{LAST_T}  = $data[19-4+$nstart];
+            $d{LAST_S}  = $data[20-4+$nstart];
+            $d{SIZE}    = 256 * $data[21+0-4+$nstart] +
+                                $data[21+1-4+$nstart];
+            $d{FSM}     = $data[23-4+$nstart];
+            $d{DATE_M}  = $data[25+0-4+$nstart];
+            $d{DATE_D}  = $data[25+1-4+$nstart];
+            $d{DATE_Y}  = $data[25+2-4+$nstart] %100; # Y2K fixup
 
             push @dir,\%d;
         }
@@ -967,7 +1021,7 @@ sub rm_dir_entry {
     my $sct = $dsk[$drive]->{dir}->[$index]->{S};
     my $entry = $dsk[$drive]->{dir}->[$index]->{ENTRY};
 
-    # set MSB of the first byte of the name
+    # first byte of the directory entry (first byte of the name)
     my $offset = 16 + ($entry * 24);
 
     # keep local data structure intact
@@ -976,8 +1030,82 @@ sub rm_dir_entry {
 
     my $data = rd_dts($drive, $trk, $sct);
     my @data = unpack("C*", $data);
+    # set MSB to mark it as a deleted entry
     $data[$offset] = $data[$offset] | 0x80;
 
+    wr_dts($drive, $trk, $sct, pack("C*", @data));
+}
+
+
+# Return an index to a directory entry that is unused.
+# If possible, an entry that has never been used will be
+# allocated. Otherwise, an entry that has been deleted will
+# be allocated. Use dir_entries() before to make sure that
+# an unallocated entry exists; there is no check here.
+sub allocate_dir_entry {
+    my ($drive) = @_;
+
+    # first try for a never-used entry
+    for my $i (0.. $#{$dsk[$drive]->{dir}}) {
+        my $j = $dsk[$drive]->{dir}->[$i];
+        if ($j->{NAME} eq "%UNUSED") {
+            # keep local data structure intact
+            $j->{NAME} = "%ALLOCATED";
+            return $i
+        }
+    }
+
+    # otherwise a deleted entry
+    for my $i (0.. $#{$dsk[$drive]->{dir}}) {
+        my $j = $dsk[$drive]->{dir}->[$i];
+        if ($j->{NAME} eq "%DELETED") {
+            # keep local data structure intact
+            $j->{NAME} = "%ALLOCATED";
+            return $i
+        }
+    }
+    die "FATAL internal error - no unused directory entry\n";
+}
+
+
+# return a reference to a 24-element array that is the directory
+# data for the specified index/drive. Read from disk.
+sub rd_dir_entry {
+    my ($drive, $index) = @_;
+
+    my $trk = $dsk[$drive]->{dir}->[$index]->{T};
+    my $sct = $dsk[$drive]->{dir}->[$index]->{S};
+    my $entry = $dsk[$drive]->{dir}->[$index]->{ENTRY};
+
+    # first byte of the directory entry
+    my $offset = 16 + ($entry * 24);
+
+    my $data = rd_dts($drive, $trk, $sct);
+    my $dir_data = substr($data, $offset, 24);
+    my @dir_data = unpack("C*", $dir_data);
+    return \@dir_data;
+}
+
+
+# write a directory entry to disk. The directory entry is a
+# reference to a 24-element array that is the directory data
+# and it's written to the specified index/drive. Writes to disk.
+# Local copy of directory structure is NOT kept coherent.
+sub wr_dir_entry {
+    my ($drive, $index, $dir_data) = @_;
+
+    my $trk = $dsk[$drive]->{dir}->[$index]->{T};
+    my $sct = $dsk[$drive]->{dir}->[$index]->{S};
+    my $entry = $dsk[$drive]->{dir}->[$index]->{ENTRY};
+
+    # first byte of the directory entry
+    my $offset = 16 + ($entry * 24);
+
+    my $data = rd_dts($drive, $trk, $sct);
+    my @data = unpack("C*", $data);
+    for my $i (0..23) {
+        $data[$offset + $i] = $dir_data->[$i];
+    }
     wr_dts($drive, $trk, $sct, pack("C*", @data));
 }
 
@@ -1297,6 +1425,41 @@ EOF
     each SDcard block. On reads, the first copy is used.
 EOF
     }
+    elsif ($cmd eq 'comments') {
+        print <<EOF
+    Command lines can include comments (useful for a script) in two
+    different formats:
+
+    (text in braces is treated as a comment and ignored)
+    # text from a hash to the end of the line is ignored
+EOF
+    }
+    elsif ($cmd eq 'scripts') {
+        print <<EOF
+    If you put a sequence of commands in a file you can run them
+    by redirecting STDIN. For example, create a file sys.scr with
+    this content:
+
+# make a bootable system disk
+mount 1 test1.img
+clone 1 boot.dsk
+mount 2 boot.dsk
+copy 1.*.CMD 2      # need commands
+copy 1.FLEX.SYS 2   # need this too!
+rdboot 1
+wrboot 2            # copy boot sector
+link 2.FLEX.SYS     # make it bootable
+exit
+
+    From the command line invoke it like this:
+
+\$ flex_vfs < sys.scr
+
+    The script *must* end with an exit command; you can't
+    (for example) drop in to the command line (that's a pity
+    and I'd welcome suggestions that would make that work).
+EOF
+    } #'
     else {
         # no more to say about info, help, exit (or any non-existent command)
         print <<EOF
@@ -1339,7 +1502,9 @@ Commands are:
     quit       - synonym for exit
     help       - this is it.
 
-Type help <command name> for more help.
+Other help topics: comments formats scripts
+
+Type help <command name> or help <topic> for more help.
 EOF
 }
 
