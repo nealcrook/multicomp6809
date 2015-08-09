@@ -653,8 +653,8 @@ sub cp_files {
 
                 # copied file ends at this sector of
                 # destination free-list.
-                $dir_entry_data->[17-4] = $start_free_tsc[$TRK];
-                $dir_entry_data->[18-4] = $start_free_tsc[$SCT];
+                $dir_entry_data->[19-4] = $start_free_tsc[$TRK];
+                $dir_entry_data->[20-4] = $start_free_tsc[$SCT];
             }
             else {
                 $data[0] = $dst_data[0];
