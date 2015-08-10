@@ -10,7 +10,7 @@
 # foofoobedoo@gmail.com
 #
 
-# not yet implemented: new export import fix check repair label
+# not yet implemented: new export import fix check repair
 
 # FUTURE: it is NOT legal to have a null file name. It is legal to have a null extension?
 # FUTURE: add optional y/n arg to delete.
@@ -22,6 +22,9 @@
 # FUTURE: record inode so that we cannot double-mount a drive.
 # TODO: verify assertion that bytes 2,3 on each sector are an incrementing sector
 # number starting at 1.
+# TODO: not sure if volume label should be restricted to 10 or 11 char. If 11, there
+# is a bug in flextract, which expects the label to be null-terminated.
+
 
 use strict;
 no strict 'refs'; # CLI makes subroutine from command name.
@@ -265,12 +268,22 @@ sub cmd_copy {
 
 
 sub cmd_label {
-    my ($drive) = check_arg('v', @_);
+    my ($drive,$label,$vol,$mm, $dd, $yy) = check_arg('v l ovd',@_);
     return unless defined($drive);
 
     if ($dsk[$drive]->{mounted}) {
-# TODO
-# TODO update in {sir} and then flush to disk?
+        # label MUST be present otherwise we would not get this far
+        wr_sir_label($drive, $label);
+
+        # volume number optional
+        if (defined $vol) {
+            wr_sir_vol($drive, $vol);
+
+            # date optional
+            if (defined $mm) {
+                wr_sir_date($drive, $mm, $dd, $yy);
+            }
+        }
     }
     else {
         print "ERROR virtual drive $drive is not mounted\n";
@@ -452,13 +465,14 @@ sub cmd_scrub {
     return unless defined($drive);
 
     if ($dsk[$drive]->{mounted}) {
-        # scrub all unused directory entries
+        # scrub each unused directory entry
         my @empty_dir_entry = (0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0);
         my $to_scrub = dir_entries($drive);
         for my $i (1..$to_scrub) {
             my $index = allocate_dir_entry($drive);
             wr_dir_entry($drive, $index, \@empty_dir_entry);
         }
+        rd_dir($drive);
 
         # scrub each sector in the free list
         my $track = $dsk[$drive]->{sir}->{FIRST_T};
@@ -531,6 +545,10 @@ sub cmd_help {
 # nh - file in host filesystem (may or may not exist)
 # of - optional file format: dsk or img, also inferred from h
 # fs - flex file specifier: 1 or 1.foo.bar
+# l - disk label (truncated to 16 characters)
+# ovd - optional 16-bit volume number optionally followed by date in
+#       the form mm/dd/yy - no sanity check is done and the
+#       date is returned as 3 separate entries: mm, dd, yy.
 sub check_arg {
     my @expected = split " ",(shift @_);
     my $host_file;  # stored for use by subsequent 'of' argument
@@ -621,6 +639,40 @@ sub check_arg {
             if ($_[$i] !~ /^[0123]\.[\*\w\-]{1,8}\.[\*a-zA-Z][\*\w\-]{0,2}$/) {
                 print "ERROR $_[$i] is not a legal file specifier\n";
                 return;
+            }
+        }
+        elsif ($f eq 'l') {
+            # Flex disk label - upto 11 characters
+            if (not defined $_[$i]) {
+                print "ERROR missing argument - expected flex disk label\n";
+                return;
+            }
+            $_[$i] = substr($_[$i], 0, 11);
+        }
+        elsif ($f eq 'ovd') {
+            # Optional Flex disk volume. If present, must be 16-bit value
+            if (defined $_[$i]) {
+                if (($_[$i] =~ /^\d+$/) && ($_[$i] < 65536)) {
+                    # Volume number is OK
+
+                    # Optional Flex date mm/dd/yy.
+                    if (defined $_[$i+1]) {
+                        $i = $i + 1;
+                        if ($_[$i] =~ /^(\d\d)\/(\d\d)\/(\d\d)$/) {
+                            # all is well. Replace $_[$i] with the month, day, year
+                            # which are the regex groups $1 $2 $3 respectively.
+                            splice @_, $i, 1, $1, $2, $3;
+                        }
+                        else {
+                            print "ERROR illegal date format - expected mm/dd/yy\n";
+                            return;
+                        }
+                    }
+                }
+                else {
+                    print "ERROR illegal volume number - expected 16-bit decimal value\n";
+                    return;
+                }
             }
         }
         else {
@@ -856,9 +908,11 @@ sub rd_sir {
     # SIR format is described in section 9.1.5 of the 6809FAG
     $dsk[$drive]->{sir}->{LNK}     = 256 * $sir->[0] + $sir->[1];
     my $name = '';
-    for my $i (16..16+11-1) {
+    for my $i (16..26) {
+        last if $dsk[$drive]->{sir}->{data}->[$i] == 0;
         $name = $name . chr $dsk[$drive]->{sir}->{data}->[$i];
     }
+
     $dsk[$drive]->{sir}->{NAME}    = $name;
     $dsk[$drive]->{sir}->{NUM}     = 256 * $sir->[27] + $sir->[28];
     $dsk[$drive]->{sir}->{FIRST_T} = $sir->[29];
@@ -902,6 +956,55 @@ sub wr_sir_start_free {
 }
 
 
+# Change the SIR disk label, commit to disk and refresh local copy.
+# label is 1-11 characters long.
+sub wr_sir_label {
+    my ($drive, $label) = @_;
+    $dsk[$drive]->{sir}->{NAME} = $label;
+
+    for my $i (0..10) {
+        if ($i < length $label) {
+            $dsk[$drive]->{sir}->{data}->[16 + $i] = ord substr($label, $i, 1);
+        }
+        else {
+            $dsk[$drive]->{sir}->{data}->[16 + $i] = 0;
+        }
+    }
+
+    wr_dts($drive, @FLEX_SIR_TS, pack("C*", @{$dsk[$drive]->{sir}->{data}}));
+}
+
+
+# Change the SIR disk vol number, commit to disk and refresh local copy.
+# vol is 16-bit value.
+sub wr_sir_vol {
+    my ($drive, $vol) = @_;
+    $dsk[$drive]->{sir}->{NUM} = $vol;
+
+    $dsk[$drive]->{sir}->{data}->[27] = $vol>>8;
+    $dsk[$drive]->{sir}->{data}->[28] = $vol & 0xff;
+
+    wr_dts($drive, @FLEX_SIR_TS, pack("C*", @{$dsk[$drive]->{sir}->{data}}));
+}
+
+
+# Change the SIR disk date, commit to disk and refresh local copy.
+# mm dd yy are all values in the range 0-99. No range check has been done.
+# TODO may need Y2K fix here.
+sub wr_sir_date {
+    my ($drive, $mm, $dd, $yy) = @_;
+    $dsk[$drive]->{sir}->{DATE_M} = $mm;
+    $dsk[$drive]->{sir}->{DATE_D} = $dd;
+    $dsk[$drive]->{sir}->{DATE_Y} = $yy;
+
+    $dsk[$drive]->{sir}->{data}->[35] = $mm;
+    $dsk[$drive]->{sir}->{data}->[36] = $dd;
+    $dsk[$drive]->{sir}->{data}->[37] = $yy;
+
+    wr_dts($drive, @FLEX_SIR_TS, pack("C*", @{$dsk[$drive]->{sir}->{data}}));
+}
+
+
 # Dump the SIR in human-readable format
 sub describe_sir {
     my ($drive) = @_;
@@ -912,9 +1015,9 @@ sub describe_sir {
 # TODO
 #        printf "%d blocks with data first/second half mismatches\n", $dsk[$drive]->{sir}->{SDMISMATCH};
 
-    printf "$i Disk name:   %12s\n", $dsk[$drive]->{sir}->{NAME};
+    printf "$i Disk name:    %-11s\n", $dsk[$drive]->{sir}->{NAME};
     printf "$i Disk number:  %d\n",  $dsk[$drive]->{sir}->{NUM};
-    printf "$i Disk date:    %02d-%02d-%02d\n", $dsk[$drive]->{sir}->{DATE_M},
+    printf "$i Disk date:    %02d/%02d/%02d (mm/dd/yy)\n", $dsk[$drive]->{sir}->{DATE_M},
     $dsk[$drive]->{sir}->{DATE_D}, $dsk[$drive]->{sir}->{DATE_Y};
     printf "$i Free sectors: %d. Free chain t%02d,s%02d - t%02d,s%02d\n",
     $dsk[$drive]->{sir}->{FREE},
@@ -1286,14 +1389,21 @@ EOF
     }
     elsif ($cmd eq 'label') {
         print <<EOF
-    label <virtual drive number> mydisk
+    label <virtual drive number> mylabel [ myvolume [ mydate]]
 
-    change the label for the specified virtual drive number. The
-    label is truncated after TODO characters.
+    Change the label for the specified virtual drive number.
+    label is truncated after 11 characters.
+
+    Optionally also change the volume number. Volume number is
+    a 16-bit value expressed in decimal (ie, 0-65535).
+
+    Optionally also change the date. The date is in the format
+    mm/dd/yy. The date is NOT checked to be legal!
 
     Example:
     label 1 mydisk
-    label 0 flex_09
+    label 0 flex_09 456
+    label 2 newdisk 124 03/24/97
 EOF
     }
     elsif ($cmd eq 'export') {
@@ -1524,7 +1634,7 @@ Commands are:
     umount     - disconnect disk image from drive number
     new        - create new empty disk image (optional geometry specification)
     copy       - copy file(s) from one virtual drive to another
-    label      - change disk label
+    label      - change disk label/volume number/creation date
     export     - copy file from virtual drive to local file system (optional format conversion)
     import     - copy file from local file system to virtual drive (optional format conversion)
     dir        - directory of virtual drive
