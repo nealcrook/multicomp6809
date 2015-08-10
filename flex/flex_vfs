@@ -10,7 +10,7 @@
 # foofoobedoo@gmail.com
 #
 
-# not yet implemented: new export import fix check scrub repair label
+# not yet implemented: new export import fix check repair label
 
 # FUTURE: it is NOT legal to have a null file name. It is legal to have a null extension?
 # FUTURE: add optional y/n arg to delete.
@@ -448,7 +448,41 @@ sub cmd_check {
 
 
 sub cmd_scrub {
-    print "scrub TODO - not yet implemented\n";
+    my ($drive) = check_arg('v', @_);
+    return unless defined($drive);
+
+    if ($dsk[$drive]->{mounted}) {
+        # scrub all unused directory entries
+        my @empty_dir_entry = (0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0);
+        my $to_scrub = dir_entries($drive);
+        for my $i (1..$to_scrub) {
+            my $index = allocate_dir_entry($drive);
+            wr_dir_entry($drive, $index, \@empty_dir_entry);
+        }
+
+        # scrub each sector in the free list
+        my $track = $dsk[$drive]->{sir}->{FIRST_T};
+        my $sector = $dsk[$drive]->{sir}->{FIRST_S};
+        my @empty_sector;
+        for my $i (0..255) {
+            $empty_sector[$i] = 0;
+        }
+
+        while (($track != 0) or ($sector != 0)) {
+            my $data = rd_dts($drive, $track, $sector);
+            my @data = unpack("C*", $data);
+            # rewrite this sector with only the link intact
+            $empty_sector[0] = $data[0];
+            $empty_sector[1] = $data[1];
+            wr_dts($drive, $track, $sector, pack("C*", @empty_sector));
+            # next
+            $track = $data[0];
+            $sector = $data[1];
+        }
+    }
+    else {
+        print "ERROR virtual drive $drive is not mounted\n";
+    }
 }
 
 
@@ -1384,7 +1418,12 @@ EOF
     }
     elsif ($cmd eq 'scrub') {
         print <<EOF
-TODO
+    scrub <virtual drive number>
+
+    Over-write every unused directory entry and every unused sector
+    with 0x00 values. This is intended to remove all trace of deleted
+    files. The main motivation is to allow the resultant disk images
+    to compress better.
 EOF
     }
     elsif ($cmd eq 'repair') {
