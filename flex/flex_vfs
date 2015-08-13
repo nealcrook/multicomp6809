@@ -10,7 +10,7 @@
 # foofoobedoo@gmail.com
 #
 
-# not yet implemented: new export import fix check repair
+# not yet implemented: export import fix check repair
 
 # FUTURE: it is NOT legal to have a null file name. It is legal to have a null extension?
 # FUTURE: add optional y/n arg to delete.
@@ -24,7 +24,7 @@
 # number starting at 1.
 # TODO: not sure if volume label should be restricted to 10 or 11 char. If 11, there
 # is a bug in flextract, which expects the label to be null-terminated.
-
+# BUG: pressing CTRL-D results in lots of PERL warnings
 
 use strict;
 no strict 'refs'; # CLI makes subroutine from command name.
@@ -47,6 +47,10 @@ my $BYTES_SECTOR = 256;
 my @FLEX_SIR_TS = (0,3); # track/sector of SIR
 my @FLEX_LDR_TS = (0,1); # track/sector of boot loader
 my @FLEX_DIR_TS = (0,5); # track/sector of directory
+
+# Default disk geometry
+my $DFLT_TRKS = 80;
+my $DFLT_SCTS = 72;
 
 # Data structure
 # $dsk[0..3]
@@ -221,7 +225,120 @@ sub cmd_umount {
 
 
 sub cmd_new {
-    print "new TODO - not yet implemented\n";
+    my ($file, $format, $tracks, $sectors) = check_arg('nh of ots', @_);
+    return unless defined ($file);
+
+    # TODO I made up these limits. Should probably impose maxima, too.
+    if ($tracks < 2) {
+        print "ERROR cannot have so few tracks\n";
+        return;
+    }
+    if ($sectors < 10) {
+        print "ERROR cannot have so few sectors\n";
+        return;
+    }
+
+    if (open my $handle, '>', $file) {
+        my $trk = 0; # numbered 0..$tracks-1
+        my $sct = 1; # numbered 1..$sectors
+        my $nxt_trk;
+        my $nxt_sct;
+        my @sector;
+        my $data;
+        for my $i (0..255) {
+            $sector[$i] = 0;
+        }
+
+        while ($trk != 0 or $sct != 0) {
+            # calculate next sector in case we need to make a link
+            if ($sct == $sectors) {
+                if ($trk == ($tracks - 1)) {
+                    # done!
+                    $nxt_trk = 0;
+                    $nxt_sct = 0;
+                }
+                else {
+                    $nxt_sct = 1;
+                    $nxt_trk = $trk + 1;
+                }
+            }
+            else {
+                $nxt_sct = $sct + 1;
+                $nxt_trk = $trk;
+            }
+
+            # prepare the data
+
+            if ( ($trk == 0) && (($sct < 3) or ($sct == $sectors)) ) {
+                # sectors with a link of 0:
+                # - first two sectors on track 0 (boot sectors)
+                # - last sector on track 0 (end of directory)
+                # the SIR and the last data sector also have a link of 0;
+                # the SIR is handled as a special case. The link in the last
+                # data sector is handled by the end-case of the while loop.
+                $sector[0] = 0;
+                $sector[1] = 0;
+            }
+            elsif (($trk == 0) && ($sct == 3)) {
+                # SIR
+
+                # calculate the number of sectors and the start/end
+                # shouldn't be too bad..
+                # maybe could have a better mechanism for messing with the SIR
+                # in general.
+
+                # see rd_sir for decode
+                $sector[0] = 0;
+                $sector[1] = 0;
+                $sector[16] = ord 'N';
+                $sector[17] = ord 'E';
+                $sector[18] = ord 'W';
+                # leave volume number at 0
+                $sector[29] = 1; # first data track
+                $sector[30] = 1; # first data sector
+                $sector[31] = $tracks-1; # last data track
+                $sector[32] = $sectors;  # last data sector
+                # track0 has no data sectors
+                my $data_sectors = $sectors * ($tracks-1);
+                $sector[33] = $data_sectors >> 8;
+                $sector[34] = $data_sectors & 0xff;
+                # date TODO use system date and correct for Y2K
+                $sector[35] = 9;
+                $sector[36] = 27;
+                $sector[37] = 81;
+                $sector[38] = $tracks-1;  # highest track number
+                $sector[39] = $sectors;   # highest sector number
+            }
+            else {
+                # link to next sector (or 0,0 for final sector)
+                $sector[0] = $nxt_trk;
+                $sector[1] = $nxt_sct;
+            }
+
+            # write the data
+            $data = pack("C*", @sector);
+            print $handle $data;
+            if ($format eq 'img') {
+                # 2nd copy
+                print $handle $data;
+            }
+
+            # tidy up after writing SIR
+            if (($trk == 0) && ($sct == 3)) {
+                for my $i (0..255) {
+                    $sector[$i] = 0;
+                }
+            }
+
+            $sct = $nxt_sct;
+            $trk = $nxt_trk;
+        }
+        close $handle;
+    }
+    else {
+        # Unlikely - it opened OK in check_arg
+        print "ERROR could not re-open $file\n";
+    }
 }
 
 
@@ -298,6 +415,12 @@ sub cmd_export {
 
 sub cmd_import {
     print "import TODO - not yet implemented\n";
+}
+
+
+# directory of host - just pass all arguments to host
+sub cmd_hdir {
+    system "dir @_";
 }
 
 
@@ -549,6 +672,7 @@ sub cmd_help {
 # ovd - optional 16-bit volume number optionally followed by date in
 #       the form mm/dd/yy - no sanity check is done and the
 #       date is returned as 3 separate entries: mm, dd, yy.
+# ots - optional track/sector. If omitted, default values are returned.
 sub check_arg {
     my @expected = split " ",(shift @_);
     my $host_file;  # stored for use by subsequent 'of' argument
@@ -560,7 +684,7 @@ sub check_arg {
                 return;
             }
             if (($_[$i] ne "0") and ($_[$i] ne "1") and
-                ($_[$i] ne "2") and($_[$i] ne "3")) {
+                ($_[$i] ne "2") and ($_[$i] ne "3")) {
                 print "ERROR $_[$i] is not a legal virtual drive number\n";
                 return;
             }
@@ -611,8 +735,8 @@ sub check_arg {
                 # occur earlier in the argument list.
                 my @ext = split /\./, $host_file;
                 if ((defined $ext[-1]) && (($ext[-1] eq 'img') or ($ext[-1] eq 'dsk'))) {
-                    # change incoming argument so it's always present/valid
-                    $_[$i] = $ext[-1];
+                    # insert incoming argument so it's always present/valid
+                    splice @_, $i, 0, $ext[-1];
                 }
                 else {
                     print "ERROR could not infer format. Specify dsk or img\n";
@@ -673,6 +797,34 @@ sub check_arg {
                     print "ERROR illegal volume number - expected 16-bit decimal value\n";
                     return;
                 }
+            }
+        }
+        elsif ($f eq 'ots') {
+            # Optional t=X s=Y. If present, X, Y must be numeric. Return X,Y
+            if (defined $_[$i]) {
+                if ($_[$i] =~ /^t=(\d+)$/) {
+                    # track number is OK. Rewrite with just the number
+                    $_[$i] = $1;
+
+                    # need sector
+                    $i = $i + 1;
+                    if ($_[$i] =~ /^s=(\d+)$/) {
+                        # sector number is OK. Rewrite with just the number
+                        $_[$i] = $1;
+                    }
+                    else {
+                        print "ERROR illegal geometry - expected t=NN s=NN got $_[$i]\n";
+                        return;
+                    }
+                }
+                else {
+                    print "ERROR illegal geometry - expected t=NN s=NN got $_[$i]\n";
+                    return;
+                }
+            }
+            else {
+                splice @_, $i, 0, ($DFLT_TRKS, $DFLT_SCTS);
+                $i = $i + 2;
             }
         }
         else {
@@ -1038,6 +1190,8 @@ sub rd_dir {
 
     my @dir;
 
+# TODO corrupt disk image this could loop forever. Either already check
+# disk integrity OR put some count timeout here. Preferably the former.
     while (($trk != 0) or ($sct != 0)) {
         # process a directory sector
         my $data = rd_dts($drive, $trk, $sct);
@@ -1364,7 +1518,33 @@ EOF
     }
     elsif ($cmd eq 'new') {
         print <<EOF
-TODO
+    new <file on host filesystem> [format] [t=<num> s=<num>]
+
+    Create a file on the host filesystem that represents a blank disk.
+    ANY EXISTING FILE OF THAT NAME WILL BE SILENTLY DELETED.
+
+    If the file extension is .dsk or .img the format is inferred and
+    the format is optional.
+
+    If the format is specified, it overrides any inference made on
+    the basis of the file extension.
+
+    The geometry of the disk can be specified. t=X s=Y creates a
+    disk of X tracks (numbered 0..X-1) and Y sectors (numbered 1..Y).
+
+    If the geometry is not specified it defaults to t=$DFLT_TRKS s=$DFLT_SCTS which
+    is correct for my Multicomp6809 FLEX port.
+
+    The disk image created is empty, with a valid SIR containing
+    nominal values for the volume name, number and creation date; the
+    'label' command can be used to modify these values.
+
+    Examples:
+    new foo.bin img
+    new foo.bin img t=50 s=128
+    new blank.dsk t=45 s=90
+    mount 0 blank.dsk
+    label 0 mydisk 1234 09/24/87
 EOF
     }
     elsif ($cmd eq 'copy') {
@@ -1430,6 +1610,20 @@ EOF
     dir 1.F*.*
     dir 1.*.CMD
     dir 1.*A*.*
+EOF
+    }
+    elsif ($cmd eq 'hdir') {
+        print <<EOF
+    hdir <host os arguments> <path in local file system>
+
+    List files on the host's filesystem. Just a convenience
+    to avoid you having to shell out of flex_vfs. All of the
+    arguments supported by the host are also supported.
+
+    Examples:
+    hdir
+    hdir .
+    hdir -al ../
 EOF
     }
     elsif ($cmd eq 'delete') {
@@ -1638,6 +1832,7 @@ Commands are:
     export     - copy file from virtual drive to local file system (optional format conversion)
     import     - copy file from local file system to virtual drive (optional format conversion)
     dir        - directory of virtual drive
+    hdir       - directory of local file system
     delete     - delete file(s) from virtual drive
     link       - patch boot sector on virtual drive
     fix        - perform low-level edit on virtual drive
@@ -1656,36 +1851,3 @@ Other help topics: comments formats scripts
 Type help <command name> or help <topic> for more help.
 EOF
 }
-
-
-
-
-#########------------
-sub help_exit {
-    print <<EOF
-
-Virtual file system for FLEX disk images.
-
-> new 0 fred.dsk t=45 s=90
-> copy 1.temp.txt 2
-> export 2.advent.c textconvert
-> export 2.advent.c binconvert
-> import 2.test.txt ../../hello.c textconvert
-> import 3.file.cmd file.bin binconvert
-> dir 1
-> dir 2
-> copy 1.*.cmd 2
-> delete 1.fred.bin
-> delete 2.*.bin
-> fix 1.flex.sys
-> rdboot 1
-> wrboot 2
-> rdbootfile multicomp_flex_loader.bin
-> check 1
-> check 2
-> exit
->
-
-EOF
-}
-
