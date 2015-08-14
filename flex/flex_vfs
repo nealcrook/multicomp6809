@@ -10,13 +10,13 @@
 # foofoobedoo@gmail.com
 #
 
-# not yet implemented: export import fix check repair
+# not yet implemented: export import fix check repair list
 
 # FUTURE: it is NOT legal to have a null file name. It is legal to have a null extension?
 # FUTURE: add optional y/n arg to delete.
 # FUTURE: DATE command, RENAME command, mixedcase-toggle command
 # FUTURE: THEN (command separator)
-# FUTURE: TRUNCATE (remove sectors) and EXTEND (add sectors) commands
+# FUTURE: EXTEND (add sectors)
 # FUTURE: allow target of copy to be unique fs rather than simply drive name (ie copy
 # file with different name)
 # FUTURE: record inode so that we cannot double-mount a drive.
@@ -408,6 +408,11 @@ sub cmd_label {
 }
 
 
+sub cmd_list {
+    print "list TODO - not yet implemented\n";
+}
+
+
 sub cmd_export {
     print "export TODO - not yet implemented\n";
 }
@@ -479,6 +484,27 @@ sub cmd_delete {
 
     rm_files($drive, $match);
     # directory copy is out-of-date now so revise it
+    rd_dir($drive);
+}
+
+
+sub cmd_truncate {
+    my ($fs, $num) = check_arg('fs i', @_);
+    return unless defined($fs);
+
+    my ($drive,$file,$ext) = split /\./, $fs;
+
+    if (not $dsk[$drive]->{mounted}) {
+        print "ERROR drive $drive is not mounted\n";
+        return;
+    }
+
+    my $match = filter_dir($drive,$file,$ext);
+
+    printf "INFO %d files match $drive.$file.$ext\n", scalar @$match;
+
+    truncate_files($drive, $match, $num);
+    # file sizes in directory copy are out-of-date now so revise it
     rd_dir($drive);
 }
 
@@ -669,6 +695,7 @@ sub cmd_help {
 # of - optional file format: dsk or img, also inferred from h
 # fs - flex file specifier: 1 or 1.foo.bar
 # l - disk label (truncated to 16 characters)
+# i - integer
 # ovd - optional 16-bit volume number optionally followed by date in
 #       the form mm/dd/yy - no sanity check is done and the
 #       date is returned as 3 separate entries: mm, dd, yy.
@@ -686,6 +713,16 @@ sub check_arg {
             if (($_[$i] ne "0") and ($_[$i] ne "1") and
                 ($_[$i] ne "2") and ($_[$i] ne "3")) {
                 print "ERROR $_[$i] is not a legal virtual drive number\n";
+                return;
+            }
+        }
+        elsif ($f eq 'i') {
+            if (not defined $_[$i]) {
+                print "ERROR missing argument - expected integer\n";
+                return;
+            }
+            if ($_[$i] !~ /^\d+$/) {
+                print "ERROR $_[$i] is not an integer\n";
                 return;
             }
         }
@@ -849,8 +886,6 @@ sub cp_files {
                           $dsk[$dst]->{sir}->{FREE});
 
     foreach my $i (@{$match}) {
-        my $j = $dsk[$src]->{dir}->[$i];
-
         my @src_start_file_tsc = rd_file_start_tsc($src,$i);
         my $trk = $src_start_file_tsc[$TRK];
         my $sct = $src_start_file_tsc[$SCT];
@@ -934,10 +969,7 @@ sub rm_files {
     my @end_free_tsc = ($dsk[$drive]->{sir}->{LAST_T},
                         $dsk[$drive]->{sir}->{LAST_S},
                         $dsk[$drive]->{sir}->{FREE});
-
     foreach my $i (@{$match}) {
-        my $j = $dsk[$drive]->{dir}->[$i];
-
         my @start_file_tsc = rd_file_start_tsc($drive,$i);
         my @end_file_tsc = rd_file_end_tsc($drive,$i);
 
@@ -949,11 +981,8 @@ sub rm_files {
 
         # First: link from old end of free list to start of chain formed
         # by sectors released by file deletion
-        my $data = rd_dts($drive, $end_free_tsc[$TRK], $end_free_tsc[$SCT]);
-        my @data = unpack("C*", $data);
-        $data[0] = $start_file_tsc[$TRK];
-        $data[1] = $start_file_tsc[$SCT];
-        wr_dts($drive, $end_free_tsc[$TRK], $end_free_tsc[$SCT], pack("C*", @data));
+        rdwr_link($drive, $end_free_tsc[$TRK], $end_free_tsc[$SCT],
+                  $start_file_tsc[$TRK], $start_file_tsc[$SCT]);
 
         # Last: update the free list chain and count.. no need to write it back yet.
         $end_free_tsc[$TRK] = $end_file_tsc[$TRK];
@@ -961,10 +990,96 @@ sub rm_files {
         $end_free_tsc[$SIZ] = $end_free_tsc[$SIZ] + $end_file_tsc[$SIZ];
     }
 
-    # Finally, update the SIR
+    # Finally, update the SIR and refresh the local copy
     wr_sir_end_free($drive, @end_free_tsc);
-    # and refresh the local copy
     rd_sir($drive);
+}
+
+
+# delete sectors from the end(s) of zero or more files
+# files specified by list of directory indices
+sub truncate_files {
+    my ($drive, $match, $num) = @_;
+    my $TRK = 0;
+    my $SCT = 1;
+    my $SIZ = 2;
+
+    my @end_free_tsc = ($dsk[$drive]->{sir}->{LAST_T},
+                        $dsk[$drive]->{sir}->{LAST_S},
+                        $dsk[$drive]->{sir}->{FREE});
+
+    foreach my $i (@{$match}) {
+        my @start_file_tsc = rd_file_start_tsc($drive,$i);
+        my @end_file_tsc = rd_file_end_tsc($drive,$i);
+
+        my $new_size = $start_file_tsc[$SIZ] - $num;
+
+        if ($new_size < 1) {
+            printf "ERROR cannot truncate %s.%s\n",
+            $dsk[$drive]->{dir}->[$i]->{NAME},
+            $dsk[$drive]->{dir}->[$i]->{EXT};
+        }
+        else {
+            # find trk, sct of new end sector for file
+            my $trk = $start_file_tsc[$TRK];
+            my $sct = $start_file_tsc[$SCT];
+            for my $j (1..$new_size-1) {
+                ($trk, $sct) = rd_link($drive, $trk, $sct);
+            }
+
+            # undate directory entry with new file size and end sector
+            my $dir_entry_data = rd_dir_entry($drive, $i);
+            $dir_entry_data->[19-4] = $trk;
+            $dir_entry_data->[20-4] = $sct;
+            $dir_entry_data->[21+0-4] = $new_size >> 8;
+            $dir_entry_data->[21+1-4] = $new_size & 0xff;
+            wr_dir_entry($drive, $i, $dir_entry_data);
+
+            # extract link from new end sector, and set its link to 0
+            ($trk, $sct) = rdwr_link($drive, $trk, $sct, 0, 0);
+
+            # add the liberated sectors to the end of the free chain
+            rdwr_link($drive, $end_free_tsc[$TRK], $end_free_tsc[$SCT], $trk, $sct);
+            # ..and update the stats
+            $end_free_tsc[$TRK] = $end_file_tsc[$TRK];
+            $end_free_tsc[$SCT] = $end_file_tsc[$SCT];
+            $end_free_tsc[$SIZ] = $end_free_tsc[$SIZ] + $num;
+        }
+    }
+
+    # Finally, update the SIR and refresh the local copy
+    wr_sir_end_free($drive, @end_free_tsc);
+    rd_sir($drive);
+}
+
+
+# TODO use this elsewhere
+# read a sector, return its current link.
+sub rd_link {
+    my ($drive, $trk, $sct) = @_;
+
+    my $data = rd_dts($drive, $trk, $sct);
+    my @data = unpack("C*", $data);
+    my $old_trk_lnk = $data[0];
+    my $old_sct_lnk = $data[1];
+    return ($old_trk_lnk, $old_sct_lnk);
+}
+
+
+# TODO use this elsewhere
+# read a sector, return its current link, set a new link.
+# return ($trk, $sct) of old link.
+sub rdwr_link {
+    my ($drive, $trk, $sct, $new_trk_lnk, $new_sct_lnk) = @_;
+
+    my $data = rd_dts($drive, $trk, $sct);
+    my @data = unpack("C*", $data);
+    my $old_trk_lnk = $data[0];
+    my $old_sct_lnk = $data[1];
+    $data[0] = $new_trk_lnk;
+    $data[1] = $new_sct_lnk;
+    wr_dts($drive, $trk, $sct, pack("C*", @data));
+    return ($old_trk_lnk, $old_sct_lnk);
 }
 
 
@@ -1644,6 +1759,24 @@ EOF
     delete 1.*A*.*
 EOF
     }
+    elsif ($cmd eq 'truncate') {
+        print <<EOF
+    truncate <virtual drive number> | <file specifier> <number of sectors>
+
+    Remove <number of sectors> from the end of every file on the
+    specified virtual drive, or all of the files that match the
+    file specifier. The file specifier can include * used as a wildcard.
+
+    Experts only! You need a really good reason before you use this
+    command!
+
+    BE CAREFUL BECAUSE NO CONFIRMATION IS ASKED FOR!
+
+    Examples:
+    truncate 1.FLEX.SYS 2
+    truncate 1.*A*.* 4
+EOF
+    }
     elsif ($cmd eq 'link') {
         print <<EOF
     link <file specifier>
@@ -1830,10 +1963,12 @@ Commands are:
     copy       - copy file(s) from one virtual drive to another
     label      - change disk label/volume number/creation date
     export     - copy file from virtual drive to local file system (optional format conversion)
+    list       - view file from virtual drive (optional format conversion)
     import     - copy file from local file system to virtual drive (optional format conversion)
     dir        - directory of virtual drive
     hdir       - directory of local file system
     delete     - delete file(s) from virtual drive
+    truncate   - delete sector(s) from file(s) from virtual drive
     link       - patch boot sector on virtual drive
     fix        - perform low-level edit on virtual drive
     rdboot     - copy boot sector from virtual drive
