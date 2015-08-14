@@ -10,7 +10,10 @@
 # foofoobedoo@gmail.com
 #
 
-# not yet implemented: export import fix check repair list
+# not yet implemented: export import fix check repair type
+
+# NEXT: check_arg for export, type then implement byte stream and converters
+# will path stuff work for windows?
 
 # FUTURE: it is NOT legal to have a null file name. It is legal to have a null extension?
 # FUTURE: add optional y/n arg to delete.
@@ -51,6 +54,9 @@ my @FLEX_DIR_TS = (0,5); # track/sector of directory
 # Default disk geometry
 my $DFLT_TRKS = 80;
 my $DFLT_SCTS = 72;
+
+# For 'type' command
+my $LINES_PER_PAGE = 40;
 
 # Data structure
 # $dsk[0..3]
@@ -408,13 +414,47 @@ sub cmd_label {
 }
 
 
-sub cmd_list {
-    print "list TODO - not yet implemented\n";
+sub cmd_type {
+    my ($fs, $conv_ref, $lpp) = check_arg('fs oc oi', @_);
+    return unless defined($fs);
+
+    $lpp = defined $lpp ? $lpp : $LINES_PER_PAGE;
+
+    my ($drive,$file,$ext) = split /\./, $fs;
+
+    if (not $dsk[$drive]->{mounted}) {
+        print "ERROR drive $drive is not mounted\n";
+        return;
+    }
+
+    my $match = filter_dir($drive,$file,$ext);
+
+    printf "INFO %d files match $drive.$file.$ext\n", scalar @$match;
+
+    print "type TODO - not yet implemented\n";
+    # TODO work out how to use a single routine for both
+    #export_files($drive, $match, $conv_ref, $path);
+    print "type TODO - not yet implemented\n";
 }
 
 
 sub cmd_export {
+    my ($fs, $conv_ref, $path) = check_arg('fs oc od', @_);
+    return unless defined($fs);
+
+    my ($drive,$file,$ext) = split /\./, $fs;
+
+    if (not $dsk[$drive]->{mounted}) {
+        print "ERROR drive $drive is not mounted\n";
+        return;
+    }
+
+    my $match = filter_dir($drive,$file,$ext);
+
+    printf "INFO %d files match $drive.$file.$ext\n", scalar @$match;
+
     print "export TODO - not yet implemented\n";
+    #export_files($drive, $match, $conv_ref, $path);
 }
 
 
@@ -692,14 +732,17 @@ sub cmd_help {
 # v - virtual drive number
 # h - existing file in host filesystem
 # nh - file in host filesystem (may or may not exist)
+# od - optional directory in host filesystem (must exist) default to .
 # of - optional file format: dsk or img, also inferred from h
 # fs - flex file specifier: 1 or 1.foo.bar
 # l - disk label (truncated to 16 characters)
 # i - integer
+# oi - optional integer
 # ovd - optional 16-bit volume number optionally followed by date in
 #       the form mm/dd/yy - no sanity check is done and the
 #       date is returned as 3 separate entries: mm, dd, yy.
 # ots - optional track/sector. If omitted, default values are returned.
+# oc  - optional converters. Returns hash reference
 sub check_arg {
     my @expected = split " ",(shift @_);
     my $host_file;  # stored for use by subsequent 'of' argument
@@ -724,6 +767,34 @@ sub check_arg {
             if ($_[$i] !~ /^\d+$/) {
                 print "ERROR $_[$i] is not an integer\n";
                 return;
+            }
+        }
+        elsif ($f eq 'oi') {
+            if (defined $_[$i]) {
+                if ($_[$i] !~ /^\d+$/) {
+                    print "ERROR $_[$i] is not an integer\n";
+                    return;
+                }
+            }
+        }
+        elsif ($f eq 'oc') {
+            # TODO one or more converters. Gobble them up and return a hash ref
+            my %conv;
+            $conv{bin} = "";
+            $conv{txt} = "";
+            $conv{xxx} = "";
+            if (defined $_[$i]) {
+                # TODO
+            }
+        }
+        elsif ($f eq 'od') {
+            # optional directory path. If absent caller assumes CWD.
+            if (defined $_[$i]) {
+                if (not opendir TMP, $_[$i]) {
+                    print "ERROR cannot open directory $_[$i]\n";
+                    return;
+                }
+                closedir TMP;
             }
         }
         elsif ($f eq 'h') {
@@ -1701,9 +1772,46 @@ EOF
     label 2 newdisk 124 03/24/97
 EOF
     }
+    elsif ($cmd eq 'type') {
+        print <<EOF
+    type <file specifier> [<conversions>] [<lines per page>]
+
+    Display the contents of the specified files, <lines per page>
+    lines at a time (default: $LINES_PER_PAGE).
+
+    The default conversions are:
+    txt=expand
+    bin=record
+    xxx=dump
+
+    See 'help conversions' for more details. See also 'help export'
+
+    Example:
+    type 1.*.TXT txt=raw 25
+    type 1.*.TXT txt=raw bin=record xxx=dump
+EOF
+    }
     elsif ($cmd eq 'export') {
         print <<EOF
-TODO
+    export <file specifier> [<conversions>] [<path in local file system>]
+
+    Save the specified files to a directory in the host's filesystem.
+    By default, the files will be saved in the current working directory
+    but this can be overridden by specifying a path.
+
+    Every file is saved with the same name as its name in the disk; any
+    existing file of the same name will be overwritten.
+
+    The default conversions are:
+    txt=raw
+    bin=raw
+    xxx=raw
+
+    See 'help conversions' for more details. See also 'help type'
+
+    Example:
+    export 1.*.TXT txt=expand ../files
+    export 1.*.* txt=raw bin=record xxx=dump some_subdirectory
 EOF
     }
     elsif ($cmd eq 'import') {
@@ -1910,6 +2018,37 @@ EOF
     # text from a hash to the end of the line is ignored
 EOF
     }
+    elsif ($cmd eq 'conversions') {
+        print <<EOF
+    The FLEX advance programmers guide documents 3 file formats:
+
+    * A text format that may include a simple run-length compression
+    of spaces
+    * A binary record format for executable images
+    * A random access file format
+
+    flex_vfs provides the following file converters:
+
+    raw - a literal byte stream representing the data payload of
+    every sector in the file. For a file of N sectors, the file will
+    be (256-4)*N bytes in size.
+
+    txt - decompress text file and strip NULL bytes from the end.
+
+    record - parse a binary record and dump it in readable format
+
+    dump - hex and ASCII dump.
+
+    The 'type', 'import' and 'export' commands use a simple heuristic
+    to classify a file as 'txt' 'bin' or 'xxx' (anything else) and to
+    pick a sensible default converter. The converters can be overridden
+    by specifying name/value pairs. For example:
+
+    txt=raw bin=dump xxx=dump
+
+    Any file types with unspecified converters will use the defaults.
+EOF
+    }
     elsif ($cmd eq 'scripts') {
         print <<EOF
     If you put a sequence of commands in a file you can run them
@@ -1963,7 +2102,7 @@ Commands are:
     copy       - copy file(s) from one virtual drive to another
     label      - change disk label/volume number/creation date
     export     - copy file from virtual drive to local file system (optional format conversion)
-    list       - view file from virtual drive (optional format conversion)
+    type       - view file from virtual drive (optional format conversion)
     import     - copy file from local file system to virtual drive (optional format conversion)
     dir        - directory of virtual drive
     hdir       - directory of local file system
@@ -1981,7 +2120,7 @@ Commands are:
     quit       - synonym for exit
     help       - this is it.
 
-Other help topics: comments formats scripts
+Other help topics: comments formats scripts conversions
 
 Type help <command name> or help <topic> for more help.
 EOF
