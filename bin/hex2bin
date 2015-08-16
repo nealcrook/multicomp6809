@@ -17,8 +17,16 @@ while (my $line = <INFILE>) {
 
     # support Extended Linear Address (type 4) provided that the 16-bit data field is 0
     if ($typ == 4) {
-        die "Unsupported type 4 record at line $. - unexpected length" if ($len != 2);
-        die "Unsupported type 4 record at line $. - unsupported value" if ($dat ne "0000FA");
+        die "Unsupported type 4 record at line $. - unexpected length:\n$line" if ($len != 2);
+        die "Unsupported type 4 record at line $. - unsupported value:\n$line" if ($dat ne "0000FA");
+        # it's a nop
+        next;
+    }
+
+    # support Extended Segment Address (type 2) provided that the 16-bit data field is 0
+    if ($typ == 2) {
+        die "Unsupported type 2 record at line $. - unexpected length:\n$line" if ($len != 2);
+        die "Unsupported type 2 record at line $. - unsupported value:\n$line" if ($dat ne "0000FA");
         # it's a nop
         next;
     }
@@ -29,7 +37,9 @@ while (my $line = <INFILE>) {
     }
 
     # of the remainder, only support data records and end-of-file records
-    die "Unsupported record $typ at line $." if (($typ != 0) && ($typ != 1));
+    if (($typ != 0) && ($typ != 1)) {
+        die "       ^^Unsupported record: type $typ at line $. :\n$line";
+    }
 
     # pad if data is not contiguous
     # .. assumes records are in incrementing order!! If not, will pad ~forever!!
