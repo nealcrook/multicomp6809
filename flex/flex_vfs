@@ -12,7 +12,9 @@
 
 # not yet implemented: import fix check repair
 
-# NEXT: implement conv_expand conv_record conv_dump and proper version of set_converter.
+# NEXT: implement conv_record conv_dump and proper version of set_converter.
+# Need tidier code for selecting between STDIO and $handle
+# When typing xple files, print file name for each at start.
 
 # FUTURE: it is NOT legal to have a null file name. It is legal to have a null extension?
 # FUTURE: add optional y/n arg to delete.
@@ -57,7 +59,7 @@ my $DFLT_TRKS = 80;
 my $DFLT_SCTS = 72;
 
 # For 'type' command
-my $LINES_PER_PAGE = 40;
+my $LINES_PER_PAGE = 20;
 
 # Data structure
 # $dsk[0..3]
@@ -982,6 +984,7 @@ sub export_files {
         $f{export} = $export;
         $f{line} = 1;
         $f{lpp} = $lpp;
+        $f{eof} = 0;
 
         # read first data sector - sets {index} {data} and updates {trk} {sct}
         if (not rd_nxt_sct(\%f)) {
@@ -1012,8 +1015,9 @@ sub set_converter {
         die "FATAL ERROR set_converter expects full sector to play with";
     }
 
-    # TODO. hard-wired for raw
-    $f_ref->{converter} = \&conv_raw;
+    # TODO. hard-wired for now while developing/testing each converter in turn
+    # detect binary record format else detect most char with msb clear else binary
+    $f_ref->{converter} = \&conv_expand;
 }
 
 
@@ -1022,6 +1026,7 @@ sub set_converter {
 # Returns at end of file. Honours $export $lpp.
 sub conv_raw {
     my ($f_ref) = @_;
+    my $handle = $f_ref->{handle};
 
     # cheat: simply emit in per-sector chunks
     # make sure it's being used as expected
@@ -1032,7 +1037,6 @@ sub conv_raw {
     my $more_data = 1;
     while ($more_data) {
         if ($f_ref->{export}) {
-            my $handle = $f_ref->{handle}; # not sure why..
             for my $i (4..255) {
                 print $handle chr $f_ref->{data}->[$i];
             }
@@ -1050,7 +1054,59 @@ sub conv_raw {
 }
 
 
+# Text file format. Ref: FLEX APG page 46.
 sub conv_expand {
+    my ($f_ref) = @_;
+    my $handle = $f_ref->{handle};
+    my $expand = 0;
+
+    while (not $f_ref->{eof}) {
+        my $chr = rd_nxt_chr($f_ref);
+        if ($expand) {
+            # $chr is number of spaces to insert
+            # don't allow it to be confused as control code
+        }
+        elsif (($chr == 0) or ($chr == 0x18)) {
+            next;
+        }
+        elsif ($chr == 0x09) {
+            $expand = 1;
+            next;
+        }
+        elsif ($chr == 0x0d) {
+            $chr = 0x0a; # unix line endings
+        }
+
+        if ($f_ref->{export}) {
+            if ($expand == 0) {
+                print $handle chr $chr;
+            }
+            else {
+                print $handle ' ' x $chr;
+                $expand = 0;
+            }
+        }
+        else {
+            if ($expand == 0) {
+                print chr $chr;
+                if ($chr == 0x0a) {
+                    if ($f_ref->{line} == $f_ref->{lpp}) {
+                        $f_ref->{line} = 1;
+                        print "\nPress ENTER to continue, Q ENTER to quit";
+                        my $reply = <STDIN>;
+                        last if $reply =~ /[qQ]/;
+                    }
+                    else {
+                        $f_ref->{line} = $f_ref->{line} + 1;
+                    }
+                }
+            }
+            else {
+                print ' ' x $chr;
+                $expand = 0;
+            }
+        }
+    }
 }
 
 
@@ -1327,6 +1383,33 @@ sub rd_nxt_sct {
         $f_ref->{trk} = $data[0];
         $f_ref->{sct} = $data[1];
         $f_ref->{index} = 4; # first payload byte
+    }
+}
+
+
+# read next character. Used to update an %f for byte-by-byte
+# file read. Updates fields of %f:
+# trk, sct, \@data, index eof
+# return chr
+# Must check {eof} false BEFORE calling this.
+sub rd_nxt_chr {
+    my ($f_ref) = @_;
+
+    if ($f_ref->{eof}) {
+        die "FATAL ERROR call to rd_nxt_sct past eof";
+    }
+    else {
+        my $byte = $f_ref->{data}->[$f_ref->{index}];
+        if ($f_ref->{index} < 255) {
+            $f_ref->{index} = $f_ref->{index} + 1;
+        }
+        else {
+            # final byte. Load next sector or set eof
+            if (not rd_nxt_sct($f_ref)) {
+                $f_ref->{eof} = 1;
+            }
+        }
+        return $byte;
     }
 }
 
