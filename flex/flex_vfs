@@ -10,10 +10,9 @@
 # foofoobedoo@gmail.com
 #
 
-# not yet implemented: export import fix check repair type
+# not yet implemented: import fix check repair
 
-# NEXT: check_arg for export, type then implement byte stream and converters
-# will path stuff work for windows?
+# NEXT: implement conv_expand conv_record conv_dump and proper version of set_converter.
 
 # FUTURE: it is NOT legal to have a null file name. It is legal to have a null extension?
 # FUTURE: add optional y/n arg to delete.
@@ -28,6 +27,8 @@
 # TODO: not sure if volume label should be restricted to 10 or 11 char. If 11, there
 # is a bug in flextract, which expects the label to be null-terminated.
 # BUG: pressing CTRL-D results in lots of PERL warnings
+# TODO: make check_arg return a hash ref rather than a list? Will require big rework but
+# might make check_arg less hacky.
 
 use strict;
 no strict 'refs'; # CLI makes subroutine from command name.
@@ -419,22 +420,12 @@ sub cmd_type {
     return unless defined($fs);
 
     $lpp = defined $lpp ? $lpp : $LINES_PER_PAGE;
+    # defaults for 'type'
+    $conv_ref->{bin} = exists $conv_ref->{bin} ? $conv_ref->{bin} : "record";
+    $conv_ref->{txt} = exists $conv_ref->{txt} ? $conv_ref->{txt} : "expand";
+    $conv_ref->{xxx} = exists $conv_ref->{xxx} ? $conv_ref->{xxx} : "dump";
 
-    my ($drive,$file,$ext) = split /\./, $fs;
-
-    if (not $dsk[$drive]->{mounted}) {
-        print "ERROR drive $drive is not mounted\n";
-        return;
-    }
-
-    my $match = filter_dir($drive,$file,$ext);
-
-    printf "INFO %d files match $drive.$file.$ext\n", scalar @$match;
-
-    print "type TODO - not yet implemented\n";
-    # TODO work out how to use a single routine for both
-    #export_files($drive, $match, $conv_ref, $path);
-    print "type TODO - not yet implemented\n";
+    type_export_common($fs, $conv_ref, $lpp, "", 0);
 }
 
 
@@ -442,6 +433,19 @@ sub cmd_export {
     my ($fs, $conv_ref, $path) = check_arg('fs oc od', @_);
     return unless defined($fs);
 
+    $path = defined $path ? $path . "/" : "";
+    # defaults for 'export'
+    $conv_ref->{bin} = exists $conv_ref->{bin} ? $conv_ref->{bin} : "raw";
+    $conv_ref->{txt} = exists $conv_ref->{txt} ? $conv_ref->{txt} : "raw";
+    $conv_ref->{xxx} = exists $conv_ref->{xxx} ? $conv_ref->{xxx} : "raw";
+
+    type_export_common($fs, $conv_ref, 0, $path, 1);
+}
+
+
+sub type_export_common {
+    my ($fs, $conv_ref, $lpp, $path, $export) = @_;
+
     my ($drive,$file,$ext) = split /\./, $fs;
 
     if (not $dsk[$drive]->{mounted}) {
@@ -453,8 +457,7 @@ sub cmd_export {
 
     printf "INFO %d files match $drive.$file.$ext\n", scalar @$match;
 
-    print "export TODO - not yet implemented\n";
-    #export_files($drive, $match, $conv_ref, $path);
+    export_files($drive, $match, $conv_ref, $lpp, $path, $export);
 }
 
 
@@ -778,14 +781,21 @@ sub check_arg {
             }
         }
         elsif ($f eq 'oc') {
-            # TODO one or more converters. Gobble them up and return a hash ref
+            # One or more conversion rules. Gobble them up and return a hash ref
             my %conv;
-            $conv{bin} = "";
-            $conv{txt} = "";
-            $conv{xxx} = "";
-            if (defined $_[$i]) {
-                # TODO
+            my $first = $i;
+            while ((defined $_[$i]) and ($_[$i] =~ /^(txt|bin|xxx)=/)) {
+                if ($_[$i] =~ /^(\w+)=(raw|record|expand|dump)/) {
+                    $conv{$1} = $2;
+                }
+                else {
+                    print "Illegal conversion: $_[$i]\n";
+                    return;
+                }
+                $i = $i + 1;
             }
+            splice @_, $first, $i-$first, \%conv;
+            $i = $first;
         }
         elsif ($f eq 'od') {
             # optional directory path. If absent caller assumes CWD.
@@ -943,6 +953,113 @@ sub check_arg {
     return @_;
 }
 
+
+# export/type zero or more files
+# files specified by list of directory indices
+# $export=0 -> type to screen
+# $export=1 -> export to host file system at $path
+# TODO maybe make type_export_common build %f? then the
+# loop here will just change the *variant* parts.
+sub export_files {
+    my ($drive, $match, $conv_ref, $lpp, $path, $export) = @_;
+
+    foreach my $i (@{$match}) {
+        # build a data structure for use by the converter
+        my %f;
+        $f{name} = $dsk[$drive]->{dir}->[$i]->{NAME} . "." .
+            $dsk[$drive]->{dir}->[$i]->{EXT};
+        if ($export) {
+            if (not open $f{handle}, '>', "$path$f{name}") {
+                print "ERROR could not open file $path$f{name}\n";
+                next;
+            }
+        }
+
+        $f{drive} = $drive;
+        ($f{trk}, $f{sct}) = rd_file_start_tsc($drive,$i);
+        $f{converters} = \$conv_ref;
+        $f{converter} = ""; # subroutine ref
+        $f{export} = $export;
+        $f{line} = 1;
+        $f{lpp} = $lpp;
+
+        # read first data sector - sets {index} {data} and updates {trk} {sct}
+        if (not rd_nxt_sct(\%f)) {
+            print "ERROR no data in file $f{name}\n";
+            next;
+        }
+
+        # choose what converter to use
+        set_converter(\%f);
+
+        # convert file
+        &{$f{converter}}(\%f);
+
+        if ($export) {
+            close $f{handle};
+        }
+    }
+}
+
+
+# analyse file contents based on first few bytes. Determine
+# what conversion to use and fill in {converter}.
+sub set_converter {
+    my ($f_ref) = @_;
+
+    # make sure it's being used as expected
+    if ($f_ref->{index} != 4) {
+        die "FATAL ERROR set_converter expects full sector to play with";
+    }
+
+    # TODO. hard-wired for raw
+    $f_ref->{converter} = \&conv_raw;
+}
+
+
+# file converters. Each use an %f and update fields of %f:
+# {index} {data} {trk} {sct} {line}.
+# Returns at end of file. Honours $export $lpp.
+sub conv_raw {
+    my ($f_ref) = @_;
+
+    # cheat: simply emit in per-sector chunks
+    # make sure it's being used as expected
+    if ($f_ref->{index} != 4) {
+        die "FATAL ERROR set_converter expects full sector to play with";
+    }
+
+    my $more_data = 1;
+    while ($more_data) {
+        if ($f_ref->{export}) {
+            my $handle = $f_ref->{handle}; # not sure why..
+            for my $i (4..255) {
+                print $handle chr $f_ref->{data}->[$i];
+            }
+        }
+        else {
+            for my $i (4..255) {
+                print chr $f_ref->{data}->[$i];
+            }
+            print "\nPress ENTER to continue, Q ENTER to quit";
+            my $reply = <STDIN>;
+            last if $reply =~ /[qQ]/;
+        }
+        $more_data = rd_nxt_sct($f_ref);
+    }
+}
+
+
+sub conv_expand {
+}
+
+
+sub conv_record {
+}
+
+
+sub conv_dump {
+}
 
 # copy zero or more files
 # files specified by list of directory indices
@@ -1188,6 +1305,28 @@ sub rd_dts {
     }
     else {
         die "Could not reach offset $seek on drive $drive";
+    }
+}
+
+
+# read next sector in a chain. Used to update an %f for byte-by-byte
+# file read. Updates fields of %f:
+# trk, sct, \@data, index
+# return 1 if data updated
+# return 0 if no more data
+sub rd_nxt_sct {
+    my ($f_ref) = @_;
+
+    if ($f_ref->{trk}==0 and $f_ref->{sct} == 0) {
+        return 0;
+    }
+    else {
+        my $data = rd_dts($f_ref->{drive}, $f_ref->{trk}, $f_ref->{sct});
+        my @data = unpack("C*", $data);
+        $f_ref->{data} = \@data;
+        $f_ref->{trk} = $data[0];
+        $f_ref->{sct} = $data[1];
+        $f_ref->{index} = 4; # first payload byte
     }
 }
 
@@ -2033,7 +2172,7 @@ EOF
     every sector in the file. For a file of N sectors, the file will
     be (256-4)*N bytes in size.
 
-    txt - decompress text file and strip NULL bytes from the end.
+    expand - decompress text file and strip NULL bytes from the end.
 
     record - parse a binary record and dump it in readable format
 
