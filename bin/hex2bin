@@ -26,7 +26,7 @@ while (my $line = <INFILE>) {
     # support Extended Segment Address (type 2) provided that the 16-bit data field is 0
     if ($typ == 2) {
         die "Unsupported type 2 record at line $. - unexpected length:\n$line" if ($len != 2);
-        die "Unsupported type 2 record at line $. - unsupported value:\n$line" if ($dat ne "0000FA");
+        die "Unsupported type 2 record at line $. - unsupported value:\n$line" if ($dat ne "0000FC");
         # it's a nop
         next;
     }
