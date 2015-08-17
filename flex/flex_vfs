@@ -1123,8 +1123,60 @@ sub conv_record {
 }
 
 
+# Unknown format. Express as hex and ASCII dump
 sub conv_dump {
-    print "TODO dump converter not yet implemented\n";
+    my ($f_ref) = @_;
+    my $handle = $f_ref->{handle};
+    my $num_str = '';
+    my $let_str = '';
+    my $count = 0;
+    my $offset = 0;
+
+    while (not $f_ref->{eof}) {
+        my $chr = rd_nxt_chr($f_ref);
+
+        $num_str = $num_str . ' ' . sprintf("%02x",$chr);
+        if (($chr < 0x7F) and ($chr > 0x1f)) {
+            $let_str = $let_str . chr $chr;
+        }
+        else {
+            $let_str = $let_str . '.';
+        }
+        $count = $count + 1;
+
+        if ($count == 8) {
+            $num_str = $num_str . ' ';
+            $let_str = $let_str . ' ';
+        }
+
+        if ($count == 16) {
+            printf $handle "%04x%s  %s\n", $offset, $num_str, $let_str;
+            $count = 0;
+            $num_str = '';
+            $let_str = '';
+            $offset = $offset + 16;
+
+            if ($f_ref->{line} == $f_ref->{lpp}) {
+                $f_ref->{line} = 1;
+                if (not $f_ref->{export}) {
+                    print "\nPress ENTER to continue, Q ENTER to quit";
+                    last if <STDIN> =~ /[qQ]/;
+                }
+            }
+            else {
+                $f_ref->{line} = $f_ref->{line} + 1;
+            }
+        }
+    }
+    # runt
+    if ($count != 0) {
+        my $pad = '   ' x (16 - $count);
+        if ($count < 8) {
+            $pad = $pad . ' ';
+        }
+        printf $handle "%04x%s $pad %s\n", $offset, $num_str, $let_str;
+    }
+
 }
 
 # copy zero or more files
