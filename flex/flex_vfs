@@ -12,9 +12,7 @@
 
 # not yet implemented: import fix check repair
 
-# NEXT: implement conv_record conv_dump and proper version of set_converter.
-# Need tidier code for selecting between STDIO and $handle
-# When typing xple files, print file name for each at start.
+# NEXT: implement conv_record conv_dump.
 
 # FUTURE: it is NOT legal to have a null file name. It is legal to have a null extension?
 # FUTURE: add optional y/n arg to delete.
@@ -97,7 +95,7 @@ while (1) {
         &{$sub}(@bits);
     }
     else {
-        print "ERROR: no command $bits[0]\n";
+        print "ERROR: no command \'$bits[0]\'\n";
     }
 }
 
@@ -457,7 +455,7 @@ sub type_export_common {
 
     my $match = filter_dir($drive,$file,$ext);
 
-    printf "INFO %d files match $drive.$file.$ext\n", scalar @$match;
+    printf "INFO %d files match $drive.$file.$ext\n", scalar @$match if scalar @$match != 1;
 
     export_files($drive, $match, $conv_ref, $lpp, $path, $export);
 }
@@ -525,7 +523,7 @@ sub cmd_delete {
 
     my $match = filter_dir($drive,$file,$ext);
 
-    printf "INFO %d files match $drive.$file.$ext\n", scalar @$match;
+    printf "INFO %d files match $drive.$file.$ext\n", scalar @$match if scalar @$match != 1;
 
     rm_files($drive, $match);
     # directory copy is out-of-date now so revise it
@@ -546,7 +544,7 @@ sub cmd_truncate {
 
     my $match = filter_dir($drive,$file,$ext);
 
-    printf "INFO %d files match $drive.$file.$ext\n", scalar @$match;
+    printf "INFO %d files match $drive.$file.$ext\n", scalar @$match if scalar @$match != 1;
 
     truncate_files($drive, $match, $num);
     # file sizes in directory copy are out-of-date now so revise it
@@ -976,10 +974,14 @@ sub export_files {
                 next;
             }
         }
+        else {
+            print "============= $f{name} =============\n";
+            $f{handle} = \*STDOUT;
+        }
 
         $f{drive} = $drive;
         ($f{trk}, $f{sct}) = rd_file_start_tsc($drive,$i);
-        $f{converters} = \$conv_ref;
+        $f{converters} = $conv_ref;
         $f{converter} = ""; # subroutine ref
         $f{export} = $export;
         $f{line} = 1;
@@ -992,10 +994,8 @@ sub export_files {
             next;
         }
 
-        # choose what converter to use
+        # select and run the converter
         set_converter(\%f);
-
-        # convert file
         &{$f{converter}}(\%f);
 
         if ($export) {
@@ -1009,15 +1009,36 @@ sub export_files {
 # what conversion to use and fill in {converter}.
 sub set_converter {
     my ($f_ref) = @_;
+    my $skip = 0;
 
     # make sure it's being used as expected
     if ($f_ref->{index} != 4) {
         die "FATAL ERROR set_converter expects full sector to play with";
     }
 
-    # TODO. hard-wired for now while developing/testing each converter in turn
-    # detect binary record format else detect most char with msb clear else binary
-    $f_ref->{converter} = \&conv_expand;
+    if ($f_ref->{data}->[4] == 0x02) {
+        # start of record indicator. Probably a Binary file
+        $f_ref->{converter} = 'conv_' . $f_ref->{converters}->{bin};
+    }
+    else {
+        # Text file by default; skip run-length bytes
+        # which could legitimately have msb set.
+        $f_ref->{converter} = 'conv_' . $f_ref->{converters}->{txt};
+        for my $i (4..255) {
+            if ($skip == 1) {
+                $skip = 0;
+                next;
+            }
+            elsif ($f_ref->{data}->[$i] == 0x09) {
+                $skip = 1;
+                next;
+            }
+            elsif ($f_ref->{data}->[$i] & 0x80) {
+                # Unknown type
+                $f_ref->{converter} = 'conv_' . $f_ref->{converters}->{xxx};
+            }
+        }
+    }
 }
 
 
@@ -1036,18 +1057,12 @@ sub conv_raw {
 
     my $more_data = 1;
     while ($more_data) {
-        if ($f_ref->{export}) {
-            for my $i (4..255) {
-                print $handle chr $f_ref->{data}->[$i];
-            }
+        for my $i (4..255) {
+            print $handle chr $f_ref->{data}->[$i];
         }
-        else {
-            for my $i (4..255) {
-                print chr $f_ref->{data}->[$i];
-            }
+        if (not $f_ref->{export}) {
             print "\nPress ENTER to continue, Q ENTER to quit";
-            my $reply = <STDIN>;
-            last if $reply =~ /[qQ]/;
+            last if <STDIN> =~ /[qQ]/;
         }
         $more_data = rd_nxt_sct($f_ref);
     }
@@ -1059,6 +1074,7 @@ sub conv_expand {
     my ($f_ref) = @_;
     my $handle = $f_ref->{handle};
     my $expand = 0;
+    my $page = 0;
 
     while (not $f_ref->{eof}) {
         my $chr = rd_nxt_chr($f_ref);
@@ -1075,46 +1091,40 @@ sub conv_expand {
         }
         elsif ($chr == 0x0d) {
             $chr = 0x0a; # unix line endings
+
+            if ($f_ref->{line} == $f_ref->{lpp}) {
+                $f_ref->{line} = 1;
+                $page = not $f_ref->{export};
+            }
+            else {
+                $f_ref->{line} = $f_ref->{line} + 1;
+            }
         }
 
-        if ($f_ref->{export}) {
-            if ($expand == 0) {
-                print $handle chr $chr;
-            }
-            else {
-                print $handle ' ' x $chr;
-                $expand = 0;
-            }
+        if ($expand) {
+            $expand = 0;
+            print $handle ' ' x $chr;
         }
         else {
-            if ($expand == 0) {
-                print chr $chr;
-                if ($chr == 0x0a) {
-                    if ($f_ref->{line} == $f_ref->{lpp}) {
-                        $f_ref->{line} = 1;
-                        print "\nPress ENTER to continue, Q ENTER to quit";
-                        my $reply = <STDIN>;
-                        last if $reply =~ /[qQ]/;
-                    }
-                    else {
-                        $f_ref->{line} = $f_ref->{line} + 1;
-                    }
-                }
-            }
-            else {
-                print ' ' x $chr;
-                $expand = 0;
-            }
+            print $handle chr $chr;
+        }
+
+        if ($page) {
+            $page = 0;
+            print "\nPress ENTER to continue, Q ENTER to quit";
+            last if <STDIN> =~ /[qQ]/;
         }
     }
 }
 
 
 sub conv_record {
+    print "TODO record converter not yet implemented\n";
 }
 
 
 sub conv_dump {
+    print "TODO dump converter not yet implemented\n";
 }
 
 # copy zero or more files
@@ -1297,7 +1307,6 @@ sub truncate_files {
 }
 
 
-# TODO use this elsewhere
 # read a sector, return its current link.
 sub rd_link {
     my ($drive, $trk, $sct) = @_;
@@ -1310,7 +1319,6 @@ sub rd_link {
 }
 
 
-# TODO use this elsewhere
 # read a sector, return its current link, set a new link.
 # return ($trk, $sct) of old link.
 sub rdwr_link {
@@ -1858,6 +1866,10 @@ sub dir_entries {
 }
 
 
+#################################################################
+#################################################################
+## Help
+
 sub help_for {
     my ($cmd) = @_;
     if ($cmd eq 'mount') {
@@ -2038,7 +2050,7 @@ EOF
     }
     elsif ($cmd eq 'import') {
         print <<EOF
-TODO
+TODO not yet implemented. Behaviour not yet defined
 EOF
     }
     elsif ($cmd eq 'dir') {
