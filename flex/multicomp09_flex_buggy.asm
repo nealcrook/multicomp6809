@@ -67,11 +67,8 @@
 *
 *
 *
-*
-*
-*
 * ** to delete?:
-* xrecord step breakpoint
+* xrecord step
 * ** to add:
 * sdcard load
 * flags for timer interrupt and interactive mode
@@ -304,7 +301,7 @@ clvar           clr ,x+
                 ldd #$1A03
                 std filler      ;Set XMODEM filler and end-of-line.
                 ldx #welcome
-                jsr outcount
+                jsr outnts
                 jsr <putcr      ;Print a welcome message.
                 jmp cmdline
 * Block move routine, from X to U length B. Modifies them all and A.
@@ -422,11 +419,13 @@ oscr            pshs b
                 puls b
                 rts
 
-* Output a counted string at addr X
-outcount        pshs x,b
-                ldb ,x+
-                jsr <putline
-                puls x,b
+* Output a null-terminated string at addr X
+outnts          pshs x,b
+outnts1         ldb ,x+
+                beq outnts2
+                jsr <putchar
+                bra outnts1
+outnts2         puls x,b
                 rts
 
 timerirq        inc <timer+2     ; [NAC HACK 2015Jul15] surely this is backwards? LSbyte s/b timer
@@ -453,7 +452,7 @@ intvectbl       jmp endirq
                 jmp endirq
                 jmp xerrhand
                 jmp expr
-                jmp asmerrvec
+                jmp asmerr   ; [NAC HACK 2015Aug23] bugfix! original was asmerrvec
                 jmp pseudo
 intvecend       equ *
 
@@ -522,7 +521,7 @@ cmdtab          fdb asm,break,calc,dump
 * Error: bad command arguments
 argerr          jsr <xabortin
                 ldx #badargs
-                jsr outcount
+                jsr outnts
                 jsr <putcr
                 jmp cmdline
 
@@ -530,18 +529,16 @@ argerr          jsr <xabortin
 * Command: Unknown command handling routine.
 unk             jsr <xabortin
                 ldx #unknown
-                jsr outcount
+                jsr outnts
                 jsr <putcr
                 jmp cmdline
 
 ***************************************************************
 * Command: H, help
 help            ldx #mhelp           ;Print a help message.
-help1           ldb ,x+
-                beq endhlp
-                lbsr osputc
-                bra help1
-endhlp          jmp cmdline
+                jsr outnts
+                jmp cmdline
+
 mhelp           fcb     CR,LF
 
                 fcc     'Asm    '
@@ -613,38 +610,37 @@ mhelp           fcb     CR,LF
                 fcb     CR,LF,CR,LF,0
 
 
-* Here are some useful messages stored as counted-strings.
-welcome         fcb unknown-welcome-1
-                fcc "BUGGY for Multicomp09, 2015Aug23 (type h for help)"
-unknown         fcb badargs-unknown-1
-                fcc "Unknown command"
-badargs         fcb brkmsg-badargs-1
-                fcc "Bad arguments"
-brkmsg          fcb clrmsg-brkmsg-1
-                fcc "Breakpoint set"
-clrmsg          fcb fullmsg-clrmsg-1
-                fcc "Breakpoint cleared"
-fullmsg         fcb smsg-fullmsg-1
-                fcc "Breakpoints full"
-smsg            fcb lastrec-smsg-1
-                fcc "Error in S record"
-lastrec         fcb xsmsg-lastrec-1
-                fcc "S9030000FC"
-xsmsg           fcb xrmsg-xsmsg-1
-                fcc "Start XMODEM Send"
-xrmsg           fcb xamsg-xrmsg-1
-                fcc "Start XMODEM Receive"
-xamsg           fcb invmmsg-xamsg-1
-                fcc "XMODEM transfer aborted"
-invmmsg         fcb exprmsg-invmmsg-1
-                fcc "Invalid mnemonic"
-exprmsg         fcb modemsg-exprmsg-1
-                fcc "Expression error"
-modemsg         fcb brmsg-modemsg-1
-                fcc "Addressing mode error"
-brmsg           fcb endmsg-brmsg-1
-                fcc "Branch too long"
-endmsg          equ *
+* Here are some useful messages stored as null-terminated strings.
+welcome         fcc "BUGGY for Multicomp09, 2015Aug23 (type h for help)"
+                fcb 0
+unknown         fcc "Unknown command"
+                fcb 0
+badargs         fcc "Bad arguments"
+                fcb 0
+brkmsg          fcc "Breakpoint set"
+                fcb 0
+clrmsg          fcc "Breakpoint cleared"
+                fcb 0
+fullmsg         fcc "Breakpoints full"
+                fcb 0
+smsg            fcc "Error in S record"
+                fcb 0
+lastrec         fcc "S9030000FC"
+                fcb 0
+xsmsg           fcc "Start XMODEM Send"
+                fcb 0
+xrmsg           fcc "Start XMODEM Receive"
+                fcb 0
+xamsg           fcc "XMODEM transfer aborted"
+                fcb 0
+invmmsg         fcc "Invalid mnemonic"
+                fcb 0
+exprmsg         fcc "Expression error"
+                fcb 0
+modemsg         fcc "Addressing mode error"
+                fcb 0
+brmsg           fcc "Branch too long"
+                fcb 0
 
 * Output hex digit contained in A
 hexdigit        adda #$90
@@ -1147,7 +1143,7 @@ bp2             leax 3,x
                 beq bpfull      ;Was free address found.
                 std ,y          ;If so, store breakpoint there.
                 ldx #brkmsg
-bpexit          jsr outcount
+bpexit          jsr outnts
                 jsr <putcr
                 jmp cmdline
 clearit         clra
@@ -1233,7 +1229,7 @@ endrec1         clra
                 jmp cmdline
 srecerr         jsr <xabortin
                 ldx #smsg       ;Error in srecord, display message.
-                jsr outcount
+                jsr outnts
                 jsr <putcr
                 jmp cmdline
 setsorg         jsr scanhex     ;Set S record origin.
@@ -1286,7 +1282,7 @@ ss3             ldb ,y+
                 jsr <putcr
                 bra ss1
 endss           ldx #lastrec
-                jsr outcount
+                jsr outnts
                 jsr <putcr
                 jmp cmdline
 * Output byte in register B and add it into check sum at temp+1
@@ -1545,7 +1541,7 @@ rstvecs         ldx oldgetc
 * O.S. routine to open input through XMODEM transfer.
 xopin           pshs x,a,b
                 ldx #xsmsg
-                jsr outcount
+                jsr outnts
                 jsr <putcr       ;Display message to start XMODEM send.
                 bsr savevecs
                 ldx #noop
@@ -1564,7 +1560,7 @@ xopin           pshs x,a,b
 xopout          pshs x,a,b
                 bsr savevecs
                 ldx #xrmsg
-                jsr outcount    ;Display message to start XMODEM receive
+                jsr outnts       ;Display message to start XMODEM receive
                 jsr <putcr
                 ldx #xputc
                 stx <putchar+1
@@ -1591,7 +1587,7 @@ xabtloop        jsr osputc
                 bsr rstvecs
                 clr <xmode
                 ldx #xamsg
-                jsr outcount
+                jsr outnts
                 jsr <putcr       ;Send diagnostic message.
                 rts
 
@@ -1675,7 +1671,7 @@ xgetcterm       jsr rstvecs
 xerror          jsr rstvecs     ;Restore I/O vectors
                 clr <xmode
                 ldx #xamsg
-                jsr outcount
+                jsr outnts
                 jsr <putcr
                 jmp xerrvec
 
@@ -3171,7 +3167,7 @@ moderr          ldx #modemsg
 asmerr          pshs x
                 jsr <xabortin
                 puls x
-                jsr outcount
+                jsr outnts
                 jsr <putcr
                 lds savesp
                 jmp cmdline
