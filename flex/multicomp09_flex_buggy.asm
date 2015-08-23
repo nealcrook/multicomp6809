@@ -14,28 +14,44 @@
 *
 *
 * Entry/Exit points:
-* - cold start. When entered in this way, program sets its own
-*   stack pointer, initialises local workspace and enters the
-*   CLI. EXIT command generates an error. Only use this if
-*   running without FLEX or other host OS.
-* - fromflex INIT. Use this as the FLEX transfer address. Program
-*   uses system stack. Initialises local workspace, changes the
-*   MONITR vector at $D3F3 to the value of "fromflex MON" then
-*   returns to FLEX by doing a FLEX warm start.
-* - fromflex MON. When entered in this way, program sets its own
-*   stack pointer and enters the CLI (expects local workspace
-*   to be initialised). EXIT command does a FLEX warm start.
-* - from NMI (interactive). When entered in this way, program
-*   stores current S register, then sets its own stack pointer
-*   and enters the CLI (expects local workspace to be initialised).
-*   EXIT command restores S register and then does a RTI.
-* - from NMI (non-interactive). When entered in this way, program
-*   stores current S register, then sets its own stack pointer.
-*   (expects local workspace to be initialised). After displaying
-*   system registers (same as R command), it automatically exits by
-*   restoring S register and doing a RTI.
+* RESET - Entry from reset. In this case, set sp, dp etc.
+*   init workspace. Init I/O. Exit: nowhere to go back to
+*   so do nothing.
+* FLOAD - Entry from FLEX (load-time). In this case, set sp, dp
+*   etc, init workspace. Don't init I/O. Tie in to FLEX MON vector.
+*   Exit: restore dp, branch to FLEX warm start point (which
+*   resets sp)
+* MON - Entry from FLEX (run-time). Keep sp? load dp.
+*   Exit: restore dp, branch to FLEX warm start point (which
+*   resets sp)
+* NMI - Entry from special key-press. State saved on existing
+*   stack. Load dp. Honour Interactive flag.
+*   Exit: ensure UART output idle (main program could have discerned
+*   this just as NMI was serviced), Do rti.
+* FIRQ - Entry from timer interrupt; either periodic timer or
+*   single step. State saved in existing stack. Load dp. Check
+*   sstep flag.
+*   Exit: if timer, service and return through rti. If
+*   sstep rti will return to cli [NAC HACK 2015Jul18] could have a trace
+*   capability where we run for N single steps?
+* SWI - Entry from breakpoint.
 *
-*   FLEX warm start (jump to $CD03) resets the stack pointer
+* Use-case: load and start Buggy from FLEX. Load and start program
+* from FLEX. Press key to NMI to Buggy. Set breakpoint then exit.
+* Program resumes. Hits breakpoint and enters Buggy. At this point
+* need to know that "Exit" from Buggy should take us back to the
+* program. I think this will all happen based on the stacked register
+* set which means, in the case of RESET, FLOAD and MON we simply need
+* to stack the correct values then "Exit" and "Continue" (if such a
+* thing exists) will resume in the same way.
+* May also want an explicit FLEX warm start command, which only has
+* effect in the case where we came in through FLEX.
+*
+* To tie in to FLEX MON command need to change the MONITR vector at
+* $D3F3 to the value of MON then return to FLEX by doing a FLEX warm
+* start.
+*
+* FLEX warm start (jump to $CD03) resets the stack pointer
 *
 * Memory Map:
 * - Designed to be RAM-resident at D000-FFFF (loaded in when
@@ -238,6 +254,20 @@ CASEMASK        equ $DF         ;Mask to make lowercase into uppercase.
 * Monitor code starts here.
                 org codestart
 
+* Entry points?? [NAC HACK 2015Jul18] 
+
+* [NAC HACK 2015Jul18] Initialisation when loaded from FLEX: allow the FLEX MON command
+* to come here
+xxx
+                ldx #frmflx
+                stx monitr
+* fall through to normal init or something else?
+
+
+
+* [NAC HACK 2015Jul18] for start through reset vector need to set up memmapper
+* and copy self to RAM? Or will Camelforth have done that? Add word to Camelforth.
+frmflx
 reset           orcc #$FF       ;Disable interrupts.
                 lda #ramstart/256
                 tfr a,dp        ;Set direct page register
@@ -272,7 +302,7 @@ clvar           clr ,x+
                 std filler      ;Set XMODEM filler and end-of-line.
                 ldx #welcome
                 jsr outcount
-                jsr <putcr       ;Print a welcome message.
+                jsr <putcr      ;Print a welcome message.
                 jmp cmdline
 * Block move routine, from X to U length B. Modifies them all and A.
 blockmove       lda ,x+
@@ -331,7 +361,7 @@ backsp          tsta                  ;Recognize BS and DEL as backspace key.
                 ldb #' '
                 jsr <putchar
                 ldb #BS               ;Send BS,space,BS. This erases last
-                jsr <putchar           ;character on most terminals.
+                jsr <putchar          ;character on most terminals.
                 leax -1,x             ;Decrement address.
                 deca
                 bra osgetl1
@@ -405,7 +435,7 @@ timerirq        inc <timer+2     ; [NAC HACK 2015Jul15] surely this is backwards
 aciairq         nop
 endirq          rti
 
-* Wait D times 20ms.
+* Wait D times 20ms. [NAC HACK 2015Jul18] surely this ignores carry to 3rd byte?
 osdly           addd <timer+1
 dlyloop         cmpd <timer+1
                 bne dlyloop
@@ -776,14 +806,14 @@ ent1            bsr entline
 ent2            ldd addr
                 jsr outd
                 ldb #' '
-                jsr <putchar     ;Display addr + space
+                jsr <putchar    ;Display addr + space
                 lda [addr]
                 jsr outbyte
                 ldb #' '
                 jsr <putchar
                 ldx #linebuf
                 ldb #buflen
-                jsr <getline     ;Get the line.
+                jsr <getline    ;Get the line.
                 tstb
                 beq skipbyte
                 abx
@@ -925,7 +955,7 @@ prog            ldy 10,s        ;Get program counter value.
 * Saves messing with the vector so might all take more or less the
 * same amount of code and complexity.
 
-        
+
 trace           jsr traceone
                 jsr dispregs
                 jmp cmdline
@@ -1072,7 +1102,7 @@ disarm2         deca
                 stu -3,x        ;Clear the step breakpoint.
                 rts
 
-* Arm the breakpoints, this is replace the byte at the breakpoint address
+* Arm the breakpoints: replace the byte at each breakpoint address
 * with an SWI instruction.
 arm             ldx #bpaddr+brkpoints*3
                 lda #brkpoints+1  ;Arm them in reverse order of disarming.
@@ -1093,7 +1123,7 @@ arm2            leax -3,x
 * Command: B, set, clear display breakpoints.
 * Syntax B or B<addr>. B displays, B<addr> sets or clears breakpoint.
 break           lda #brkpoints
-                sta <temp2+1     ;Store number of breakpoints to visit.
+                sta <temp2+1    ;Store number of breakpoints to visit.
                 ldx #linebuf+1
                 jsr scanhex
                 beq dispbp      ;No number then display breakpoints
@@ -1282,7 +1312,7 @@ move            ldx #linebuf+1
                 jsr scanhex
                 lbeq argerr
                 tfr d,y         ;Read the argument separated by commas
-                ldx <temp3       ;src addr to x, dest addr to u, length to y
+                ldx <temp3      ;src addr to x, dest addr to u, length to y
                                 ;Don't tolerate syntax deviations.
 mvloop          lda ,x+
                 sta ,u+
@@ -2403,7 +2433,7 @@ negoffs         ldb #'-'
                 jsr outdecbyte
 discomma        jsr putcomma         ;Display ,Xreg and terminating ]
 disindex        bsr disidxreg
-disindir        tst <temp             ;Display ] if indirect.
+disindir        tst <temp            ;Display ] if indirect.
                 beq disidxend
                 ldb #']'
                 jsr <putchar
@@ -2529,7 +2559,7 @@ unadisspc       ldb #' '
                 jsr <putchar
                 inc <temp2
                 lda #11
-                cmpa <temp2     ;Fill out with spaces to width 11.
+                cmpa <temp2    ;Fill out with spaces to width 11.
                 bne unadisspc
                 bne unadishex
                 jsr disdisp    ;Display disassembled instruction.
@@ -2664,10 +2694,10 @@ bscmploop       ldb ,x+
 bscmpexit       ldb <temp2
                 bcc bscmplower
                 decb
-                stb <temp+1      ;mnembuf<table, adjust high limit.
+                stb <temp+1     ;mnembuf<table, adjust high limit.
                 bra bsrchloop
 bscmplower      incb
-                stb <temp        ;mnembuf>table, adjust low limit.
+                stb <temp       ;mnembuf>table, adjust low limit.
                 bra bsrchloop
 invmnem         ldx #invmmsg
                 jmp asmerrvec
