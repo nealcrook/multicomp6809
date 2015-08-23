@@ -106,20 +106,15 @@
 * 13. e accepts 00 but not 0 as legal input - change scanbyte to
 *     accept 1 or 2 hex digits if delimited by space.
 * 14. make - go back in assembler. Need to remember what address we started at.
-*
+* 15. Breakpoint (now) works but has restriction that you cannot interrupt a loop with a
+*     single breakpoint. Reason is that, when you try to restart from the breakpoint
+*     address, need to execute that instruction and so cannot insert breakpoint there.
+*     Need to implement single step to fix that problem. Side-step it by inserting 2
+*     breakpoints, eg at successive instructions.
+
 * NEXT: Check in original and port slowly to this one
 * work out memory map changes
 * put harness in place to allow entry to and exit from FLEX
-
-* breakpoint does not work because the DP gets corrupted.
-* Initialisation of buggy sets default set of register values which it sets up on the
-* stack, for the application.
-* When buggy passes control to the application, it loads up that set of values.
-* When buggy is re-entered, through (eg SWI), the application's registers are stacked.
-* Buggy starts up as though it doesn't care about any register values. In fact, though,
-* it needs to have the correct DP value restored. This can happen at any time, because
-* (eg) register display is done by picking values out of the stack frame.
-        
 
 * Memory map of SBC
 * $0-$40 Zero page variables reserved by monitor and O.S.
@@ -292,8 +287,9 @@ reset           orcc #$FF       ;Disable interrupts.
                 bsr initacia    ;Initialize serial port.
                 andcc #$0       ;Enable interrupts
 * Put the 'saved' registers of the program being monitored on top of the
-* stack. There are 12 bytes on the stack for cc,b,a,dp,x,y,u and pc
-* pc is initialized to $400, the rest to zero.
+* stack. There are 12 bytes on the stack: cc,a,b,dp,xh,xl,yh,yl,uh,ul,pch,pcl
+* pc is initialized to ramstart, the rest to zero.
+* [NAC HACK 2015Aug23] create wstart, separate from ramstart. 
                 ldx #0
                 tfr x,y
                 ldu #ramstart
@@ -442,7 +438,7 @@ timerirq        inc <timer+2     ; [NAC HACK 2015Jul15] surely this is backwards
 aciairq         nop
 endirq          rti
 
-* Wait D times 20ms. [NAC HACK 2015Jul18] surely this ignores carry to 3rd byte?
+* Wait D times 20ms.
 osdly           addd <timer+1
 dlyloop         cmpd <timer+1
                 bne dlyloop
@@ -488,6 +484,8 @@ unlaunch        ldd 10,s
                 subd #1
                 std 10,s             ;Decrement pc before breakpoint
 unlaunch1       andcc #$0            ;reenable the interrupts.
+                lda #ramstart/256
+                tfr a,dp             ;Restore direct page register for buggy
                 jsr disarm           ;Disarm the breakpoints.
                 jsr dispregs
 cmdline         jsr <xcloseout
@@ -617,7 +615,7 @@ mhelp           fcb     CR,LF
 
 * Here are some useful messages stored as counted-strings.
 welcome         fcb unknown-welcome-1
-                fcc "BUGGY for Multicomp09, 2015Jul12 (type h for help)"
+                fcc "BUGGY for Multicomp09, 2015Aug23 (type h for help)"
 unknown         fcb badargs-unknown-1
                 fcc "Unknown command"
 badargs         fcb brkmsg-badargs-1
