@@ -17,7 +17,7 @@
 
 # FUTURE: it is NOT legal to have a null file name. It is legal to have a null extension?
 # FUTURE: add optional y/n arg to delete.
-# FUTURE: DATE command, RENAME command, mixedcase-toggle command
+# FUTURE: DATE command, RENAME command
 # FUTURE: THEN (command separator)
 # FUTURE: EXTEND (add sectors)
 # FUTURE: allow target of copy to be unique fs rather than simply drive name (ie copy
@@ -59,6 +59,9 @@ my $DFLT_SCTS = 72;
 
 # For 'type' command
 my $LINES_PER_PAGE = 40;
+
+# For 'uppercase' command
+my $UPCASE = 0;
 
 # Data structure
 # $dsk[0..3]
@@ -723,6 +726,25 @@ sub cmd_help {
 }
 
 
+sub cmd_uppercase {
+    my ($flag) = check_arg('oi', @_);
+
+    if (defined $flag) {
+        $UPCASE = $flag ? 1 : 0;
+    }
+    else {
+        $UPCASE = $UPCASE ? 0 : 1;
+    }
+
+    if ($UPCASE) {
+        print "Flex file specifiers will be forced to upper-case\n";
+    }
+    else {
+        print "Flex file specifiers will use mixed case\n";
+    }
+}
+
+
 #################################################################
 #################################################################
 # Subroutines
@@ -868,6 +890,9 @@ sub check_arg {
             if (not defined $_[$i]) {
                 print "ERROR missing argument - expected flex file specifier\n";
                 return;
+            }
+            if ($UPCASE) {
+                $_[$i] = uc $_[$i];
             }
             if (($_[$i] eq "0") or ($_[$i] eq "1") or
                 ($_[$i] eq "2") or ($_[$i] eq "3")) {
@@ -2114,6 +2139,18 @@ sub help_for {
     mount 0 flex09.dsk dsk
 EOF
     }
+    elsif ($cmd eq 'umount') {
+        print <<EOF
+    umount <virtual drive number>
+
+    Close file associated with virtual drive number and make that virtual
+    drive number available for reuse.
+
+    Examples:
+    umount 0
+    umount 2
+EOF
+}
     elsif ($cmd eq 'clone') {
         print <<EOF
     clone <virtual drive number> <file on host filesystem> [format]
@@ -2139,18 +2176,6 @@ EOF
     clone 2 system.img
     clone 0 flex09.zzz img
     clone 0 flex09.dsk dsk
-EOF
-    }
-    elsif ($cmd eq 'umount') {
-        print <<EOF
-    umount <virtual drive number>
-
-    Close file associated with virtual drive number and make that virtual
-    drive number available for reuse.
-
-    Examples:
-    umount 0
-    umount 2
 EOF
     }
     elsif ($cmd eq 'new') {
@@ -2427,6 +2452,22 @@ EOF
 TODO
 EOF
     }
+    elsif ($cmd eq 'uppercase') {
+        print <<EOF
+    uppercase [0|1]
+    Flex can use mixed-case file names and flex_vfs allows this by
+    default. However, many old Flex disks have upper-case only file
+    names and it can be tedious using the shift key continually.
+
+    flex_vfs can force all Flex file specifiers to upper case (note
+    that wildcard '*' will still match both upper-case and lower-case
+    if they exist on the disk).
+
+    uppercase toggles the state of upper-case forcing. With an
+    argument of 0 or 1 it forces the state. In both cases, the new
+    state is reported.
+EOF
+    }
     elsif ($cmd eq 'formats') {
         print <<EOF
     Flex disks use a fixed sector size of 256 bytes, but varying
@@ -2546,14 +2587,14 @@ and the host filesystem. Virtual drives can be inspected and manipulated.
 Commands are:
 
     mount      - associate disk image with virtual drive number
-    clone      - make copy of virtual drive (optional format conversion)
-    info       - report virtual drives currently mounted
     umount     - disconnect disk image from drive number
+    info       - report virtual drives currently mounted
+    clone      - make copy of virtual drive (optional format conversion)
     new        - create new empty disk image (optional geometry specification)
     copy       - copy file(s) from one virtual drive to another
     label      - change disk label/volume number/creation date
-    export     - copy file from virtual drive to local file system (optional format conversion)
     type       - view file from virtual drive (optional format conversion)
+    export     - copy file from virtual drive to local file system (optional format conversion)
     import     - copy file from local file system to virtual drive (optional format conversion)
     dir        - directory of virtual drive
     hdir       - directory of local file system
@@ -2567,6 +2608,7 @@ Commands are:
     check      - check integrity of virtual drive
     scrub      - null out deleted file names and unused sectors
     repair     - repair virtual drive
+    uppercase  - treat all Flex file specifiers as upper-case
     exit       - unmount all mounted drives and leave flex_vfs
     quit       - synonym for exit
     help       - this is it.
