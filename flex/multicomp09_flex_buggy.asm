@@ -63,7 +63,7 @@
 *
 *
 * Interrupts:
-*
+* multicomp timer interrupt is currently on irq. This expects firq.
 *
 *
 *
@@ -109,8 +109,7 @@
 *     Need to implement single step to fix that problem. Side-step it by inserting 2
 *     breakpoints, eg at successive instructions.
 
-* NEXT: Check in original and port slowly to this one
-* work out memory map changes
+* NEXT:
 * put harness in place to allow entry to and exit from FLEX
 
 * Memory map of SBC
@@ -129,9 +128,10 @@
 
 
 * Define memory map
-ramstart        equ $6000       ;RAM start of local storage
-rambufs         equ ramstart+$100
-ramfree         equ ramstart+$400 ;free RAM after local storage
+ramstart        equ $0000       ;RAM start of local storage
+wsstart         equ $6000       ;RAM start of workspace
+rambufs         equ wsstart+$100
+ramfree         equ wsstart+$400 ;free RAM after local storage
 codestart       equ $e400
 
 * MULTICOMP I/O port addresses
@@ -144,8 +144,8 @@ monitr          equ $D3F3
 
 
 * Reserved direct page addresses
-                org ramstart
-* First the I/O routine vectors.
+                org wsstart
+* I/O routine vectors.
 getchar         rmb 3           ;Jump to getchar routine.
 putchar         rmb 3           ;Jump to putchar routine.
 getline         rmb 3           ;Jump to getline routine.
@@ -159,7 +159,7 @@ xclosein        rmb 3           ;Jump to xclosein routine.
 xcloseout       rmb 3           ;Jump to xcloseout routine.
 delay           rmb 3           ;Jump to delay routine.
 
-*Next the system variables in the direct page.
+* System variables in the direct page.
 temp            rmb 2           ;hex scanning/disasm
 temp2           rmb 2           ;Hex scanning/disasm
 temp3           rmb 2           ;Used in Srecords, H command
@@ -268,7 +268,7 @@ xxx
 * and copy self to RAM? Or will Camelforth have done that? Add word to Camelforth.
 frmflx
 reset           orcc #$FF       ;Disable interrupts.
-                lda #ramstart/256
+                lda #wsstart/256
                 tfr a,dp        ;Set direct page register
                 clr <disflg
                 lds #ramfree    ;Stack grows down from here
@@ -286,7 +286,6 @@ reset           orcc #$FF       ;Disable interrupts.
 * Put the 'saved' registers of the program being monitored on top of the
 * stack. There are 12 bytes on the stack: cc,a,b,dp,xh,xl,yh,yl,uh,ul,pch,pcl
 * pc is initialized to ramstart, the rest to zero.
-* [NAC HACK 2015Aug23] create wstart, separate from ramstart. 
                 ldx #0
                 tfr x,y
                 ldu #ramstart
@@ -483,7 +482,7 @@ unlaunch        ldd 10,s
                 subd #1
                 std 10,s             ;Decrement pc before breakpoint
 unlaunch1       andcc #$0            ;reenable the interrupts.
-                lda #ramstart/256
+                lda #wsstart/256
                 tfr a,dp             ;Restore direct page register for buggy
                 jsr disarm           ;Disarm the breakpoints.
                 jsr dispregs
@@ -509,14 +508,6 @@ cmdline         jsr <xcloseout
                 aslb                 ;Index into command table.
                 jmp [b,x]
 
-cmdtab          fdb asm,break,calc,dump
-                fdb enter,find,go,help
-                fdb inp,jump,unk,unk
-                fdb move,unk,unk,prog
-                fdb unk,regs,srec,trace
-                fdb unasm,unk,unk,xmodem
-                fdb unk,unk
-
 ***************************************************************
 * Error: bad command arguments
 argerr          jsr <xabortin
@@ -538,109 +529,6 @@ unk             jsr <xabortin
 help            ldx #mhelp           ;Print a help message.
                 jsr outnts
                 jmp cmdline
-
-mhelp           fcb     CR,LF
-
-                fcc     'Asm    '
-                fcc     '{Aaddr}'
-                fcb     CR,LF
-
-                fcc     'Unasm  '
-                fcc     '{U or Uaddr or Uaddr,length}'
-                fcb     CR,LF
-
-                fcc     'Calc   '
-                fcc     '{Chexnum1{+|-hexnum2}}'
-                fcb     CR,LF
-
-                fcc     'Dump   '
-                fcc     '{D or Daddr or Daddr,length}'
-                fcb     CR,LF
-
-                fcc     'Enter  '
-                fcc     '{E or Eaddr or Eaddr bytes or Eaddr "string"}'
-                fcb     CR,LF
-
-                fcc     'Break  '
-                fcc     '{B or Baddr. B displays, Baddr sets or clears breakpoint}'
-                fcb     CR,LF
-
-                fcc     'Find   '
-                fcc     '{Faddr bytes or Faddr "string"}'
-                fcb     CR,LF
-
-                fcc     'Go     '
-                fcc     '{G or Gaddr}'
-                fcb     CR,LF
-
-                fcc     'Inp    '
-                fcc     '{Iaddr}'
-                fcb     CR,LF
-
-                fcc     'Jump   '
-                fcc     '{Jaddr}'
-                fcb     CR,LF
-
-                fcc     'Move   '
-                fcc     '{Maddr1,addr2,length}'
-                fcb     CR,LF
-
-                fcc     'Prog   '
-                fcc     '{P}'
-                fcb     CR,LF
-
-                fcc     'Regs   '
-                fcc     '{R or R<letter><hex>}'
-                fcb     CR,LF
-
-                fcc     'Srec   '
-                fcc     '{SO<addr> or SS<addr>,<len> or S1<bytes> or S9<bytes>}'
-                fcb     CR,LF
-
-                fcc     'Trace  '
-                fcc     '{T}'
-                fcb     CR,LF
-
-                fcc     'Xmodem '
-                fcc     '{XSaddr,len XLaddr,len XX XOcrlf,filler, XSSaddr,len}'
-                fcb     CR,LF
-
-                fcc     'Help   '
-                fcc     '{H}'
-                fcb     CR,LF,CR,LF,0
-
-
-* Here are some useful messages stored as null-terminated strings.
-welcome         fcc "BUGGY for Multicomp09, 2015Aug23 (type h for help)"
-                fcb 0
-unknown         fcc "Unknown command"
-                fcb 0
-badargs         fcc "Bad arguments"
-                fcb 0
-brkmsg          fcc "Breakpoint set"
-                fcb 0
-clrmsg          fcc "Breakpoint cleared"
-                fcb 0
-fullmsg         fcc "Breakpoints full"
-                fcb 0
-smsg            fcc "Error in S record"
-                fcb 0
-lastrec         fcc "S9030000FC"
-                fcb 0
-xsmsg           fcc "Start XMODEM Send"
-                fcb 0
-xrmsg           fcc "Start XMODEM Receive"
-                fcb 0
-xamsg           fcc "XMODEM transfer aborted"
-                fcb 0
-invmmsg         fcc "Invalid mnemonic"
-                fcb 0
-exprmsg         fcc "Expression error"
-                fcb 0
-modemsg         fcc "Addressing mode error"
-                fcb 0
-brmsg           fcc "Branch too long"
-                fcb 0
 
 * Output hex digit contained in A
 hexdigit        adda #$90
@@ -1175,8 +1063,9 @@ addchk          jsr scanbyte
                 rts
 
 ***************************************************************
-* Command: S, the Motorola S records entry.
-* Syntax SO<addr> or SS<addr>,<len> or S1<bytes> or S9<bytes>
+* Command: S, load/dump memory using Motorola S record format
+* Syntax SO<addr> or or S1<bytes> or S9<bytes> to load memory
+* Syntax SS<addr>,<len> to dump memory
 srec            ldx #linebuf+1
                 ldb ,x+
                 andb #CASEMASK
@@ -1191,10 +1080,10 @@ srec            ldx #linebuf+1
                 cmpb #'9'
                 bne srecerr
                 inc <temp3
-readrec         clr <temp2+1     ;clear checksum.
+readrec         clr <temp2+1    ;clear checksum.
                 bsr addchk
                 suba #2         ;discount the address bytes from the count.
-                sta <temp3+1     ;Read length byte.
+                sta <temp3+1    ;Read length byte.
                 bsr addchk
                 pshs a
                 bsr addchk
@@ -1215,7 +1104,7 @@ rr2             bsr addchk
                 beq endrec
                 sta ,y+
                 bra rr2
-endrec          inc <temp2+1     ;Check checksum.
+endrec          inc <temp2+1    ;Check checksum.
                 bne srecerr
                 tst <temp3
                 lbeq cmdline    ;Was it no S9 record?
@@ -1260,7 +1149,7 @@ ss2             stb <temp
                 jsr <putchar
                 ldb #'1'
                 jsr <putchar
-                clr <temp+1      ;Clear check sum
+                clr <temp+1     ;Clear check sum
                 ldb <temp
                 addb #3
                 bsr checkout    ;Output byte b as hex and add to check sum.
@@ -1678,7 +1567,8 @@ xerror          jsr rstvecs     ;Restore I/O vectors
 xerrhand        lds savesp
                 jmp cmdline
 
-* This is the code for the X command, various XMODEM related commands.
+***************************************************************
+* Command: X, various XMODEM related commands.
 * Syntax: XSaddr,len XLaddr,len XX XOcrlf,filler, XSSaddr,len
 xmodem          ldx #linebuf+1
                 lda ,x+
@@ -1725,6 +1615,1041 @@ xopts           ldd #$1a
                 lda length+1
                 sta filler
                 jmp cmdline
+
+* Decode instruction pointed to by Y for disassembly (and to find out
+* how long it is). On return, U points to appropriate mnemonic table entry,
+* Y points past instruction.
+* It's rather clumsy code, but we do want to reuse the same table
+* as used with assembling.
+disdecode       clr prebyte
+                clr amode
+                lda ,y+
+                cmpa #$10
+                beq ddec1
+                cmpa #$11
+                bne ddec2
+ddec1           sta prebyte         ;Store $10 or $11 prebyte.
+                lda ,y+             ;Get new opcode.
+ddec2           sta opcode
+                lsra
+                lsra
+                lsra
+                lsra                ;Get high nibble.
+                ldx #modetab
+                ldb a,x
+                stb amode
+                ldx #opcoffs
+                lda a,x
+                adda opcode         ;Add opcode offset to opcode.
+ddec4           sta opc1            ;Store the 'basis' opcode.
+                ldu #mnemtab
+                ldx #mnemsize
+ddecloop        ldb #13
+                cmpb 5,u            ;Compare category code with 13
+                beq ddec3           ;13=pseudo op, no valid opcode
+                ldd prebyte
+                cmpd 6,u
+                beq ddecfound       ;Opcode&prebyte agree, operation found.
+ddec3           leau 8,u            ;point to next mnemonic
+                leax -1,x
+                bne ddecloop
+                ldu #mnemfcb        ;mnemonic not found, use FCB byte.
+                lda #3
+                sta amode           ;Store mode 3, 8 bit address.
+                lda opcode
+                tst prebyte
+                beq ddec5
+                lda prebyte         ;if it was the combination prebyte
+                clr prebyte         ;and opcode that was not found,
+                leay -1,y           ;FCB just the prebyte
+ddec5           sta operand+1       ;The byte must be stored as operand.
+                rts
+ddecfound       cmpu #mnembsr
+                bne ddec6
+                lda #$8d            ;Is it really the BSR opcode?
+                cmpa opcode
+                beq ddec6
+                ldu #mnemjsr        ;We mistakenly found BSR instead of JSR
+ddec6           lda amode
+                anda #$FE
+                bne ddec7
+                lda 5,u             ;nibble-dependent mode was 0 or 1,
+                ldx #modetab2       ;use category dependent mode instead.
+                lda a,x
+                sta amode
+ddec7           lda amode
+                asla
+                ldx #disdectab
+                jmp [a,x]           ;jump dependent on definitive mode.
+disdectab       fdb noop,opdec1,opdec2,opdec1,opdec2,opdecidx
+                fdb opdec1,opdec2,opdecpb,opdecpb
+disdectab1      fdb noop,noop,noop,noop,noop,noop,noop,noop
+                fdb opdec1,opdec2,noop,noop,opdec1,opdec2,noop,opdec2
+opdec1          ldb ,y+
+                sex
+od1a            std operand
+noop            rts
+opdec2          ldd ,y++
+                bra od1a
+opdecpb         ldb ,y+
+odpa            stb postbyte
+                rts
+opdecidx        ldb ,y+
+                bpl odpa             ;postbytes <$80 have no extra operands.
+                stb postbyte
+                andb #$0f
+                aslb
+                ldx #disdectab1
+                jmp [b,x]
+
+* Display disassembled instruction after the invocation of disdecode.
+* U points to mnemonic table entry.
+disdisp         tfr u,x
+                ldb #5
+                jsr <putline          ;Display the mnemonic.
+                ldb #' '
+                jsr <putchar
+                lda amode
+                asla
+                ldx #disdisptab
+                jmp [a,x]            ;Perform action dependent on mode.
+disdisptab      fdb noop,disim8,disim16,disadr8,disadr16
+                fdb disidx,disrel8,disrel16,distfr,dispush
+disim8          bsr puthash
+                bra disadr8
+disim16         bsr puthash
+disadr16        bsr putdol
+                ldd operand
+                jmp outd
+disadr8         bsr putdol
+                lda operand+1
+                jmp outbyte
+disrel8         bsr putdol
+                ldb operand+1
+                sex
+dr8a            sty <temp
+                addd <temp
+                jmp outd
+disrel16        bsr putdol
+                ldd operand
+                bra dr8a
+
+puthash         ldb #'#'
+                jmp <putchar
+putdol          ldb #'$'
+                jmp <putchar
+putcomma        ldb #','
+                jmp <putchar
+putspace        ldb #' '
+                jmp <putchar
+
+dispush         ldb #12
+                ldx #asmregtab       ;Walk through the register table.
+                clr <temp
+regloop         lda postbyte
+                anda 4,x
+                beq dispush1         ;Is bit corresponding to reg set in postbyte
+                cmpx #aregu
+                bne dispush3
+                sta <temp+1
+                lda opcode
+                anda #2
+                bne dispush1         ;no u register in pshu pulu.
+                lda <temp+1
+dispush3        cmpx #aregs
+                bne dispush4
+                sta <temp+1
+                lda opcode
+                anda #2
+                beq dispush1         ;no s register in pshs puls.
+                lda <temp+1
+dispush4        coma
+                anda postbyte        ;remove the bits from postbyte.
+                sta postbyte
+                pshs b
+                tst <temp
+                beq dispush2
+                bsr putcomma         ;print comma after first register.
+dispush2        bsr disregname
+                inc <temp
+                puls b
+dispush1        leax 5,x
+                decb
+                bne regloop
+                rts
+
+distfr          lda postbyte
+                lsra
+                lsra
+                lsra
+                lsra
+                bsr distfrsub
+                bsr putcomma
+                lda postbyte
+                anda #$0f
+distfrsub       ldb #12
+                ldx #asmregtab
+distfrloop      cmpa 3,x
+                beq distfrend
+                leax 5,x
+                decb
+                bne distfrloop
+distfrend       bsr disregname
+                rts
+
+disregname      lda #3
+                tfr x,u
+drnloop         ldb ,u+
+                cmpb #' '
+                beq drnend
+                jsr <putchar
+                deca
+                bne drnloop
+drnend          rts
+
+disidxreg       lda postbyte
+                lsra
+                lsra
+                lsra
+                lsra
+                lsra
+                anda #3
+                ldx #ixregs
+                ldb a,x
+                jmp <putchar
+
+disidx          clr <temp
+                lda postbyte
+                bmi disidx1
+                anda #$1f
+                bita #$10
+                bne negoffs
+                jsr outdecbyte
+                bra discomma
+negoffs         ldb #'-'
+                jsr <putchar
+                ora #$f0
+                nega
+                jsr outdecbyte
+discomma        jsr putcomma         ;Display ,Xreg and terminating ]
+disindex        bsr disidxreg
+disindir        tst <temp            ;Display ] if indirect.
+                beq disidxend
+                ldb #']'
+                jsr <putchar
+disidxend       rts
+disidx1         bita #$10
+                beq disidx2
+                ldb #'['
+                jsr <putchar
+                inc <temp
+disidx2         lda postbyte
+                anda #$0f
+                asla
+                ldx #disidxtab
+                jmp [a,x]            ;Jump to routine for indexed mode
+disadec2        lda #2
+                bra disadeca
+disadec1        lda #1
+disadeca        jsr putcomma
+disadloop       ldb #'-'
+                jsr <putchar
+                deca
+                bne disadloop
+                bra disindex
+disainc2        lda #2
+                bra disainca
+disainc1        lda #1
+disainca        sta <temp+1
+                jsr putcomma
+                jsr disidxreg
+                lda <temp+1
+disailoop       ldb #'+'
+                jsr <putchar
+                deca
+                bne disailoop
+                jmp disindir
+disax           ldb #'A'
+                jsr <putchar
+                jmp discomma
+disbx           ldb #'B'
+                jsr <putchar
+                jmp discomma
+disdx           ldb #'D'
+                jsr <putchar
+                jmp discomma
+disinval        ldb #'?'
+                jsr <putchar
+                jmp disindir
+disnx           lda operand+1
+                bmi disnxneg
+disnx1          jsr putdol
+                jsr outbyte
+                jmp discomma
+disnxneg        ldb #'-'
+                jsr <putchar
+                nega
+                bra disnx1
+disnnx          jsr putdol
+                ldd operand
+                jsr outd
+                jmp discomma
+disnpc          jsr putdol
+                ldb operand+1
+                sex
+disnpca         sty <temp2
+                addd <temp2
+                jsr outd
+                ldx #commapc
+                ldb #4
+                jsr <putline
+                jmp disindir
+disnnpc         jsr putdol
+                ldd operand
+                bra disnpca
+disdirect       jsr putdol
+                ldd operand
+                jsr outd
+                jmp disindir
+
+commapc         fcc ",PCR"
+
+disidxtab       fdb disainc1,disainc2,disadec1,disadec2
+                fdb discomma,disbx,disax,disinval
+                fdb disnx,disnnx,disinval,disdx
+                fdb disnpc,disnnpc,disinval,disdirect
+
+* Display byte A in decimal (0<=A<20)
+outdecbyte      cmpa #10
+                blo odb1
+                suba #10
+                ldb #'1'
+                jsr <putchar
+odb1            adda #'0'
+                tfr a,b
+                jmp <putchar
+
+***************************************************************
+* Command: U, unassemble instructions in memory.
+* Syntax: U or Uaddr or Uaddr,length
+unasm           bsr disasm
+                jmp cmdline
+disasm          ldx #linebuf+1
+                ldd #20
+                jsr scan2parms  ;Scan address,length parameters.
+dis1            ldd addr
+                addd length
+                std length
+                ldy addr
+unasmloop       tfr y,d
+                jsr outd        ;Display instruction address
+                jsr putspace
+                pshs y
+                jsr disdecode
+                puls x
+                sty <temp
+                clr <temp2
+unadishex       lda ,x+
+                jsr outbyte
+                inc <temp2
+                inc <temp2
+                cmpx <temp
+                bne unadishex  ;Display instruction bytes as hex.
+unadisspc       ldb #' '
+                jsr <putchar
+                inc <temp2
+                lda #11
+                cmpa <temp2    ;Fill out with spaces to width 11.
+                bne unadisspc
+                bne unadishex
+                jsr disdisp    ;Display disassembled instruction.
+                tst <disflg
+                bne skipcr     ;Assembling; stay on this line
+                jsr <putcr
+skipcr          cmpy length
+                bls unasmloop
+                sty addr
+                rts
+
+* Simple 'expression evaluator' for assembler.
+expr            ldb ,x
+                cmpb #'-'
+                bne pos
+                clrb
+                leax 1,x
+pos             pshs b
+                bsr scanfact
+                beq exprend1
+                tst ,s+
+                bne exprend     ;Was the minus sign there.
+                coma
+                comb
+                addd #1
+                andcc #$fb      ;Clear Z flag for valid result.
+exprend         rts
+exprend1        puls b
+                rts
+
+scanfact        ldb ,x+
+                cmpb #'$'
+                lbeq scanhex   ;Hex number if starting with dollar.
+                cmpb #'''
+                bne scandec    ;char if starting with ' else decimal
+                ldb ,x+
+                lda ,x
+                cmpa #'''
+                bne scanchar2
+                leax 1,x       ;Increment past final quote if it's there.
+scanchar2       clra
+                andcc #$fb     ;Clear zero flag.
+                rts
+scandec         cmpb #'0'
+                blo noexpr
+                cmpb #'9'
+                bhi noexpr
+                clr <temp
+                clr <temp+1
+scandloop       subb #'0'
+                bcs sdexit
+                cmpb #10
+                bcc sdexit
+                pshs b
+                ldd <temp
+                aslb
+                rola
+                pshs d
+                aslb
+                rola
+                aslb
+                rola
+                addd ,s++     ;Multiply number by 10.
+                addb ,s+
+                adca #0       ;Add digit to 10.
+                std <temp
+                ldb ,x+       ;Get next character.
+                bra scandloop
+sdexit          ldd <temp
+                leax -1,x
+                andcc #$fb
+                rts
+noexpr          orcc #$04
+                rts
+
+* Assemble the instruction pointed to by X.
+* Stage 1: copy mnemonic to mnemonic buffer.
+asminstr        lda #5
+                ldu #mnembuf
+mncploop        ldb ,x+
+                beq mncpexit
+                cmpb #' '
+                beq mncpexit    ;Mnemonic ends at first space or null
+                andb #CASEMASK
+                cmpb #'A'
+                blo nolet
+                cmpb #'Z'
+                bls mnemcp1     ;Capitalize letters, but only letters.
+nolet           ldb -1,x
+mnemcp1         stb ,u+         ;Copy to mnemonic buffer.
+                deca
+                bne mncploop
+mncpexit        tsta
+                beq mncpdone
+                ldb #' '
+mnfilloop       stb ,u+
+                deca
+                bne mnfilloop   ;Fill the rest of mnem buffer with spaces.
+
+* Stage 2: look mnemonic up using binary search.
+mncpdone        stx <temp3
+                clr <temp       ;Low index=0
+                lda #mnemsize
+                sta <temp+1     ;High index=mnemsize.
+bsrchloop       ldb <temp+1
+                cmpb #$ff
+                beq invmnem     ;lower limit -1?
+                cmpb <temp
+                blo invmnem     ;hi index lower than low index?
+                clra
+                addb <temp      ;Add indexes.
+                adca #0
+                lsra
+                rorb            ;Divide by 2 to get average
+                stb <temp2
+                aslb
+                rola
+                aslb
+                rola
+                aslb
+                rola            ;Multiply by 8 to get offset.
+                ldu #mnemtab
+                leau d,u        ;Add offset to table base
+                tfr u,y
+                lda #5
+                ldx #mnembuf
+bscmploop       ldb ,x+
+                cmpb ,y+
+                bne bscmpexit   ;Characters don't match?
+                deca
+                bne bscmploop
+                jmp mnemfound   ;We found the mnemonic.
+bscmpexit       ldb <temp2
+                bcc bscmplower
+                decb
+                stb <temp+1     ;mnembuf<table, adjust high limit.
+                bra bsrchloop
+bscmplower      incb
+                stb <temp       ;mnembuf>table, adjust low limit.
+                bra bsrchloop
+invmnem         ldx #invmmsg
+                jmp asmerrvec
+
+* Stage 3: Perform routine depending on category code.
+mnemfound       clr uncert
+                ldy addr
+                lda 5,u
+                asla
+                ldx #asmtab
+                jsr [a,x]
+                sty addr
+                rts
+asmtab          fdb onebyte,twobyte,immbyte,lea
+                fdb sbranch,lbranch,lbra,acc8
+                fdb dreg1,dreg2,oneaddr,tfrexg
+                fdb pushpul,pseudovec
+
+putbyte         stb ,y+
+                rts
+putword         std ,y++
+                rts
+
+onebyte         ldb 7,u         ;Cat 0, one byte opcode w/o operands RTS
+                bra putbyte
+twobyte         ldd 6,u         ;Cat 1, two byte opcode w/o operands SWI2
+                bra putword
+immbyte         ldb 7,u         ;Cat 2, opcode w/ immdiate operand ANDCC
+                bsr putbyte
+                jsr scanops
+                ldb amode
+                cmpb #1
+                lbne moderr
+                ldb operand+1
+                bra putbyte
+lea             ldb 7,u         ;Cat 3, LEA
+                bsr putbyte
+                jsr scanops
+                lda amode
+                cmpa #1
+                lbeq moderr     ;No immediate w/ lea
+                cmpa #3
+                lbhs doaddr
+                jsr set3
+                lda #$8f
+                sta postbyte
+                lda #2
+                sta opsize      ;Use 8F nn nn for direct mode.
+                jmp doaddr
+sbranch         ldb 7,u         ;Cat 4, short branch instructions
+                bsr putbyte
+                jsr startop
+                leax -1,x
+                jsr exprvec
+                lbeq exprerr
+                jmp shortrel
+lbranch         ldd 6,u         ;Cat 5, long brach w/ two byte opcode
+                bsr putword
+lbra1           jsr startop
+                leax -1,x
+                jsr exprvec
+                lbeq exprerr
+                jmp longrel
+lbra            ldb 7,u         ;Cat 6, long branch w/ one byte opcode.
+                jsr putbyte
+                bra lbra1
+acc8            lda #1          ;Cat 7, 8-bit two operand instructions ADDA
+                sta opsize
+                jsr scanops
+                jsr adjopc
+                jsr putbyte
+                jmp doaddr
+dreg1           lda #2          ;Cat 8, 16-bit 2operand insns 1byte opc LDX
+                sta opsize
+                jsr scanops
+                jsr adjopc
+                jsr putbyte
+                jmp doaddr
+dreg2           lda #2          ;Cat 9, 16-bit 2operand insns 2byte opc LDY
+                sta opsize
+                jsr scanops
+                jsr adjopc
+                lda 6,u
+                jsr putword
+                jmp doaddr
+oneaddr         jsr scanops     ;Cat 10, one-operand insns NEG..CLR
+                ldb 7,u
+                lda amode
+                cmpa #1
+                lbeq moderr     ;No immediate mode
+                cmpa #3
+                bhs oaind       ;indexed etc
+                lda opsize
+                deca
+                beq oadir
+                addb #$10       ;Add $70 for extended direct.
+oaind           addb #$60       ;And $60 for indexed etc.
+oadir           jsr putbyte     ;And nothing for direct8.
+                jmp doaddr
+tfrexg          jsr startop     ;Cat 11, TFR and EXG
+                leax -1,x
+                ldb 7,u
+                jsr putbyte
+                jsr findreg
+                ldb ,u
+                aslb
+                aslb
+                aslb
+                aslb
+                stb postbyte
+                ldb ,x+
+                cmpb #','
+                lbne moderr
+                jsr findreg
+                ldb ,u
+                orb postbyte
+                jmp putbyte
+pushpul         jsr startop     ;Cat 12, PSH and PUL
+                leax -1,x
+                ldb 7,u
+                jsr putbyte
+                clr postbyte
+pploop          jsr findreg
+                ldb 1,u
+                orb postbyte
+                stb postbyte
+                ldb ,x+
+                cmpb #','
+                beq pploop
+                leax -1,x
+                ldb postbyte
+                jmp putbyte
+pseudo          ldb 7,u         ;Cat 13, pseudo oeprations
+                aslb
+                ldx #pseudotab
+                jmp [b,x]
+pseudotab       fdb pseudoend,dofcb,dofcc,dofdb
+                fdb doorg,dormb,pseudoend,pseudoend
+dofcb           jsr startop
+                leax -1,x
+fcbloop         jsr exprvec
+                lbeq exprerr
+                jsr putbyte
+                ldb ,x+
+                cmpb #','
+                beq fcbloop
+pseudoend       rts
+dofcc           jsr startop
+                tfr b,a ;Save delimiter.
+fccloop         ldb ,x+
+                beq pseudoend
+                pshs a
+                cmpb ,s+
+                beq pseudoend
+                jsr putbyte
+                bra fccloop
+dofdb           jsr startop
+                leax -1,x
+fdbloop         jsr exprvec
+                lbeq exprerr
+                jsr putword
+                ldb ,x+
+                cmpb #','
+                beq fdbloop
+                rts
+doorg           jsr startop
+                leax -1,x
+                jsr exprvec
+                lbeq exprerr
+                tfr d,y
+                rts
+dormb           jsr startop
+                leax -1,x
+                jsr exprvec
+                lbeq exprerr
+                leay d,y
+                rts
+
+
+* Adjust opcode depending on mode (in $80-$FF range)
+adjopc          ldb 7,u
+                lda amode
+                cmpa #2
+                beq adjdir      ;Is it direct?
+                cmpa #3
+                bhs adjind      ;Indexed etc?
+                rts             ;Not, then immediate, no adjust.
+adjind          addb #$20       ;Add $20 to opcode for indexed etc modes.
+                rts
+adjdir          addb #$10       ;Add $10 to opcode for direct8
+                lda opsize
+                deca
+                bne adjind      ;If opsize=2, add another $20 for extended16
+                rts
+
+* Start scanning of operands.
+startop         ldx <temp3
+                clr amode
+                jmp skipspace
+
+* amode settings in assembler: 1=immediate, 2=direct/extended, 3=indexed
+* etc. 4=pc relative, 5=indirect, 6=pcrelative and indirect.
+
+* Scan the assembler operands.
+scanops         bsr startop
+                cmpb #'['
+                bne noindir
+                lda #5          ;operand starts with [, then indirect.
+                sta amode
+                ldb ,x+
+noindir         cmpb #'#'
+                lbeq doimm
+                cmpb #','
+                lbeq dospecial
+                andb #CASEMASK  ;Convert to uppercase.
+                lda #$86
+                cmpb #'A'
+                beq scanacidx
+                lda #$85
+                cmpb #'B'
+                beq scanacidx
+                lda #$8B
+                cmpb #'D'
+                bne scanlab
+scanacidx       ldb ,x+         ;Could it be A,X B,X or D,X
+                cmpb #','
+                bne nocomma
+                sta postbyte
+                clr opsize
+                jsr set3
+                jsr scanixreg
+                bra scanend
+nocomma         leax -1,x
+scanlab         leax -1,x       ;Point to the start of the operand
+                jsr exprvec
+                lbeq exprerr
+                std operand
+                tst uncert
+                bne opsz2       ;Go for extended if operand unknown.
+                subd dpsetting
+                tsta            ;Can we use 8-bit operand?
+                bne opsz2
+                inca
+                bra opsz1
+opsz2           lda #2
+opsz1           sta opsize      ;Set opsize depending on magnitude of op.
+                lda amode
+                cmpa #5
+                bne opsz3       ;Or was it indirect.
+                lda #2          ;Then we have postbyte and opsize=2
+                sta opsize
+                lda #$8F
+                sta postbyte
+                bra opsz4
+opsz3           lda #2
+                sta amode       ;Assume direct or absolute addressing
+opsz4           ldb ,x+
+                cmpb #','
+                lbeq doindex    ;If followed by, then indexed.
+scanend         lda amode
+                cmpa #5
+                blo scanend2    ;Was it an indirect mode?
+                lda postbyte
+                ora #$10        ;Set indirect bit.
+                sta postbyte
+                ldb ,x+
+                cmpb #']'       ;Check for the other ]
+                lbeq moderr
+scanend2        rts
+doimm           jsr exprvec     ;Immediate addressing.
+                lbeq exprerr
+                std operand
+                lda amode
+                cmpa #5
+                lbeq moderr     ;Indirect mode w/ imm is illegal.
+                lda #$01
+                sta amode
+                rts
+dospecial       jsr set3
+                clr opsize
+                clra
+adecloop        ldb ,x+
+                cmpb #'-'
+                bne adecend
+                inca            ;Count the - signs for autodecrement.
+                bra adecloop
+adecend         leax -1,x
+                cmpa #2
+                lbhi moderr
+                tsta
+                bne autodec
+                clr postbyte
+                jsr scanixreg
+                clra
+aincloop        ldb ,x+
+                cmpb #'+'
+                bne aincend
+                inca
+                bra aincloop    ;Count the + signs for autoincrement.
+aincend         leax -1,x
+                cmpa #2
+                lbhi moderr
+                tsta
+                bne autoinc
+                lda #$84
+                ora postbyte
+                sta postbyte
+                bra scanend
+autoinc         adda #$7f
+                ora postbyte
+                sta postbyte
+                bra scanend
+autodec         adda #$81
+                sta postbyte
+                jsr scanixreg
+                lbra scanend
+doindex         clr postbyte
+                jsr set3
+                ldb ,x+
+                andb #CASEMASK  ;Convert to uppercase.
+                cmpb #'P'
+                lbeq dopcrel    ;Check for PC relative.
+                leax -1,x
+                clr opsize
+                bsr scanixreg
+                ldd operand
+                tst uncert
+                bne longindex   ;Go for long index if operand unknown.
+                cmpd #-16
+                blt shortindex
+                cmpd #15
+                bgt shortindex
+                lda amode
+                cmpa #5
+                beq shortind1   ;Indirect may not be 5-bit index
+                                ;It's a five-bit index.
+                andb #$1f
+                orb postbyte
+                stb postbyte
+                lbra scanend
+shortindex      cmpd #-128
+                blt longindex
+                cmpd #127
+                bgt longindex
+shortind1       inc opsize
+                ldb #$88
+                orb postbyte
+                stb postbyte
+                lbra scanend
+longindex       lda #$2
+                sta opsize
+                ldb #$89
+                orb postbyte
+                stb postbyte
+                lbra scanend
+dopcrel         ldb ,x+
+                andb #CASEMASK  ;Convert to uppercase
+                cmpb #'C'
+                blo pcrelend
+                cmpb #'R'
+                bhi pcrelend
+                bra dopcrel     ;Scan past the ,PCR
+pcrelend        leax -1,x
+                ldb #$8C
+                orb postbyte    ;Set postbyte
+                stb postbyte
+                inc amode       ;Set addr mode to PCR
+                lbra scanend
+
+* Scan for one of the 4 index registers and adjust postbyte.
+scanixreg       ldb ,x+
+                andb #CASEMASK  ;Convert to uppercase.
+                pshs x
+                ldx #ixregs
+                clra
+scidxloop       cmpb ,x+
+                beq ixfound
+                adda #$20
+                bpl scidxloop
+                jmp moderr      ;Index register not found where expected.
+ixfound         ora postbyte
+                sta postbyte    ;Set index reg bits in postbyte.
+                puls x
+                rts
+
+* Set amode to 3, if it was less.
+set3            lda amode
+                cmpa #3
+                bhs set3a
+                lda #3
+                sta amode
+set3a           rts
+
+* Lay down the address.
+doaddr          lda amode
+                cmpa #3
+                blo doa1
+                ldb postbyte
+                jsr putbyte
+                lda amode
+                anda #1
+                beq doapcrel    ;pc rel modes.
+doa1            lda opsize
+                tsta
+                beq set3a
+                deca
+                beq doa2
+                ldd operand
+                jmp putword
+doa2            ldb operand+1
+                jmp putbyte
+doapcrel        sty addr
+                ldd operand
+                subd addr
+                subd #1
+                tst uncert
+                bne pcrlong
+                cmpd #-128
+                blt pcrlong
+                cmpd #-127
+                bgt pcrlong
+                lda #1
+                sta opsize
+                jmp putbyte
+pcrlong         subd #1
+                leay -1,y
+                inc postbyte
+                pshs d
+                ldb postbyte
+                jsr putbyte
+                lda #2
+                sta opsize
+                puls d
+                jmp putword
+
+* Check and lay down short relative address.
+shortrel        sty addr
+                subd addr
+                subd #1
+                cmpd #-128
+                blt brerr
+                cmpd #127
+                bgt brerr
+                jsr putbyte
+                lda #4
+                sta amode
+                lda #1
+                sta opsize
+                rts
+
+* Lay down long relative address.
+longrel         sty addr
+                subd addr
+                subd #2
+                jsr putword
+                lda #4
+                sta amode
+                lda #2
+                sta opsize
+                rts
+
+brerr           ldx #brmsg
+                jmp asmerrvec
+exprerr         ldx #exprmsg
+                jmp asmerrvec
+moderr          ldx #modemsg
+                jmp asmerrvec
+asmerr          pshs x
+                jsr <xabortin
+                puls x
+                jsr outnts
+                jsr <putcr
+                lds savesp
+                jmp cmdline
+
+* Find register for TFR and PSH instruction
+findreg         ldb #12
+                pshs y,b
+                ldu #asmregtab
+findregloop     tfr x,y
+                lda #3
+frcmps          ldb ,u
+                cmpb #' '
+                bne frcmps1
+                ldb ,y
+                cmpb #'A'
+                blt frfound
+frcmps1         ldb ,y+
+                andb #CASEMASK
+                cmpb ,u+
+                bne frnextreg
+                deca
+                bne frcmps
+                inca
+                bra frfound
+frnextreg       inca
+                leau a,u
+                dec ,s
+                bne findregloop
+                lbra moderr
+frfound         leau a,u
+                tfr y,x
+                puls y,b
+                rts
+
+***************************************************************
+* Command: A, assemble instructions.
+* Syntax: Aaddr
+asm             ldx #linebuf+1
+                jsr scanhex
+                std addr
+                inc <disflg
+
+
+asmloop         ldy #0
+                sty length
+                ldd addr
+                pshs d
+                jsr dis1        ;display unassembled line
+                ldd addr
+                std nxtadd
+
+                puls d
+                std addr
+
+                ldb #TAB
+                jsr <putchar    ;Print TAB
+                ldx #linebuf
+                ldb #128
+                jsr <getline    ;Get new line
+                tstb
+                beq next
+
+                abx
+                clr ,x          ;Make line zero terminated.
+                ldx #linebuf
+                lda ,x
+                cmpa #'.'       ;Terminate on "."
+                beq asmend
+                jsr asminstr
+                bra asmloop
+
+next            ldd nxtadd
+                std addr
+                bra asmloop
+
+asmend          clr <disflg
+                jmp cmdline
+
+***************************************************************
+* Data area.
 
 * mnemonics table, ordered alphabetically.
 * 5 bytes name, 1 byte category, 2 bytes opcode, 8 bytes total.
@@ -2209,1053 +3134,143 @@ ixregs          fcc "XYUS"
 * opcode offsets to basic opcode, depends on first nibble.
 opcoffs         fcb 0,0,0,0,0,0,-$60,-$70
                 fcb 0,-$10,-$20,-$30,0,-$10,-$20,-$30
+
+* modes:
+* 0 no operands,     1 8-bit immediate,  2 16 bit imm,
+* 3 8-bit address,   4 16-bit address,   5 indexed with postbyte,
+* 6 short relative,  7 long relative,    8 pushpul,
+* 9 tftetx
+
 * mode depending on first nibble of opcode.
 modetab         fcb 3,0,0,0,0,0,5,4,1,3,5,4,1,3,5,4
 * mode depending on category code stored in mnemtab
 modetab2        fcb 0,0,1,5,6,7,7,1,2,2,0,8,9
-* modes in this context: 0 no operands, 1 8-bit immediate, 2 16 bit imm,
-* 3, 8-bit address, 4 16 bit address, 5 indexed with postbyte, 6 short
-* relative, 7 long relative, 8 pushpul, 9 tftetx
-
-* Decode instruction pointed to by Y for disassembly (and to find out
-* how long it is). On return, U points to appropriate mnemonic table entry,
-* Y points past instruction.
-* It's rather clumsy code, but we do want to reuse the same table
-* as used with assembling.
-disdecode       clr prebyte
-                clr amode
-                lda ,y+
-                cmpa #$10
-                beq ddec1
-                cmpa #$11
-                bne ddec2
-ddec1           sta prebyte         ;Store $10 or $11 prebyte.
-                lda ,y+             ;Get new opcode.
-ddec2           sta opcode
-                lsra
-                lsra
-                lsra
-                lsra                ;Get high nibble.
-                ldx #modetab
-                ldb a,x
-                stb amode
-                ldx #opcoffs
-                lda a,x
-                adda opcode         ;Add opcode offset to opcode.
-ddec4           sta opc1            ;Store the 'basis' opcode.
-                ldu #mnemtab
-                ldx #mnemsize
-ddecloop        ldb #13
-                cmpb 5,u            ;Compare category code with 13
-                beq ddec3           ;13=pseudo op, no valid opcode
-                ldd prebyte
-                cmpd 6,u
-                beq ddecfound       ;Opcode&prebyte agree, operation found.
-ddec3           leau 8,u            ;point to next mnemonic
-                leax -1,x
-                bne ddecloop
-                ldu #mnemfcb        ;mnemonic not found, use FCB byte.
-                lda #3
-                sta amode           ;Store mode 3, 8 bit address.
-                lda opcode
-                tst prebyte
-                beq ddec5
-                lda prebyte         ;if it was the combination prebyte
-                clr prebyte         ;and opcode that was not found,
-                leay -1,y           ;FCB just the prebyte
-ddec5           sta operand+1       ;The byte must be stored as operand.
-                rts
-ddecfound       cmpu #mnembsr
-                bne ddec6
-                lda #$8d            ;Is it really the BSR opcode?
-                cmpa opcode
-                beq ddec6
-                ldu #mnemjsr        ;We mistakenly found BSR instead of JSR
-ddec6           lda amode
-                anda #$FE
-                bne ddec7
-                lda 5,u             ;nibble-dependent mode was 0 or 1,
-                ldx #modetab2       ;use category dependent mode instead.
-                lda a,x
-                sta amode
-ddec7           lda amode
-                asla
-                ldx #disdectab
-                jmp [a,x]           ;jump dependent on definitive mode.
-disdectab       fdb noop,opdec1,opdec2,opdec1,opdec2,opdecidx
-                fdb opdec1,opdec2,opdecpb,opdecpb
-disdectab1      fdb noop,noop,noop,noop,noop,noop,noop,noop
-                fdb opdec1,opdec2,noop,noop,opdec1,opdec2,noop,opdec2
-opdec1          ldb ,y+
-                sex
-od1a            std operand
-noop            rts
-opdec2          ldd ,y++
-                bra od1a
-opdecpb         ldb ,y+
-odpa            stb postbyte
-                rts
-opdecidx        ldb ,y+
-                bpl odpa             ;postbytes <$80 have no extra operands.
-                stb postbyte
-                andb #$0f
-                aslb
-                ldx #disdectab1
-                jmp [b,x]
-
-* Display disassembled instruction after the invocation of disdecode.
-* U points to mnemonic table entry.
-disdisp         tfr u,x
-                ldb #5
-                jsr <putline          ;Display the mnemonic.
-                ldb #' '
-                jsr <putchar
-                lda amode
-                asla
-                ldx #disdisptab
-                jmp [a,x]            ;Perform action dependent on mode.
-disdisptab      fdb noop,disim8,disim16,disadr8,disadr16
-                fdb disidx,disrel8,disrel16,distfr,dispush
-disim8          bsr puthash
-                bra disadr8
-disim16         bsr puthash
-disadr16        bsr putdol
-                ldd operand
-                jmp outd
-disadr8         bsr putdol
-                lda operand+1
-                jmp outbyte
-disrel8         bsr putdol
-                ldb operand+1
-                sex
-dr8a            sty <temp
-                addd <temp
-                jmp outd
-disrel16        bsr putdol
-                ldd operand
-                bra dr8a
-
-puthash         ldb #'#'
-                jmp <putchar
-putdol          ldb #'$'
-                jmp <putchar
-putcomma        ldb #','
-                jmp <putchar
-putspace        ldb #' '
-                jmp <putchar
-
-dispush         ldb #12
-                ldx #asmregtab       ;Walk through the register table.
-                clr <temp
-regloop         lda postbyte
-                anda 4,x
-                beq dispush1         ;Is bit corresponding to reg set in postbyte
-                cmpx #aregu
-                bne dispush3
-                sta <temp+1
-                lda opcode
-                anda #2
-                bne dispush1         ;no u register in pshu pulu.
-                lda <temp+1
-dispush3        cmpx #aregs
-                bne dispush4
-                sta <temp+1
-                lda opcode
-                anda #2
-                beq dispush1         ;no s register in pshs puls.
-                lda <temp+1
-dispush4        coma
-                anda postbyte        ;remove the bits from postbyte.
-                sta postbyte
-                pshs b
-                tst <temp
-                beq dispush2
-                bsr putcomma         ;print comma after first register.
-dispush2        bsr disregname
-                inc <temp
-                puls b
-dispush1        leax 5,x
-                decb
-                bne regloop
-                rts
-
-distfr          lda postbyte
-                lsra
-                lsra
-                lsra
-                lsra
-                bsr distfrsub
-                bsr putcomma
-                lda postbyte
-                anda #$0f
-distfrsub       ldb #12
-                ldx #asmregtab
-distfrloop      cmpa 3,x
-                beq distfrend
-                leax 5,x
-                decb
-                bne distfrloop
-distfrend       bsr disregname
-                rts
-
-disregname      lda #3
-                tfr x,u
-drnloop         ldb ,u+
-                cmpb #' '
-                beq drnend
-                jsr <putchar
-                deca
-                bne drnloop
-drnend          rts
-
-disidxreg       lda postbyte
-                lsra
-                lsra
-                lsra
-                lsra
-                lsra
-                anda #3
-                ldx #ixregs
-                ldb a,x
-                jmp <putchar
-
-disidx          clr <temp
-                lda postbyte
-                bmi disidx1
-                anda #$1f
-                bita #$10
-                bne negoffs
-                jsr outdecbyte
-                bra discomma
-negoffs         ldb #'-'
-                jsr <putchar
-                ora #$f0
-                nega
-                jsr outdecbyte
-discomma        jsr putcomma         ;Display ,Xreg and terminating ]
-disindex        bsr disidxreg
-disindir        tst <temp            ;Display ] if indirect.
-                beq disidxend
-                ldb #']'
-                jsr <putchar
-disidxend       rts
-disidx1         bita #$10
-                beq disidx2
-                ldb #'['
-                jsr <putchar
-                inc <temp
-disidx2         lda postbyte
-                anda #$0f
-                asla
-                ldx #disidxtab
-                jmp [a,x]            ;Jump to routine for indexed mode
-disadec2        lda #2
-                bra disadeca
-disadec1        lda #1
-disadeca        jsr putcomma
-disadloop       ldb #'-'
-                jsr <putchar
-                deca
-                bne disadloop
-                bra disindex
-disainc2        lda #2
-                bra disainca
-disainc1        lda #1
-disainca        sta <temp+1
-                jsr putcomma
-                jsr disidxreg
-                lda <temp+1
-disailoop       ldb #'+'
-                jsr <putchar
-                deca
-                bne disailoop
-                jmp disindir
-disax           ldb #'A'
-                jsr <putchar
-                jmp discomma
-disbx           ldb #'B'
-                jsr <putchar
-                jmp discomma
-disdx           ldb #'D'
-                jsr <putchar
-                jmp discomma
-disinval        ldb #'?'
-                jsr <putchar
-                jmp disindir
-disnx           lda operand+1
-                bmi disnxneg
-disnx1          jsr putdol
-                jsr outbyte
-                jmp discomma
-disnxneg        ldb #'-'
-                jsr <putchar
-                nega
-                bra disnx1
-disnnx          jsr putdol
-                ldd operand
-                jsr outd
-                jmp discomma
-disnpc          jsr putdol
-                ldb operand+1
-                sex
-disnpca         sty <temp2
-                addd <temp2
-                jsr outd
-                ldx #commapc
-                ldb #4
-                jsr <putline
-                jmp disindir
-disnnpc         jsr putdol
-                ldd operand
-                bra disnpca
-disdirect       jsr putdol
-                ldd operand
-                jsr outd
-                jmp disindir
-
-commapc         fcc ",PCR"
-
-disidxtab       fdb disainc1,disainc2,disadec1,disadec2
-                fdb discomma,disbx,disax,disinval
-                fdb disnx,disnnx,disinval,disdx
-                fdb disnpc,disnnpc,disinval,disdirect
-
-* Display byte A in decimal (0<=A<20)
-outdecbyte      cmpa #10
-                blo odb1
-                suba #10
-                ldb #'1'
-                jsr <putchar
-odb1            adda #'0'
-                tfr a,b
-                jmp <putchar
-
-***************************************************************
-* Command: U, unassemble instructions in memory.
-* Syntax: U or Uaddr or Uaddr,length
-unasm           bsr disasm
-                jmp cmdline
-disasm          ldx #linebuf+1
-                ldd #20
-                jsr scan2parms  ;Scan address,length parameters.
-dis1            ldd addr
-                addd length
-                std length
-                ldy addr
-unasmloop       tfr y,d
-                jsr outd        ;Display instruction address
-                jsr putspace
-                pshs y
-                jsr disdecode
-                puls x
-                sty <temp
-                clr <temp2
-unadishex       lda ,x+
-                jsr outbyte
-                inc <temp2
-                inc <temp2
-                cmpx <temp
-                bne unadishex  ;Display instruction bytes as hex.
-unadisspc       ldb #' '
-                jsr <putchar
-                inc <temp2
-                lda #11
-                cmpa <temp2    ;Fill out with spaces to width 11.
-                bne unadisspc
-                bne unadishex
-                jsr disdisp    ;Display disassembled instruction.
-                tst <disflg
-                bne skipcr     ;Assembling; stay on this line
-                jsr <putcr
-skipcr          cmpy length
-                bls unasmloop
-                sty addr
-                rts
-
-* Simple 'expression evaluator' for assembler.
-expr            ldb ,x
-                cmpb #'-'
-                bne pos
-                clrb
-                leax 1,x
-pos             pshs b
-                bsr scanfact
-                beq exprend1
-                tst ,s+
-                bne exprend     ;Was the minus sign there.
-                coma
-                comb
-                addd #1
-                andcc #$fb      ;Clear Z flag for valid result.
-exprend         rts
-exprend1        puls b
-                rts
-
-scanfact        ldb ,x+
-                cmpb #'$'
-                lbeq scanhex   ;Hex number if starting with dollar.
-                cmpb #'''
-                bne scandec    ;char if starting with ' else decimal
-                ldb ,x+
-                lda ,x
-                cmpa #'''
-                bne scanchar2
-                leax 1,x       ;Increment past final quote if it's there.
-scanchar2       clra
-                andcc #$fb     ;Clear zero flag.
-                rts
-scandec         cmpb #'0'
-                blo noexpr
-                cmpb #'9'
-                bhi noexpr
-                clr <temp
-                clr <temp+1
-scandloop       subb #'0'
-                bcs sdexit
-                cmpb #10
-                bcc sdexit
-                pshs b
-                ldd <temp
-                aslb
-                rola
-                pshs d
-                aslb
-                rola
-                aslb
-                rola
-                addd ,s++     ;Multiply number by 10.
-                addb ,s+
-                adca #0       ;Add digit to 10.
-                std <temp
-                ldb ,x+       ;Get next character.
-                bra scandloop
-sdexit          ldd <temp
-                leax -1,x
-                andcc #$fb
-                rts
-noexpr          orcc #$04
-                rts
-
-* Assemble the instruction pointed to by X.
-* Stage 1: copy mnemonic to mnemonic buffer.
-asminstr        lda #5
-                ldu #mnembuf
-mncploop        ldb ,x+
-                beq mncpexit
-                cmpb #' '
-                beq mncpexit    ;Mnemonic ends at first space or null
-                andb #CASEMASK
-                cmpb #'A'
-                blo nolet
-                cmpb #'Z'
-                bls mnemcp1     ;Capitalize letters, but only letters.
-nolet           ldb -1,x
-mnemcp1         stb ,u+         ;Copy to mnemonic buffer.
-                deca
-                bne mncploop
-mncpexit        tsta
-                beq mncpdone
-                ldb #' '
-mnfilloop       stb ,u+
-                deca
-                bne mnfilloop   ;Fill the rest of mnem buffer with spaces.
-* Stage 2: look mnemonic up using binary search.
-mncpdone        stx <temp3
-                clr <temp       ;Low index=0
-                lda #mnemsize
-                sta <temp+1     ;High index=mnemsize.
-bsrchloop       ldb <temp+1
-                cmpb #$ff
-                beq invmnem     ;lower limit -1?
-                cmpb <temp
-                blo invmnem     ;hi index lower than low index?
-                clra
-                addb <temp      ;Add indexes.
-                adca #0
-                lsra
-                rorb            ;Divide by 2 to get average
-                stb <temp2
-                aslb
-                rola
-                aslb
-                rola
-                aslb
-                rola            ;Multiply by 8 to get offset.
-                ldu #mnemtab
-                leau d,u        ;Add offset to table base
-                tfr u,y
-                lda #5
-                ldx #mnembuf
-bscmploop       ldb ,x+
-                cmpb ,y+
-                bne bscmpexit   ;Characters don't match?
-                deca
-                bne bscmploop
-                jmp mnemfound   ;We found the mnemonic.
-bscmpexit       ldb <temp2
-                bcc bscmplower
-                decb
-                stb <temp+1     ;mnembuf<table, adjust high limit.
-                bra bsrchloop
-bscmplower      incb
-                stb <temp       ;mnembuf>table, adjust low limit.
-                bra bsrchloop
-invmnem         ldx #invmmsg
-                jmp asmerrvec
-* Stage 3: Perform routine depending on category code.
-mnemfound       clr uncert
-                ldy addr
-                lda 5,u
-                asla
-                ldx #asmtab
-                jsr [a,x]
-                sty addr
-                rts
-asmtab          fdb onebyte,twobyte,immbyte,lea
-                fdb sbranch,lbranch,lbra,acc8
-                fdb dreg1,dreg2,oneaddr,tfrexg
-                fdb pushpul,pseudovec
-
-putbyte         stb ,y+
-                rts
-putword         std ,y++
-                rts
-
-onebyte         ldb 7,u         ;Cat 0, one byte opcode w/o operands RTS
-                bra putbyte
-twobyte         ldd 6,u         ;Cat 1, two byte opcode w/o operands SWI2
-                bra putword
-immbyte         ldb 7,u         ;Cat 2, opcode w/ immdiate operand ANDCC
-                bsr putbyte
-                jsr scanops
-                ldb amode
-                cmpb #1
-                lbne moderr
-                ldb operand+1
-                bra putbyte
-lea             ldb 7,u         ;Cat 3, LEA
-                bsr putbyte
-                jsr scanops
-                lda amode
-                cmpa #1
-                lbeq moderr     ;No immediate w/ lea
-                cmpa #3
-                lbhs doaddr
-                jsr set3
-                lda #$8f
-                sta postbyte
-                lda #2
-                sta opsize      ;Use 8F nn nn for direct mode.
-                jmp doaddr
-sbranch         ldb 7,u         ;Cat 4, short branch instructions
-                bsr putbyte
-                jsr startop
-                leax -1,x
-                jsr exprvec
-                lbeq exprerr
-                jmp shortrel
-lbranch         ldd 6,u         ;Cat 5, long brach w/ two byte opcode
-                bsr putword
-lbra1           jsr startop
-                leax -1,x
-                jsr exprvec
-                lbeq exprerr
-                jmp longrel
-lbra            ldb 7,u         ;Cat 6, long branch w/ one byte opcode.
-                jsr putbyte
-                bra lbra1
-acc8            lda #1          ;Cat 7, 8-bit two operand instructions ADDA
-                sta opsize
-                jsr scanops
-                jsr adjopc
-                jsr putbyte
-                jmp doaddr
-dreg1           lda #2          ;Cat 8, 16-bit 2operand insns 1byte opc LDX
-                sta opsize
-                jsr scanops
-                jsr adjopc
-                jsr putbyte
-                jmp doaddr
-dreg2           lda #2          ;Cat 9, 16-bit 2operand insns 2byte opc LDY
-                sta opsize
-                jsr scanops
-                jsr adjopc
-                lda 6,u
-                jsr putword
-                jmp doaddr
-oneaddr         jsr scanops     ;Cat 10, one-operand insns NEG..CLR
-                ldb 7,u
-                lda amode
-                cmpa #1
-                lbeq moderr     ;No immediate mode
-                cmpa #3
-                bhs oaind       ;indexed etc
-                lda opsize
-                deca
-                beq oadir
-                addb #$10       ;Add $70 for extended direct.
-oaind           addb #$60       ;And $60 for indexed etc.
-oadir           jsr putbyte     ;And nothing for direct8.
-                jmp doaddr
-tfrexg          jsr startop     ;Cat 11, TFR and EXG
-                leax -1,x
-                ldb 7,u
-                jsr putbyte
-                jsr findreg
-                ldb ,u
-                aslb
-                aslb
-                aslb
-                aslb
-                stb postbyte
-                ldb ,x+
-                cmpb #','
-                lbne moderr
-                jsr findreg
-                ldb ,u
-                orb postbyte
-                jmp putbyte
-pushpul         jsr startop     ;Cat 12, PSH and PUL
-                leax -1,x
-                ldb 7,u
-                jsr putbyte
-                clr postbyte
-pploop          jsr findreg
-                ldb 1,u
-                orb postbyte
-                stb postbyte
-                ldb ,x+
-                cmpb #','
-                beq pploop
-                leax -1,x
-                ldb postbyte
-                jmp putbyte
-pseudo          ldb 7,u         ;Cat 13, pseudo oeprations
-                aslb
-                ldx #pseudotab
-                jmp [b,x]
-pseudotab       fdb pseudoend,dofcb,dofcc,dofdb
-                fdb doorg,dormb,pseudoend,pseudoend
-dofcb           jsr startop
-                leax -1,x
-fcbloop         jsr exprvec
-                lbeq exprerr
-                jsr putbyte
-                ldb ,x+
-                cmpb #','
-                beq fcbloop
-pseudoend       rts
-dofcc           jsr startop
-                tfr b,a ;Save delimiter.
-fccloop         ldb ,x+
-                beq pseudoend
-                pshs a
-                cmpb ,s+
-                beq pseudoend
-                jsr putbyte
-                bra fccloop
-dofdb           jsr startop
-                leax -1,x
-fdbloop         jsr exprvec
-                lbeq exprerr
-                jsr putword
-                ldb ,x+
-                cmpb #','
-                beq fdbloop
-                rts
-doorg           jsr startop
-                leax -1,x
-                jsr exprvec
-                lbeq exprerr
-                tfr d,y
-                rts
-dormb           jsr startop
-                leax -1,x
-                jsr exprvec
-                lbeq exprerr
-                leay d,y
-                rts
 
 
-* Adjust opcode depending on mode (in $80-$FF range)
-adjopc          ldb 7,u
-                lda amode
-                cmpa #2
-                beq adjdir      ;Is it direct?
-                cmpa #3
-                bhs adjind      ;Indexed etc?
-                rts             ;Not, then immediate, no adjust.
-adjind          addb #$20       ;Add $20 to opcode for indexed etc modes.
-                rts
-adjdir          addb #$10       ;Add $10 to opcode for direct8
-                lda opsize
-                deca
-                bne adjind      ;If opsize=2, add another $20 for extended16
-                rts
+* Message for 'help' command, as zero-terminated string
+mhelp           fcb     CR,LF
 
-* Start scanning of operands.
-startop         ldx <temp3
-                clr amode
-                jmp skipspace
+                fcc     'Asm    '
+                fcc     '{Aaddr}'
+                fcb     CR,LF
 
-* amode settings in assembler: 1=immediate, 2=direct/extended, 3=indexed
-* etc. 4=pc relative, 5=indirect, 6=pcrelative and indirect.
+                fcc     'Unasm  '
+                fcc     '{U or Uaddr or Uaddr,length}'
+                fcb     CR,LF
 
-* This subroutine scans the assembler operands.
-scanops         bsr startop
-                cmpb #'['
-                bne noindir
-                lda #5          ;operand starts with [, then indirect.
-                sta amode
-                ldb ,x+
-noindir         cmpb #'#'
-                lbeq doimm
-                cmpb #','
-                lbeq dospecial
-                andb #CASEMASK  ;Convert to uppercase.
-                lda #$86
-                cmpb #'A'
-                beq scanacidx
-                lda #$85
-                cmpb #'B'
-                beq scanacidx
-                lda #$8B
-                cmpb #'D'
-                bne scanlab
-scanacidx       ldb ,x+         ;Could it be A,X B,X or D,X
-                cmpb #','
-                bne nocomma
-                sta postbyte
-                clr opsize
-                jsr set3
-                jsr scanixreg
-                bra scanend
-nocomma         leax -1,x
-scanlab         leax -1,x       ;Point to the start of the operand
-                jsr exprvec
-                lbeq exprerr
-                std operand
-                tst uncert
-                bne opsz2       ;Go for extended if operand unknown.
-                subd dpsetting
-                tsta            ;Can we use 8-bit operand?
-                bne opsz2
-                inca
-                bra opsz1
-opsz2           lda #2
-opsz1           sta opsize      ;Set opsize depending on magnitude of op.
-                lda amode
-                cmpa #5
-                bne opsz3       ;Or was it indirect.
-                lda #2          ;Then we have postbyte and opsize=2
-                sta opsize
-                lda #$8F
-                sta postbyte
-                bra opsz4
-opsz3           lda #2
-                sta amode       ;Assume direct or absolute addressing
-opsz4           ldb ,x+
-                cmpb #','
-                lbeq doindex    ;If followed by, then indexed.
-scanend         lda amode
-                cmpa #5
-                blo scanend2    ;Was it an indirect mode?
-                lda postbyte
-                ora #$10        ;Set indirect bit.
-                sta postbyte
-                ldb ,x+
-                cmpb #']'       ;Check for the other ]
-                lbeq moderr
-scanend2        rts
-doimm           jsr exprvec     ;Immediate addressing.
-                lbeq exprerr
-                std operand
-                lda amode
-                cmpa #5
-                lbeq moderr     ;Indirect mode w/ imm is illegal.
-                lda #$01
-                sta amode
-                rts
-dospecial       jsr set3
-                clr opsize
-                clra
-adecloop        ldb ,x+
-                cmpb #'-'
-                bne adecend
-                inca            ;Count the - signs for autodecrement.
-                bra adecloop
-adecend         leax -1,x
-                cmpa #2
-                lbhi moderr
-                tsta
-                bne autodec
-                clr postbyte
-                jsr scanixreg
-                clra
-aincloop        ldb ,x+
-                cmpb #'+'
-                bne aincend
-                inca
-                bra aincloop    ;Count the + signs for autoincrement.
-aincend         leax -1,x
-                cmpa #2
-                lbhi moderr
-                tsta
-                bne autoinc
-                lda #$84
-                ora postbyte
-                sta postbyte
-                bra scanend
-autoinc         adda #$7f
-                ora postbyte
-                sta postbyte
-                bra scanend
-autodec         adda #$81
-                sta postbyte
-                jsr scanixreg
-                lbra scanend
-doindex         clr postbyte
-                jsr set3
-                ldb ,x+
-                andb #CASEMASK  ;Convert to uppercase.
-                cmpb #'P'
-                lbeq dopcrel    ;Check for PC relative.
-                leax -1,x
-                clr opsize
-                bsr scanixreg
-                ldd operand
-                tst uncert
-                bne longindex   ;Go for long index if operand unknown.
-                cmpd #-16
-                blt shortindex
-                cmpd #15
-                bgt shortindex
-                lda amode
-                cmpa #5
-                beq shortind1   ;Indirect may not be 5-bit index
-                                ;It's a five-bit index.
-                andb #$1f
-                orb postbyte
-                stb postbyte
-                lbra scanend
-shortindex      cmpd #-128
-                blt longindex
-                cmpd #127
-                bgt longindex
-shortind1       inc opsize
-                ldb #$88
-                orb postbyte
-                stb postbyte
-                lbra scanend
-longindex       lda #$2
-                sta opsize
-                ldb #$89
-                orb postbyte
-                stb postbyte
-                lbra scanend
-dopcrel         ldb ,x+
-                andb #CASEMASK  ;Convert to uppercase
-                cmpb #'C'
-                blo pcrelend
-                cmpb #'R'
-                bhi pcrelend
-                bra dopcrel     ;Scan past the ,PCR
-pcrelend        leax -1,x
-                ldb #$8C
-                orb postbyte    ;Set postbyte
-                stb postbyte
-                inc amode       ;Set addr mode to PCR
-                lbra scanend
+                fcc     'Calc   '
+                fcc     '{Chexnum1{+|-hexnum2}}'
+                fcb     CR,LF
 
-* Scan for one of the 4 index registers and adjust postbyte.
-scanixreg       ldb ,x+
-                andb #CASEMASK  ;Convert to uppercase.
-                pshs x
-                ldx #ixregs
-                clra
-scidxloop       cmpb ,x+
-                beq ixfound
-                adda #$20
-                bpl scidxloop
-                jmp moderr      ;Index register not found where expected.
-ixfound         ora postbyte
-                sta postbyte    ;Set index reg bits in postbyte.
-                puls x
-                rts
+                fcc     'Dump   '
+                fcc     '{D or Daddr or Daddr,length}'
+                fcb     CR,LF
 
-* This routine sets amode to 3, if it was less.
-set3            lda amode
-                cmpa #3
-                bhs set3a
-                lda #3
-                sta amode
-set3a           rts
+                fcc     'Enter  '
+                fcc     '{E or Eaddr or Eaddr bytes or Eaddr "string"}'
+                fcb     CR,LF
 
-* This subroutine lays down the address.
-doaddr          lda amode
-                cmpa #3
-                blo doa1
-                ldb postbyte
-                jsr putbyte
-                lda amode
-                anda #1
-                beq doapcrel    ;pc rel modes.
-doa1            lda opsize
-                tsta
-                beq set3a
-                deca
-                beq doa2
-                ldd operand
-                jmp putword
-doa2            ldb operand+1
-                jmp putbyte
-doapcrel        sty addr
-                ldd operand
-                subd addr
-                subd #1
-                tst uncert
-                bne pcrlong
-                cmpd #-128
-                blt pcrlong
-                cmpd #-127
-                bgt pcrlong
-                lda #1
-                sta opsize
-                jmp putbyte
-pcrlong         subd #1
-                leay -1,y
-                inc postbyte
-                pshs d
-                ldb postbyte
-                jsr putbyte
-                lda #2
-                sta opsize
-                puls d
-                jmp putword
+                fcc     'Break  '
+                fcc     '{B or Baddr. B displays, Baddr sets or clears breakpoint}'
+                fcb     CR,LF
 
-* This routine checks and lays down short relative address.
-shortrel        sty addr
-                subd addr
-                subd #1
-                cmpd #-128
-                blt brerr
-                cmpd #127
-                bgt brerr
-                jsr putbyte
-                lda #4
-                sta amode
-                lda #1
-                sta opsize
-                rts
-* This routine lays down long relative address.
-longrel         sty addr
-                subd addr
-                subd #2
-                jsr putword
-                lda #4
-                sta amode
-                lda #2
-                sta opsize
-                rts
+                fcc     'Find   '
+                fcc     '{Faddr bytes or Faddr "string"}'
+                fcb     CR,LF
 
-brerr           ldx #brmsg
-                jmp asmerrvec
-exprerr         ldx #exprmsg
-                jmp asmerrvec
-moderr          ldx #modemsg
-                jmp asmerrvec
-asmerr          pshs x
-                jsr <xabortin
-                puls x
-                jsr outnts
-                jsr <putcr
-                lds savesp
-                jmp cmdline
+                fcc     'Go     '
+                fcc     '{G or Gaddr}'
+                fcb     CR,LF
 
-* Find register for TFR and PSH instruction
-findreg         ldb #12
-                pshs y,b
-                ldu #asmregtab
-findregloop     tfr x,y
-                lda #3
-frcmps          ldb ,u
-                cmpb #' '
-                bne frcmps1
-                ldb ,y
-                cmpb #'A'
-                blt frfound
-frcmps1         ldb ,y+
-                andb #CASEMASK
-                cmpb ,u+
-                bne frnextreg
-                deca
-                bne frcmps
-                inca
-                bra frfound
-frnextreg       inca
-                leau a,u
-                dec ,s
-                bne findregloop
-                lbra moderr
-frfound         leau a,u
-                tfr y,x
-                puls y,b
-                rts
+                fcc     'Inp    '
+                fcc     '{Iaddr}'
+                fcb     CR,LF
 
-***************************************************************
-* Command: A, assemble instructions.
-* Syntax: Aaddr
-asm             ldx #linebuf+1
-                jsr scanhex
-                std addr
-                inc <disflg
+                fcc     'Jump   '
+                fcc     '{Jaddr}'
+                fcb     CR,LF
+
+                fcc     'Move   '
+                fcc     '{Maddr1,addr2,length}'
+                fcb     CR,LF
+
+                fcc     'Prog   '
+                fcc     '{P}'
+                fcb     CR,LF
+
+                fcc     'Regs   '
+                fcc     '{R or R<letter><hex>}'
+                fcb     CR,LF
+
+                fcc     'Srec   '
+                fcc     '{SO<addr> or SS<addr>,<len> or S1<bytes> or S9<bytes>}'
+                fcb     CR,LF
+
+                fcc     'Trace  '
+                fcc     '{T}'
+                fcb     CR,LF
+
+                fcc     'Xmodem '
+                fcc     '{XSaddr,len XLaddr,len XX XOcrlf,filler, XSSaddr,len}'
+                fcb     CR,LF
+
+                fcc     'Help   '
+                fcc     '{H}'
+                fcb     CR,LF,CR,LF,0
 
 
-asmloop         ldy #0
-                sty length
-                ldd addr
-                pshs d
-                jsr dis1        ;display unassembled line
-                ldd addr
-                std nxtadd
+* Other messages, as null-terminated strings.
+welcome         fcc "BUGGY for Multicomp09, 2015Aug23 (type h for help)"
+                fcb 0
+unknown         fcc "Unknown command"
+                fcb 0
+badargs         fcc "Bad arguments"
+                fcb 0
+brkmsg          fcc "Breakpoint set"
+                fcb 0
+clrmsg          fcc "Breakpoint cleared"
+                fcb 0
+fullmsg         fcc "Breakpoints full"
+                fcb 0
+smsg            fcc "Error in S record"
+                fcb 0
+lastrec         fcc "S9030000FC"
+                fcb 0
+xsmsg           fcc "Start XMODEM Send"
+                fcb 0
+xrmsg           fcc "Start XMODEM Receive"
+                fcb 0
+xamsg           fcc "XMODEM transfer aborted"
+                fcb 0
+invmmsg         fcc "Invalid mnemonic"
+                fcb 0
+exprmsg         fcc "Expression error"
+                fcb 0
+modemsg         fcc "Addressing mode error"
+                fcb 0
+brmsg           fcc "Branch too long"
+                fcb 0
 
-                puls d
-                std addr
+* Vector table for commands: A-Z (unk for non-existent commands)
+cmdtab          fdb asm,break,calc,dump
+                fdb enter,find,go,help
+                fdb inp,jump,unk,unk
+                fdb move,unk,unk,prog
+                fdb unk,regs,srec,trace
+                fdb unasm,unk,unk,xmodem
+                fdb unk,unk
 
-                ldb #TAB
-                jsr <putchar    ;Print TAB
-                ldx #linebuf
-                ldb #128
-                jsr <getline    ;Get new line
-                tstb
-                beq next
-
-                abx
-                clr ,x          ;Make line zero terminated.
-                ldx #linebuf
-                lda ,x
-                cmpa #'.'       ;Terminate on "."
-                beq asmend
-                jsr asminstr
-                bra asmloop
-
-next            ldd nxtadd
-                std addr
-                bra asmloop
-
-asmend          clr <disflg
-                jmp cmdline
-
-
-* Jump table for monitor routines that are usable by other programs.
+* Vector table for monitor routines that are usable by other programs.
+* These entries should be in a fixed place in memory. Jump through them.
                 org $ffb0
-                jmp outbyte
-                jmp outd
-                jmp scanbyte
-                jmp scanhex
-                jmp scanfact
-                jmp asminstr
+                fdb outbyte
+                fdb outd
+                fdb scanbyte
+                fdb scanhex
+                fdb scanfact
+                fdb asminstr
 
+* Multicomp I/O is at address $ffd0-$ffdf
 
 * Interrupt vector addresses at top of ROM. Most are vectored through jumps
 * in RAM.
