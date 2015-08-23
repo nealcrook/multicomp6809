@@ -1104,7 +1104,7 @@ disarm2         deca
 
 * Arm the breakpoints: replace the byte at each breakpoint address
 * with an SWI instruction.
-arm             ldx #bpaddr+brkpoints*3
+arm             ldx #brkpoints*3+bpaddr ; [NAC HACK 2015Aug23] portability: AS9 eval l->r
                 lda #brkpoints+1  ;Arm them in reverse order of disarming.
 arm1            ldu ,x       ;Get address in u.
                 beq arm2
