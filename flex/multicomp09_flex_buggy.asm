@@ -108,9 +108,18 @@
 * 14. make - go back in assembler. Need to remember what address we started at.
 *
 * NEXT: Check in original and port slowly to this one
-* work out memory map changes and get assembler working
+* work out memory map changes
 * put harness in place to allow entry to and exit from FLEX
 
+* breakpoint does not work because the DP gets corrupted.
+* Initialisation of buggy sets default set of register values which it sets up on the
+* stack, for the application.
+* When buggy passes control to the application, it loads up that set of values.
+* When buggy is re-entered, through (eg SWI), the application's registers are stacked.
+* Buggy starts up as though it doesn't care about any register values. In fact, though,
+* it needs to have the correct DP value restored. This can happen at any time, because
+* (eg) register display is done by picking values out of the stack frame.
+        
 
 * Memory map of SBC
 * $0-$40 Zero page variables reserved by monitor and O.S.
@@ -132,8 +141,6 @@ ramstart        equ $6000       ;RAM start of local storage
 rambufs         equ ramstart+$100
 ramfree         equ ramstart+$400 ;free RAM after local storage
 codestart       equ $e400
-* review - whats this used for?
-ramtop          equ $8000       ;top of RAM.
 
 * MULTICOMP I/O port addresses
 aciasta         equ $ffd0       ;Status port of VDU pseudo ACIA
