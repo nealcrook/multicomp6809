@@ -114,6 +114,13 @@
 * 16. To build for FLEX need to set wsstart to $e000. Cannot run like that in exec09
 *     because there's no RAM there at load time. Make the startup code work this out
 *     and choose a ws automatically based on environment.. can then run from ROM.
+* 17. BUG if assemble errors-out, disflg is left in wrong state and subsequent
+*     unassemble is mis-formatted.
+* 18. BUG implicit ops (eg RTS) are disassembled with no trailing space so
+*     when assembling the line indent is wrong. Should add 8 spaces
+* 19. BUG when assembling leading whitespace causes an error.
+* 20. (my bug) with separate DP between buggy and application, cannot call
+*     any buggy routines if those routines use dp accesses.
 
 * NEXT:
 * put harness in place to allow entry to and exit from FLEX
@@ -1731,15 +1738,17 @@ opdecidx        ldb ,y+
 * disdecode. U points to mnemonic table entry.
 disdisp         tfr u,x
                 ldb #5
-                jsr <putline          ;Display the mnemonic.
+                jsr <putline         ;Display the mnemonic.
                 ldb #' '
                 jsr <putchar
                 lda amode
                 asla
                 ldx #disdisptab
                 jmp [a,x]            ;Perform action dependent on mode.
+
 disdisptab      fdb noop,disim8,disim16,disadr8,disadr16
                 fdb disidx,disrel8,disrel16,distfr,dispush
+
 disim8          bsr puthash
                 bra disadr8
 disim16         bsr puthash
@@ -1968,7 +1977,7 @@ unasm           bsr disasm
                 jmp cmdline
 disasm          ldx #linebuf+1
                 ldd #20
-                jsr scan2parms  ;Scan address,length parameters.
+                jsr scan2parms ;Scan address,length parameters.
 dis1            ldd addr
                 addd length
                 std length
