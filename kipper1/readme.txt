@@ -10,6 +10,8 @@ To use it, you must have the jumper set as follows:
 Jumpers: SER_I/O jumper 1-2
          ROM     jumper 1-2
 
+The serial baud rate is (crystal/4)/64 ie 32.25kbaud for 8MHz crystal,
+28.800kbaud for 7.3728Mhz crystal.
 
 The ROM image is composed of 2 pieces of software build separately and then
 "bolted together" by concatenating the .srec files.
@@ -172,4 +174,3 @@ khromium and chromium.
 Buggy has a bunch of todo in the code, which I need to do both for this
 version and for the multicomp version.
 
-Buggy needs code to reset the ACIA and set the baud rate and comms speed.

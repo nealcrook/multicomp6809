@@ -150,8 +150,9 @@ ramfree         equ wsstart+$400 ;free RAM after local storage
 codestart       equ $e000
 
 * KIPPER I/O port addresses
-aciasta         equ $a000       ;Status port of ACIA
-aciadat         equ $a001       ;Data port of ACIA
+aciasta         equ $a000       ;RO Status  port of ACIA
+aciactl         equ aciasta     ;WO Control port of ACIA
+aciadat         equ $a001       ;RW Data port of ACIA
 
 * FLEX vectors
 flexwrm         equ $CD03
@@ -332,9 +333,20 @@ blockmove       lda ,x+
 
 ***************************************************************
 * Initialize serial communications port, buffers, interrupts.
+*
+* 7              0 }disable Rx int enable
+* 6 TC2          0  }rts low, no tx interrupt
+* 5 TC1          0  }
+* 4 WS3          1   }8bit data, 1 stop bit
+* 3 WS2          0   }
+* 2 WS1          1   }
+* 1 DIV2         1    }/64
+* 0 DIV1         0    }
+
 initacia        ldb #$03
-* Multicomp
-*               stb aciactl
+                stb aciactl         * Master reset
+                ldb #$16
+                stb aciactl         * Setup as above
                 ldb #%00110101
                 rts
 
