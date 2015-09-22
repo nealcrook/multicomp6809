@@ -389,7 +389,7 @@ end generate GEN_NO_ATTRAM;
 	
 	-- SCREEN RENDERING
 	
-	process (clk)
+	screen_render: process (clk)
 	begin
 		if falling_edge(clk) then
 
@@ -529,7 +529,7 @@ end generate GEN_NO_ATTRAM;
  
 	
 	-- Hardware cursor blink
-	process (clk)
+	cursor_blink: process(clk)
 	begin
 		if rising_edge(clk) then
 			if cursBlinkCount < 49999999 then
@@ -563,7 +563,7 @@ end generate GEN_NO_ATTRAM;
 		else 8 + kbInPointer - kbReadPointer;
 	n_rts <= '1' when kbBuffCount > 4 else '0';	
 
-	process( n_rd )
+	reg_rd: process( n_rd )
 	begin
 		if falling_edge(n_rd) then -- Standard CPU - present data on leading edge of rd
 			if regSel='1' then
@@ -581,7 +581,7 @@ end generate GEN_NO_ATTRAM;
 		end if;
 	end process;
 
-	process( n_wr )
+	reg_wr: process( n_wr )
 	begin
 		if rising_edge(n_wr) then -- Standard CPU - capture data on trailing edge of wr
 			if regSel='1' then
@@ -606,7 +606,7 @@ end generate GEN_NO_ATTRAM;
 	-- hysteresis will then not switch high to low until there is 50 more low samples than highs.
 	-- Introduces a minor (1uS) delay with 50MHz clock
 
-	process (clk)
+	kbd_filter: process(clk)
 	begin
 		if falling_edge(clk) then
 			if ps2Clk = '1' and ps2ClkFilter=50 then
@@ -624,7 +624,7 @@ end generate GEN_NO_ATTRAM;
 		end if;
 	end process;
 	
-	process( clk )
+	kbd_ctl: process( clk )
 	-- 11 bits
 	-- start(0) b0 b1 b2 b3 b4 b5 b6 b7 parity(odd) stop(1)
 	begin
@@ -668,7 +668,8 @@ end generate GEN_NO_ATTRAM;
 					end if;
 					ps2ClkCount<=ps2ClkCount+1;
 				else -- stop bit - use this time to store
-					-- F-keys
+					-- FN1-FN12 keys return values 0x11-0x1C. They are not presented as ASCII codes through
+                                        -- the virtual UART but instead toggle the FNkeys, FNtoggledKeys outputs.
 					if ps2ConvertedByte>x"10" and ps2ConvertedByte<x"1D" then
 						if ps2PreviousByte /= x"F0" then
 							FNtoggledKeysSig(to_integer(unsigned(ps2ConvertedByte))-16#10#) <= FNtoggledKeysSig(to_integer(unsigned(ps2ConvertedByte))-16#10#);
@@ -676,21 +677,22 @@ end generate GEN_NO_ATTRAM;
 						else
 							FNKeysSig(to_integer(unsigned(ps2ConvertedByte))-16#10#) <= '0';
 						end if;
-					-- SHIFT
+					-- left SHIFT or right SHIFT pressed
 					elsif ps2Byte = x"12" or ps2Byte=x"59" then
 						if ps2PreviousByte /= x"F0" then
 							ps2Shift <= '1';
 						else
 							ps2Shift <= '0';
 						end if;
-					-- CTRL
+					-- CTRL pressed
 					elsif ps2Byte = x"14" then
 						if ps2PreviousByte /= x"F0" then
 							ps2Ctrl <= '1';
 						else
 							ps2Ctrl <= '0';
 						end if;
-					-- SCROLL, CAPS AND NUM
+                                        -- Self-test passed (after power-up).
+                                        -- Send SET-LEDs command to establish SCROLL, CAPS AND NUM
 					elsif ps2Byte = x"AA" then
 							ps2WriteByte <= x"ED";
 							ps2WriteByte2(0) <= ps2Scroll;
@@ -699,6 +701,8 @@ end generate GEN_NO_ATTRAM;
 							ps2WriteByte2(7 downto 3) <= "00000";
 							n_kbWR <= '0';
 							kbWriteTimer<=0;
+                                        -- SCROLL-LOCK pressed - set flags and
+                                        -- update LEDs
 					elsif ps2Byte = x"7E" then
 						if ps2PreviousByte /= x"F0" then
 							ps2Scroll <= not ps2Scroll;
@@ -710,6 +714,8 @@ end generate GEN_NO_ATTRAM;
 							n_kbWR <= '0';
 							kbWriteTimer<=0;
 						end if;
+                                        -- NUM-LOCK pressed - set flags and
+                                        -- update LEDs
 					elsif ps2Byte = x"77" then
 						if ps2PreviousByte /= x"F0" then
 							ps2Num <= not ps2Num;
@@ -721,6 +727,8 @@ end generate GEN_NO_ATTRAM;
 							n_kbWR <= '0';
 							kbWriteTimer<=0;
 						end if;
+                                        -- CAPS-LOCK pressed - set flags and
+                                        -- update LEDs
 					elsif ps2Byte = x"58" then
 						if ps2PreviousByte /= x"F0" then
 							ps2Caps <= not ps2Caps;
@@ -732,21 +740,23 @@ end generate GEN_NO_ATTRAM;
 							n_kbWR <= '0';
 							kbWriteTimer<=0;
 						end if;
-					-- ACK
+					-- ACK (from SET-LEDs)
 					elsif ps2Byte = x"FA" then
 						if ps2WriteByte /= x"FF" then
 							n_kbWR <= '0';
 							kbWriteTimer<=0;
 						end if;
-					-- ASCII CHARACTER
+					-- ASCII key press - store it in the kbBuffer.
 					elsif (ps2PreviousByte /= x"F0") and (ps2ConvertedByte /= x"00") then
 						if ps2PreviousByte = x"E0" and ps2Byte = x"71" then -- DELETE
 							kbBuffer(kbInPointer) <= "1111111"; -- 7F
 						elsif ps2Ctrl = '1' then
 							kbBuffer(kbInPointer) <= "00" & ps2ConvertedByte(4 downto 0);
 						elsif ps2ConvertedByte > x"40" and ps2ConvertedByte < x"5B" and ps2Caps='1' then
+                                                        -- A-Z but caps lock on so convert to a-z.
 							kbBuffer(kbInPointer) <= ps2ConvertedByte or "0100000";
 						elsif ps2ConvertedByte > x"60" and ps2ConvertedByte < x"7B" and ps2Caps='1' then
+                                                        -- a-z but caps lock on so convert to A-Z.
 							kbBuffer(kbInPointer) <= ps2ConvertedByte and "1011111";
 						else
 							kbBuffer(kbInPointer) <= ps2ConvertedByte;
@@ -813,7 +823,7 @@ end generate GEN_NO_ATTRAM;
 
 	-- PROCESS DATA WRITTEN TO DISPLAY
 	
-	process( clk , n_reset)
+	display_store: process( clk , n_reset)
 	begin
 	
 		if n_reset='0' then
@@ -1033,14 +1043,14 @@ end generate GEN_NO_ATTRAM;
 					end if;
 				end if;
 			when dispWrite =>
-				if dispCharWRData=13 then
+				if dispCharWRData=13 then -- CR
 					cursorHoriz <= 0;
 					dispState<=idle;
-				elsif dispCharWRData=10 then
-					if cursorVert<VERT_CHAR_MAX then
+				elsif dispCharWRData=10 then -- LF
+					if cursorVert<VERT_CHAR_MAX then -- move down to next line
 						cursorVert <= cursorVert+1;
 						dispState<=idle;
-					else
+					else -- scroll
 						if startAddr < (CHARS_PER_SCREEN - HORIZ_CHARS) then
 							startAddr <= startAddr + HORIZ_CHARS;
 						else
@@ -1050,13 +1060,13 @@ end generate GEN_NO_ATTRAM;
 						cursorVertRestore <= cursorVert;
 						dispState<=clearLine;
 					end if;
-				elsif dispCharWRData=12 then
+				elsif dispCharWRData=12 then -- CLS
 					cursorVert <= 0;
 					cursorHoriz <= 0;
 					cursorHorizRestore <= 0;
 					cursorVertRestore <= 0;
 					dispState<=clearScreen;
-				elsif dispCharWRData=8 or dispCharWRData=127 then
+				elsif dispCharWRData=8 or dispCharWRData=127 then -- BS
 					if cursorHoriz>0 then
 						cursorHoriz <= cursorHoriz-1;
 					elsif cursorHoriz=0 and cursorVert>0 then
@@ -1064,7 +1074,7 @@ end generate GEN_NO_ATTRAM;
 						cursorVert <= cursorVert-1;
 					end if;
 					dispState<=clearChar;
-				else
+				else -- Displayable character
 					dispWR <= '1';
 					dispState<=dispNextLoc;
 				end if;
