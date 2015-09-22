@@ -109,7 +109,11 @@ constant CHARS_PER_SCREEN : integer := HORIZ_CHARS*VERT_CHARS;
 	signal	charVert: integer range 0 to VERT_CHAR_MAX; --unsigned(4 DOWNTO 0); 
 	signal	charScanLine: STD_LOGIC_VECTOR(3 DOWNTO 0); 
 
-	signal	charHoriz: integer range 0 to HORIZ_CHAR_MAX; --unsigned(6 DOWNTO 0); 
+-- functionally this only needs to go to HORIZ_CHAR_MAX. However, at the end of a line
+-- it goes 1 beyond in the hblank time. It could be avoided but it's fiddly with no
+-- benefit. Without the +1 the design synthesises and works fine but gives a fatal
+-- error in RTL simulation when the signal goes out of range.
+	signal	charHoriz: integer range 0 to 1+HORIZ_CHAR_MAX; --unsigned(6 DOWNTO 0); 
 	signal	charBit: STD_LOGIC_VECTOR(3 DOWNTO 0); 
 
 	signal	cursorVert: integer range 0 to VERT_CHAR_MAX :=0;
@@ -193,6 +197,12 @@ constant CHARS_PER_SCREEN : integer := HORIZ_CHARS*VERT_CHARS;
 	signal	ps2ClkOut: std_logic := '1';
 	signal	n_kbWR: std_logic := '1';
 	signal	kbWRParity: std_logic := '0';
+
+	-- "globally static" versions of signals for use within generate
+        -- statements below. Without these intermediate signals the simulator
+        -- reports an error (even though the design synthesises OK)
+	signal   cursAddr_xx: std_logic_vector(10 downto 0);
+	signal   dispAddr_xx: std_logic_vector(10 downto 0);
 	
 	type		kbDataArray is array (0 to 131) of std_logic_vector(6 downto 0);
 
@@ -257,6 +267,9 @@ constant CHARS_PER_SCREEN : integer := HORIZ_CHARS*VERT_CHARS;
 	
 begin
 
+	dispAddr_xx <= std_logic_vector(to_unsigned(dispAddr,11));
+	cursAddr_xx <= std_logic_vector(to_unsigned(cursAddr,11));
+
 -- DISPLAY ROM AND RAM
 
 GEN_EXT_CHARS: if (EXTENDED_CHARSET=1) generate
@@ -286,12 +299,12 @@ begin
 	(
 		clock	=> clk,
 
-		address_b => std_logic_vector(to_unsigned(cursAddr,11)),
+		address_b => cursAddr_xx(10 downto 0),
 		data_b => dispCharWRData,
 		q_b => dispCharRDData,
 		wren_b => dispWR,
 
-		address_a => std_logic_vector(to_unsigned(dispAddr,11)),
+		address_a => dispAddr_xx(10 downto 0),
 		data_a => (others => '0'),
 		q_a => dispCharData,
 		wren_a => '0'
@@ -306,12 +319,12 @@ begin
 	(
 		clock	=> clk,
 
-		address_b => std_logic_vector(to_unsigned(cursAddr,11)),
+		address_b => cursAddr_xx(10 downto 0),
 		data_b => dispAttWRData,
 		q_b => dispAttRDData,
 		wren_b => dispWR,
 
-		address_a => std_logic_vector(to_unsigned(dispAddr,11)),
+		address_a => dispAddr_xx(10 downto 0),
 		data_a => (others => '0'),
 		q_a => dispAttData,
 		wren_a => '0'
@@ -326,12 +339,12 @@ begin
 	(
 		clock	=> clk,
 
-		address_b => std_logic_vector(to_unsigned(cursAddr,10)),
+		address_b => cursAddr_xx(9 downto 0),
 		data_b => dispCharWRData,
 		q_b => dispCharRDData,
 		wren_b => dispWR,
 
-		address_a => std_logic_vector(to_unsigned(dispAddr,10)),
+		address_a => dispAddr_xx(9 downto 0),
 		data_a => (others => '0'),
 		q_a => dispCharData,
 		wren_a => '0'
@@ -344,12 +357,12 @@ GEN_1KATTRAM: if (CHARS_PER_SCREEN <1025 and COLOUR_ATTS_ENABLED=1) generate
 	(
 		clock	=> clk,
 
-		address_b => std_logic_vector(to_unsigned(cursAddr,10)),
+		address_b => cursAddr_xx(9 downto 0),
 		data_b => dispAttWRData,
 		q_b => dispAttRDData,
 		wren_b => dispWR,
 
-		address_a => std_logic_vector(to_unsigned(dispAddr,10)),
+		address_a => dispAddr_xx(9 downto 0),
 		data_a => (others => '0'),
 		q_a => dispAttData,
 		wren_a => '0'
