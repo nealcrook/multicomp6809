@@ -391,14 +391,11 @@ end generate GEN_NO_ATTRAM;
 	
 	screen_render: process (clk)
 	begin
-		if falling_edge(clk) then
-
+		if rising_edge(clk) then
 			if horizCount < CLOCKS_PER_SCANLINE then
 				horizCount <= horizCount + 1;
-				if (horizCount < DISPLAY_LEFT_CLOCK) or (horizCount > (DISPLAY_LEFT_CLOCK + HORIZ_CHARS*CLOCKS_PER_PIXEL*8)) then
+				if (horizCount < DISPLAY_LEFT_CLOCK) or (horizCount >= (DISPLAY_LEFT_CLOCK + HORIZ_CHARS*CLOCKS_PER_PIXEL*8)) then
 					hActive <= '0';
-					pixelClockCount <= (others => '0');
-					charHoriz <= 0;
 				else
 					hActive <= '1';
 				end if;
@@ -442,6 +439,7 @@ end generate GEN_NO_ATTRAM;
 				if pixelClockCount <(CLOCKS_PER_PIXEL-1) then
 					pixelClockCount <= pixelClockCount+1;
 				else
+					pixelClockCount <= (others => '0');
 					if cursorOn = '1' and cursorVert = charVert and cursorHoriz = charHoriz and charScanLine = (VERT_PIXEL_SCANLINES*8-1) then
 					   -- Cursor (use current colour because cursor cell not yet written to)
 						if dispAttData(3)='1' then -- BRIGHT
@@ -508,8 +506,7 @@ end generate GEN_NO_ATTRAM;
 						end if;
 						video <= charData(7-to_integer(unsigned(pixelCount))); -- Monochrome video out
 					end if;
-					pixelClockCount <= (others => '0');
-					if pixelCount = 7 then
+					if pixelCount = 6 then -- move output pipeline back by 1 clock to allow readout on posedge
 						charHoriz <= charHoriz+1;
 					end if;
 					pixelCount <= pixelCount+1;
@@ -523,6 +520,7 @@ end generate GEN_NO_ATTRAM;
 				videoB1 <= '0';
 				
 				video <= '0'; -- Monochrome video out
+                                pixelClockCount <= (others => '0');
 			end if;
 		end if;
 	end process;	
@@ -608,7 +606,7 @@ end generate GEN_NO_ATTRAM;
 
 	kbd_filter: process(clk)
 	begin
-		if falling_edge(clk) then
+		if rising_edge(clk) then
 			if ps2Clk = '1' and ps2ClkFilter=50 then
 				ps2ClkFiltered <= '1';
 			end if;
@@ -628,7 +626,7 @@ end generate GEN_NO_ATTRAM;
 	-- 11 bits
 	-- start(0) b0 b1 b2 b3 b4 b5 b6 b7 parity(odd) stop(1)
 	begin
-		if falling_edge(clk) then
+		if rising_edge(clk) then
 
 			ps2PrevClk <= ps2ClkFiltered;
 
@@ -828,7 +826,7 @@ end generate GEN_NO_ATTRAM;
 	
 		if n_reset='0' then
 			dispAttWRData <= DEFAULT_ATT;
-		elsif falling_edge(clk) then
+		elsif rising_edge(clk) then
 			case dispState is
 			when idle =>
 				if (nextState/=processingAdditionalParams) and (dispByteWritten /= dispByteSent) then
@@ -1056,6 +1054,7 @@ end generate GEN_NO_ATTRAM;
 						else
 							startAddr <= 0;
 						end if;
+						cursorHoriz <= 0;
 						cursorHorizRestore <= cursorHoriz;
 						cursorVertRestore <= cursorVert;
 						dispState<=clearLine;
