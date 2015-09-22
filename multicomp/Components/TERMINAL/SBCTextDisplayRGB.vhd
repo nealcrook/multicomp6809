@@ -42,13 +42,13 @@ entity SBCTextDisplayRGB is
 	port (
 		n_reset	: in std_logic;
 		clk    	: in  std_logic;
-		n_wr		: in  std_logic;
-		n_rd		: in  std_logic;
+		n_wr	: in  std_logic;
+		n_rd	: in  std_logic;
 		regSel	: in  std_logic;
 		dataIn	: in  std_logic_vector(7 downto 0);
 		dataOut	: out std_logic_vector(7 downto 0);
-		n_int		: out std_logic; 
-		n_rts		: out std_logic :='0';
+		n_int	: out std_logic;
+		n_rts	: out std_logic :='0';
 		
 		-- RGB video signals
 		videoR0	: out std_logic;
@@ -61,7 +61,7 @@ entity SBCTextDisplayRGB is
 		vSync  	: buffer  std_logic;
 		
 		-- Monochrome video signals
-		video		: buffer std_logic;
+		video	: buffer std_logic;
 		sync  	: out  std_logic;		
 		
 		-- Keyboard signals
@@ -102,7 +102,7 @@ constant CHARS_PER_SCREEN : integer := HORIZ_CHARS*VERT_CHARS;
 
 	signal	pixelClockCount: STD_LOGIC_VECTOR(3 DOWNTO 0); 
 	signal	pixelCount: STD_LOGIC_VECTOR(2 DOWNTO 0); 
-	
+
 	signal	horizCount: STD_LOGIC_VECTOR(11 DOWNTO 0); 
 	signal	vertLineCount: STD_LOGIC_VECTOR(9 DOWNTO 0); 
 
@@ -206,65 +206,68 @@ constant CHARS_PER_SCREEN : integer := HORIZ_CHARS*VERT_CHARS;
 	
 	type		kbDataArray is array (0 to 131) of std_logic_vector(6 downto 0);
 
-	-- UK KEYBOARD MAPPING (except for shift-3 = "#")
-	
-	--Original 8-bit HEX values
---	constant kbUnshifted : kbDataArray :=
---	(
---	--0     1     2     3     4     5     6     7     8     9     A     B     C     D     E     F
---	x"00",x"19",x"00",x"00",x"13",x"11",x"12",x"1C",x"00",x"1A",x"18",x"16",x"00",x"09",x"60",x"00", -- 0
---	x"00",x"00",x"00",x"00",x"00",x"71",x"31",x"00",x"00",x"00",x"7A",x"73",x"61",x"77",x"32",x"00", -- 1
---	x"00",x"63",x"78",x"64",x"65",x"34",x"33",x"00",x"00",x"20",x"76",x"66",x"74",x"72",x"35",x"00", -- 2
---	x"00",x"6E",x"62",x"68",x"67",x"79",x"36",x"00",x"00",x"00",x"6D",x"6A",x"75",x"37",x"38",x"00", -- 3
---	x"00",x"2C",x"6B",x"69",x"6F",x"30",x"39",x"00",x"00",x"2E",x"2F",x"6C",x"3B",x"70",x"2D",x"00", -- 4
---	x"00",x"00",x"27",x"00",x"5B",x"3D",x"00",x"00",x"00",x"00",x"0D",x"5D",x"00",x"00",x"00",x"00", -- 5
---	x"00",x"00",x"00",x"00",x"00",x"00",x"08",x"00",x"00",x"31",x"00",x"34",x"37",x"00",x"00",x"00", -- 6
---	x"30",x"2E",x"32",x"35",x"36",x"38",x"03",x"00",x"1B",x"2B",x"33",x"2D",x"2A",x"39",x"00",x"00", -- 7
---	x"00",x"00",x"00",x"17"
---	);
---	constant kbShifted : kbDataArray :=
---	(
---	--0     1     2     3     4     5     6     7     8     9     A     B     C     D     E     F
---	x"00",x"19",x"00",x"00",x"13",x"11",x"12",x"1C",x"00",x"1A",x"18",x"16",x"00",x"09",x"00",x"00", -- 0
---	x"00",x"00",x"00",x"00",x"00",x"51",x"21",x"00",x"00",x"00",x"5A",x"53",x"41",x"57",x"22",x"00", -- 1
---	x"00",x"43",x"58",x"44",x"45",x"24",x"23",x"00",x"00",x"20",x"56",x"46",x"54",x"52",x"25",x"00", -- 2
---	x"00",x"4E",x"42",x"48",x"47",x"59",x"5E",x"00",x"00",x"00",x"4D",x"4A",x"55",x"26",x"2A",x"00", -- 3
---	x"00",x"3C",x"4B",x"49",x"4F",x"29",x"28",x"00",x"00",x"3E",x"3F",x"4C",x"3A",x"50",x"5F",x"00", -- 4
---	x"00",x"00",x"40",x"00",x"7B",x"2B",x"00",x"00",x"00",x"00",x"0D",x"7D",x"00",x"00",x"00",x"00", -- 5
---	x"00",x"00",x"00",x"00",x"00",x"00",x"08",x"00",x"00",x"31",x"00",x"34",x"37",x"00",x"00",x"00", -- 6
---	x"30",x"2E",x"32",x"35",x"36",x"38",x"0C",x"00",x"1B",x"2B",x"33",x"2D",x"2A",x"39",x"00",x"00", -- 7
---	x"00",x"00",x"00",x"17"
---	);
+        -- the ASCII codes are expressed in HEX and therefore are 8-bit.
+        -- However, the MSB is always 0 so we don't want to store the MSB. This
+        -- function allows us to express the codes here as pairs of hex digits,
+        -- for readability, but truncates the value to return 7 bits for the
+        -- hardware implementation.
+        function t (
+          val: std_logic_vector(7 downto 0)
+          ) return std_logic_vector is
+        begin
+            return val(6 downto 0);
+        end t;
 
-	-- 7 bits to reduce logic count
+	-- scan-code-to-ASCII for UK KEYBOARD MAPPING (except for shift-3 = "#")
+	-- Read it like this: row 4,col 9 represents scan code 0x49. From a map
+        -- of the PS/2 keyboard scan codes this is the ". >" key so the unshifted
+        -- table as has 0x2E (ASCII .) and the shifted table has 0x3E (ASCII >)
+        -- Do not need a lookup for CTRL because this is simply the ASCII code
+        -- with bits 6,5 cleared.
+        -- A value of 0 represents either an unused keycode or a keycode like
+        -- SHIFT that is processed separately (not looked up in the table).
+        -- The FN keys do not generate ASCII values to the virtual UART here.
+        -- Rather, they are used to generate direct output signals. The key
+        -- codes in the table for the function keys are the values 0x11-0x1C
+        -- which cannot be generated directly by any keypress and so do not
+        -- conflict with normal operation.
+
 	constant kbUnshifted : kbDataArray :=
 	(
-	--  0         1         2         3         4         5         6         7         8         9         A         B         C         D         E         F
-	"0000000","0011001","0000000","0000000","0010011","0010001","0010010","0011100","0000000","0011010","0011000","0010110","0000000","0001001","1100000","0000000", -- 0
-	"0000000","0000000","0000000","0000000","0000000","1110001","0110001","0000000","0000000","0000000","1111010","1110011","1100001","1110111","0110010","0000000", -- 1
-	"0000000","1100011","1111000","1100100","1100101","0110100","0110011","0000000","0000000","0100000","1110110","1100110","1110100","1110010","0110101","0000000", -- 2
-	"0000000","1101110","1100010","1101000","1100111","1111001","0110110","0000000","0000000","0000000","1101101","1101010","1110101","0110111","0111000","0000000", -- 3
-	"0000000","0101100","1101011","1101001","1101111","0110000","0111001","0000000","0000000","0101110","0101111","1101100","0111011","1110000","0101101","0000000", -- 4
-	"0000000","0000000","0100111","0000000","1011011","0111101","0000000","0000000","0000000","0000000","0001101","1011101","0000000","0000000","0000000","0000000", -- 5
-	"0000000","0000000","0000000","0000000","0000000","0000000","0001000","0000000","0000000","0110001","0000000","0110100","0110111","0000000","0000000","0000000", -- 6
-	"0110000","0101110","0110010","0110101","0110110","0111000","0000011","0000000","0011011","0101011","0110011","0101101","0101010","0111001","0000000","0000000", -- 7
-	"0000000","0000000","0000000","0010111"
+	--  0        1        2        3        4        5        6        7        8        9        A        B        C        D        E        F
+        --       F9                F5       F3       F1       F2       F12               F10      F8       F6       F4       TAB      `
+        t(x"00"),t(x"19"),t(x"00"),t(x"00"),t(x"13"),t(x"11"),t(x"12"),t(x"1C"),t(x"00"),t(x"1A"),t(x"18"),t(x"16"),t(x"00"),t(x"09"),t(x"60"),t(x"00"), -- 0
+        --       l-ALT    l-SHIFT           l-CTRL   q        1                                   z        s        a        w        2
+	t(x"00"),t(x"00"),t(x"00"),t(x"00"),t(x"00"),t(x"71"),t(x"31"),t(x"00"),t(x"00"),t(x"00"),t(x"7A"),t(x"73"),t(x"61"),t(x"77"),t(x"32"),t(x"00"), -- 1
+        --       c        x        d        e        4        3                          SPACE    v        f        t        r        5
+	t(x"00"),t(x"63"),t(x"78"),t(x"64"),t(x"65"),t(x"34"),t(x"33"),t(x"00"),t(x"00"),t(x"20"),t(x"76"),t(x"66"),t(x"74"),t(x"72"),t(x"35"),t(x"00"), -- 2
+        --       n        b        h        g        y        6                                   m        j        u        7        8
+	t(x"00"),t(x"6E"),t(x"62"),t(x"68"),t(x"67"),t(x"79"),t(x"36"),t(x"00"),t(x"00"),t(x"00"),t(x"6D"),t(x"6A"),t(x"75"),t(x"37"),t(x"38"),t(x"00"), -- 3
+        --       ,        k        i        O        0        9                          .        /        l        ;        p        -
+	t(x"00"),t(x"2C"),t(x"6B"),t(x"69"),t(x"6F"),t(x"30"),t(x"39"),t(x"00"),t(x"00"),t(x"2E"),t(x"2F"),t(x"6C"),t(x"3B"),t(x"70"),t(x"2D"),t(x"00"), -- 4
+        --                '                 [        =                          CAPLOCK  r-SHIFT  ENTER    ]                 \
+	t(x"00"),t(x"00"),t(x"27"),t(x"00"),t(x"5B"),t(x"3D"),t(x"00"),t(x"00"),t(x"00"),t(x"00"),t(x"0D"),t(x"5D"),t(x"00"),t(x"00"),t(x"00"),t(x"00"), -- 5
+        --                                                    BACKSP                     KP1               KP4      KP7
+	t(x"00"),t(x"00"),t(x"00"),t(x"00"),t(x"00"),t(x"00"),t(x"08"),t(x"00"),t(x"00"),t(x"31"),t(x"00"),t(x"34"),t(x"37"),t(x"00"),t(x"00"),t(x"00"), -- 6
+        -- KP0   KP.      KP2      KP5      KP6      KP8      ESC      NUMLCK   F11      KP+      KP3      KP-      KP*      KP9      SCRLCK
+	t(x"30"),t(x"2E"),t(x"32"),t(x"35"),t(x"36"),t(x"38"),t(x"03"),t(x"00"),t(x"1B"),t(x"2B"),t(x"33"),t(x"2D"),t(x"2A"),t(x"39"),t(x"00"),t(x"00"), -- 7
+        --                         F7
+	t(x"00"),t(x"00"),t(x"00"),t(x"17") -- 8
 	);
 	constant kbShifted : kbDataArray :=
 	(
-	--  0         1         2         3         4         5         6         7         8         9         A         B         C         D         E         F
-	"0000000","0011001","0000000","0000000","0010011","0010001","0010010","0011100","0000000","0011010","0011000","0010110","0000000","0001001","0000000","0000000", -- 0
-	"0000000","0000000","0000000","0000000","0000000","1010001","0100001","0000000","0000000","0000000","1011010","1010011","1000001","1010111","0100010","0000000", -- 1
-	"0000000","1000011","1011000","1000100","1000101","0100100","0100011","0000000","0000000","0100000","1010110","1000110","1010100","1010010","0100101","0000000", -- 2
-	"0000000","1001110","1000010","1001000","1000111","1011001","1011110","0000000","0000000","0000000","1001101","1001010","1010101","0100110","0101010","0000000", -- 3
-	"0000000","0111100","1001011","1001001","1001111","0101001","0101000","0000000","0000000","0111110","0111111","1001100","0111010","1010000","1011111","0000000", -- 4
-	"0000000","0000000","1000000","0000000","1111011","0101011","0000000","0000000","0000000","0000000","0001101","1111101","0000000","0000000","0000000","0000000", -- 5
-	"0000000","0000000","0000000","0000000","0000000","0000000","0001000","0000000","0000000","0110001","0000000","0110100","0110111","0000000","0000000","0000000", -- 6
-	"0110000","0101110","0110010","0110101","0110110","0111000","0001100","0000000","0011011","0101011","0110011","0101101","0101010","0111001","0000000","0000000", -- 7
-	"0000000","0000000","0000000","0010111"
+	--  0        1        2        3        4        5        6        7        8        9        A        B        C        D        E        F
+	t(x"00"),t(x"19"),t(x"00"),t(x"00"),t(x"13"),t(x"11"),t(x"12"),t(x"1C"),t(x"00"),t(x"1A"),t(x"18"),t(x"16"),t(x"00"),t(x"09"),t(x"00"),t(x"00"), -- 0
+	t(x"00"),t(x"00"),t(x"00"),t(x"00"),t(x"00"),t(x"51"),t(x"21"),t(x"00"),t(x"00"),t(x"00"),t(x"5A"),t(x"53"),t(x"41"),t(x"57"),t(x"22"),t(x"00"), -- 1
+	t(x"00"),t(x"43"),t(x"58"),t(x"44"),t(x"45"),t(x"24"),t(x"23"),t(x"00"),t(x"00"),t(x"20"),t(x"56"),t(x"46"),t(x"54"),t(x"52"),t(x"25"),t(x"00"), -- 2
+	t(x"00"),t(x"4E"),t(x"42"),t(x"48"),t(x"47"),t(x"59"),t(x"5E"),t(x"00"),t(x"00"),t(x"00"),t(x"4D"),t(x"4A"),t(x"55"),t(x"26"),t(x"2A"),t(x"00"), -- 3
+	t(x"00"),t(x"3C"),t(x"4B"),t(x"49"),t(x"4F"),t(x"29"),t(x"28"),t(x"00"),t(x"00"),t(x"3E"),t(x"3F"),t(x"4C"),t(x"3A"),t(x"50"),t(x"5F"),t(x"00"), -- 4
+	t(x"00"),t(x"00"),t(x"40"),t(x"00"),t(x"7B"),t(x"2B"),t(x"00"),t(x"00"),t(x"00"),t(x"00"),t(x"0D"),t(x"7D"),t(x"00"),t(x"00"),t(x"00"),t(x"00"), -- 5
+	t(x"00"),t(x"00"),t(x"00"),t(x"00"),t(x"00"),t(x"00"),t(x"08"),t(x"00"),t(x"00"),t(x"31"),t(x"00"),t(x"34"),t(x"37"),t(x"00"),t(x"00"),t(x"00"), -- 6
+	t(x"30"),t(x"2E"),t(x"32"),t(x"35"),t(x"36"),t(x"38"),t(x"0C"),t(x"00"),t(x"1B"),t(x"2B"),t(x"33"),t(x"2D"),t(x"2A"),t(x"39"),t(x"00"),t(x"00"), -- 7
+	t(x"00"),t(x"00"),t(x"00"),t(x"17") -- 8
 	);
 
-	
 begin
 
 	dispAddr_xx <= std_logic_vector(to_unsigned(dispAddr,11));
@@ -659,7 +662,7 @@ end generate GEN_NO_ATTRAM;
 						if ps2Shift='0' then
 							ps2ConvertedByte <= kbUnshifted (to_integer(unsigned(ps2Byte)));
 						else
-							ps2ConvertedByte <= kbShifted (to_integer(unsigned(ps2Byte)));
+							ps2ConvertedByte <= kbShifted   (to_integer(unsigned(ps2Byte)));
 						end if;
 					else
 						ps2ConvertedByte <= (others => '0');
