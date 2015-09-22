@@ -18,7 +18,62 @@
 --
 -- Grant Searle
 -- eMail address available on my main web page link above.
+--
+-- This design uses the SPI interface and only supports "standard capacity" cards
+-- (NOT SDHC cards) which means cards of upto 2GBytes in size. SDHC cards are not
+-- recognised or accessible.
 
+-- Address Register
+--    0    SDDATA        read/write data
+--    1    SDSTATUS      read
+--    1    SDCONTROL     write
+--    2    SDLBA0        write-only
+--    3    SDLBA1        write-only
+--    4    SDLBA2        write-only (only bits 6:0 are valid)
+--
+-- Access using 32-bit address in which the low 9 bits are 0 (each sector is 512 bytes). The
+-- address is set using the SDLBA registers like this:
+--
+-- 31 30 29 28.27 26 25 24.23 22 21 20.19 18 17 16.15 14 13 12.11 10 09 08.07 06 05 04.03 02 01 00
+--+------- SDLBA2 -----+------- SDLBA1 --------+------- SDLBA0 --------+ 0  0  0  0  0  0  0  0  0
+--
+-- SDSTATUS (RO)
+--    b7     Write Data Byte can be accepted
+--    b6     Read Data Byte available
+--    b5     Block Busy
+--    b4     Init Busy
+--    b3     Unused. Read 0
+--    b2     Unused. Read 0
+--    b1     Unused. Read 0
+--    b0     Unused. Read 0
+--
+-- SDCONTROL (WO)
+--    b7:0   0x00 Read block
+--           0x01 Write block
+--
+--
+-- To read a 512-byte block from the SDCARD:
+-- Wait until SDSTATUS=0x80 (ensures previous cmd has completed)
+-- Write SDLBA0, SDLBA1 SDLBA2 to select block index to read from
+-- Write 0 to SDCONTROL to issue read command
+-- Loop 512 times:
+--     Wait until SDSTATUS=0xE0 (read byte ready, block busy)
+--     Read byte from SDDATA
+--
+-- To write a 512-byte block to the SDCARD:
+-- Wait until SDSTATUS=0x80 (ensures previous cmd has completed)
+-- Write SDLBA0, SDLBA1 SDLBA2 to select block index to write to
+-- Write 1 to SDCONTROL to issue write command
+-- Loop 512 times:
+--     Wait until SDSTATUS=0xA0 (block busy)
+--     Write byte to SDDATA
+--
+-- At HW level each data transfer is 515 bytes: a start byte, 512 data bytes,
+-- 2 CRC bytes. CRC need not be valid in SPI mode, *except* for CMD0.
+--
+-- SDCARD specification can be downloaded from
+-- https://www.sdcard.org/downloads/pls/
+-- All you need is the "Part 1 Physical Layer Simplified Specification"
 
 library ieee;
 use ieee.std_logic_1164.all;
@@ -97,10 +152,10 @@ signal block_busy : std_logic := '0';
 
 signal address: std_logic_vector(31 downto 0) :=x"00000000";
 
-signal led_on_count : integer range 0 to 200; 
+signal led_on_count : integer range 0 to 200;
 
 begin
-	process(n_wr)
+	wr_adrs_reg: process(n_wr)
 	begin
 	-- sd address 0..8 (first 9 bits) always zero because each sector is 512 bytes
 		if rising_edge(n_wr) then
@@ -119,7 +174,7 @@ begin
 	else status when regAddr = "001"
 	else "00000000";
 
-	process(n_wr)
+	wr_dat_reg: process(n_wr)
 	begin
 		if rising_edge(n_wr) then
 			if (regAddr = "000") and (sd_write_flag = host_write_flag) then
@@ -129,7 +184,7 @@ begin
 		end if;
 	end process;
 
-   process(n_rd)
+	rd_dat_reg: process(n_rd)
 	begin
 		if rising_edge(n_rd) then
 			if (regAddr = "000") and (sd_read_flag /= host_read_flag) then
@@ -138,7 +193,7 @@ begin
 		end if;
 	end process;
 
-	process(n_wr, block_start_ack,init_busy)
+	wr_cmd_reg: process(n_wr, block_start_ack,init_busy)
 	begin
 		if init_busy='1' then
 			block_read <= '0';
@@ -163,9 +218,8 @@ begin
 			end if;
 		end if;
 	end process;
-	
- 
-	process(clk,n_reset)
+
+	fsm: process(clk, clkEn, n_reset)
 		variable byte_counter : integer range 0 to write_data_size;
 		variable bit_counter : integer range 0 to 160;
 	begin
@@ -176,7 +230,7 @@ begin
 	elsif rising_edge(clk) then
 
 			case state is
-				
+
 				when rst =>
 					sd_read_flag <= host_read_flag;
 					sd_write_flag <= host_write_flag;
@@ -188,7 +242,7 @@ begin
 					bit_counter := 160;
 					sdCS <= '1';
 					state <= init;
-				
+
 				when init =>		-- cs=1, send 80 clocks, cs=0
 					init_busy <= '1';
 					if (bit_counter = 0) then
@@ -197,34 +251,34 @@ begin
 					else
 						bit_counter := bit_counter - 1;
 						sclk_sig <= not sclk_sig;
-					end if;	
-				
+					end if;
+
 				when cmd0 =>
-					cmd_out <= x"ff400000000095";
+					cmd_out <= x"ff400000000095";   -- CMD0 - CRC must be (and is!) correct for this one
 					bit_counter := 55;
 					return_state <= cmd55;
 					state <= send_cmd;
 
 				when cmd55 =>
-					cmd_out <= x"ff770000000001";	-- 55d or 40h = 77h
+					cmd_out <= x"ff770000000001";	-- CMD55 - 55d or 40h = 77h
 					bit_counter := 55;
 					return_state <= cmd41;
 					state <= send_cmd;
-				
+
 				when cmd41 =>
-					cmd_out <= x"ff690000000001";	-- 41d or 40h = 69h
+					cmd_out <= x"ff690000000001";	-- CMD41 - 41d or 40h = 69h
 					bit_counter := 55;
 					return_state <= poll_cmd;
 					state <= send_cmd;
-			
+
 				when poll_cmd =>
 					if (recv_data(0) = '0') then
 						state <= idle;
 					else
 						state <= cmd55;
 					end if;
-        	
-				when idle => 
+
+				when idle =>
 					sd_read_flag <= host_read_flag;
 					sd_write_flag <= host_write_flag;
 					sclk_sig <= '0';
@@ -237,7 +291,7 @@ begin
 					block_busy <= '0';
 					init_busy <= '0';
 					dout <= (others => '0');
-					
+
 					if (block_read = '1') then
 						state <= read_block_cmd;
 						block_start_ack <= '1';
@@ -247,15 +301,15 @@ begin
 					else
 						state <= idle;
 					end if;
-					
+
 				when read_block_cmd =>
 					block_busy <= '1';
 					block_start_ack <= '0';
-					cmd_out <= x"ff" & x"51" & address & x"ff";
+					cmd_out <= x"ff" & x"51" & address & x"ff";     -- CMD17 read single block
 					bit_counter := 55;
 					return_state <= read_block_wait;
 					state <= send_cmd;
-					
+
 				-- wait until data token read (= 11111110)
 				when read_block_wait =>
 					if (sclk_sig='0' and sdMISO='0') then
@@ -284,7 +338,7 @@ begin
 						bit_counter := 7;
 						state <= receive_byte;
 					end if;
-			        	
+
 				when send_cmd =>
 					if (sclk_sig = '1') then
 						if (bit_counter = 0) then
@@ -295,7 +349,7 @@ begin
 						end if;
 					end if;
 					sclk_sig <= not sclk_sig;
-				
+
 				when receive_byte_wait =>
 					if (sclk_sig = '0') then
 						if (sdMISO = '0') then
@@ -330,22 +384,22 @@ begin
 					block_busy <= '1';
 					block_start_ack <= '0';
 					cmd_mode <= '1';
-					cmd_out <= x"ff" & x"58" & address & x"ff";	-- single block
+					cmd_out <= x"ff" & x"58" & address & x"ff";	-- CMD24 write single block
 					bit_counter := 55;
 					return_state <= write_block_init;
 					state <= send_cmd;
-					
-				when write_block_init => 
+
+				when write_block_init =>
 					cmd_mode <= '0';
-					byte_counter := write_data_size; 
+					byte_counter := write_data_size;
 					state <= write_block_data;
-					
-				when write_block_data => 
+
+				when write_block_data =>
 					if byte_counter = 0 then
 						state <= receive_byte_wait;
 						return_state <= write_block_wait;
 						response_mode <= '0';
-					else 	
+					else
 						if ((byte_counter = 2) or (byte_counter = 1)) then
 							data_sig <= x"ff"; -- two crc bytes
 							bit_counter := 7;
@@ -364,8 +418,8 @@ begin
 							sd_write_flag <= not sd_write_flag;
 						end if;
 					end if;
-				
-				when write_block_byte => 
+
+				when write_block_byte =>
 				  if (sclk_sig = '1') then
 						if bit_counter=0 then
 							state <= write_block_data;
@@ -375,7 +429,7 @@ begin
 						end if;
 					end if;
 					sclk_sig <= not sclk_sig;
-					
+
 				when write_block_wait =>
 					cmd_mode <= '1';
 					response_mode <= '1';
@@ -386,7 +440,7 @@ begin
 					end if;
 					sclk_sig <= not sclk_sig;
 
-				when others => 
+				when others =>
 				   state <= idle;
         end case;
     end if;
@@ -399,9 +453,9 @@ begin
   status(6) <= '0' when host_read_flag=sd_read_flag else '1'; -- rx byte ready when not equal
   status(5) <= block_busy;
   status(4) <= init_busy;
-  
+
   -- Make sure the drive LED is on for a visible amount of time
-  	process (clk, block_busy,init_busy)
+  	ctl_led: process (clk, block_busy,init_busy)
 	begin
 		if block_busy='1' or init_busy = '1' then
 				led_on_count <= 200; -- ensure on for at least 200ms (assuming 1MHz clk)
@@ -415,5 +469,5 @@ begin
 			end if;
 		end if;
 	end process;
-	
+
 end rtl;
