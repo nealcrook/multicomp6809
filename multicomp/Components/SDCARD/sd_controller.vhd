@@ -18,10 +18,11 @@
 --
 -- Grant Searle
 -- eMail address available on my main web page link above.
+-- Minor changes by foofoobedoo@gmail.com
+-- Additional functionality to provide SDHC support by RHKoolaap.
 --
--- This design uses the SPI interface and only supports "standard capacity" cards
--- (NOT SDHC cards) which means cards of upto 2GBytes in size. SDHC cards are not
--- recognised or accessible.
+-- This design uses the SPI interface and supports "standard capacity" (SDSC) and
+-- "high capacity" (SDHC) cards.
 
 -- Address Register
 --    0    SDDATA        read/write data
@@ -107,9 +108,9 @@ type states is (
 	rst,
 	init,
 	cmd0,
-	regreq,
+	cmd8,
 	cmd55,
-	cmd41,
+	acmd41,
 	poll_cmd,
 	cmd58,
 	cardsel,
@@ -267,7 +268,7 @@ begin
 					sclk_sig <= '0';
 					cmd_out <= (others => '1');
 					byte_counter := 0;
-					cmd_mode <= '1'; -- 0=data, 1=command
+					cmd_mode <= '1';	-- 0=data, 1=command
 					response_mode <= '1';	-- 0=data, 1=command
 					bit_counter := 160;
 					sdCS <= '1';
@@ -287,22 +288,23 @@ begin
 				when cmd0 =>
 					cmd_out <= x"ff400000000095";	-- GO_IDLE_STATE here, Select SPI
 					bit_counter := 55;
-					return_state <= regreq;
+					return_state <= cmd8;
 					state <= send_cmd;
 
-				when regreq =>
+				when cmd8 =>
 					cmd_out <= x"ff48000001aa87";	-- SEND_IF_COND
 					bit_counter := 55;
 					return_state <= cmd55;
 					state <= send_regreq;
 
+				-- cmd55 is the "prefix" command for ACMDs
 				when cmd55 =>
 					cmd_out <= x"ff770000000001";	-- APP_CMD
 					bit_counter := 55;
-					return_state <= cmd41;
+					return_state <= acmd41;
 					state <= send_cmd;
 
-				when cmd41 =>
+				when acmd41 =>
 					cmd_out <= x"ff694000000077";	-- SD_SEND_OP_COND
 					bit_counter := 55;
 					return_state <= poll_cmd;
@@ -312,6 +314,7 @@ begin
 					if (recv_data(0) = '0') then
 						state <= cmd58;
 					else
+						-- still busy; go round and do it again
 						state <= cmd55;
 					end if;
 
@@ -325,11 +328,7 @@ begin
 					if (ocr_data(31) = '0' ) then	-- power up not completed
 						state <= cmd58;
 					else
-						if (ocr_data(30) = '1' ) then	-- CCS bit
-							sdhc <= '1';
-						else
-							sdhc <= '0';
-						end if;
+						sdhc <= ocr_data(30);	-- CCS bit
 						state <= idle;
 					end if;
 
@@ -340,7 +339,7 @@ begin
 					cmd_out <= (others => '1');
 					data_sig <= (others => '1');
 					byte_counter := 0;
-					cmd_mode <= '1'; -- 0=data, 1=command
+					cmd_mode <= '1';	-- 0=data, 1=command
 					response_mode <= '1';	-- 0=data, 1=command
 
 					block_busy <= '0';
@@ -426,6 +425,7 @@ begin
 					end if;
 					sclk_sig <= not sclk_sig;
 
+				-- read 40-bit data: R7 response (R1 + 32-bits)
 				when receive_ocr =>
 					if (sclk_sig = '0') then
 						ocr_data <= ocr_data(38 downto 0) & sdMISO;	-- read next bit
@@ -452,6 +452,7 @@ begin
 					end if;
 					sclk_sig <= not sclk_sig;
 
+				-- read 8-bit data or R1 response
 				when receive_byte =>
 					if (sclk_sig = '0') then
 						recv_data <= recv_data(6 downto 0) & sdMISO;	-- read next bit
