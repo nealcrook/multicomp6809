@@ -196,24 +196,13 @@ begin
 
 	wr_cmd_reg: process(n_wr, block_start_ack,init_busy)
 	begin
-		if init_busy='1' then
+		if init_busy='1' or block_start_ack='1' then
 			block_read <= '0';
-		elsif block_start_ack='1' then
-			block_read <= '0';
+			block_write <= '0';
 		elsif rising_edge(n_wr) then
 			if regAddr = "001" and dataIn = "00000000" then
 				block_read <= '1';
 			end if;
-		end if;
-	end process;
-
-	process(n_wr, block_start_ack,init_busy) --todo nac: I merged this into process above
-	begin
-		if init_busy='1' then
-			block_write <= '0';
-		elsif block_start_ack='1' then
-			block_write <= '0';
-		elsif rising_edge(n_wr) then
 			if regAddr = "001" and dataIn = "00000001" then
 				block_write <= '1';
 			end if;
