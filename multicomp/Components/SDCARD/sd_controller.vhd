@@ -147,7 +147,7 @@ signal host_read_flag : std_logic := '0';
 signal sd_write_flag : std_logic := '0';
 signal host_write_flag : std_logic := '0';
 
-signal init_busy : std_logic := '0';
+signal init_busy : std_logic := '1';
 signal block_busy : std_logic := '0';
 
 signal address: std_logic_vector(31 downto 0) :=x"00000000";
@@ -232,9 +232,10 @@ begin
 					bit_counter := 160;
 					sdCS <= '1';
 					state <= init;
+					init_busy <= '1';
+					block_start_ack <= '0';
 
 				when init =>		-- cs=1, send 80 clocks, cs=0
-					init_busy <= '1';
 					if (bit_counter = 0) then
 						sdCS <= '0';
 						state <= cmd0;
