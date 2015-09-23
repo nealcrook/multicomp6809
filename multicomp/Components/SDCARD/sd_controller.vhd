@@ -107,14 +107,20 @@ type states is (
 	rst,
 	init,
 	cmd0,
+	regreq,
 	cmd55,
 	cmd41,
 	poll_cmd,
-  	idle,	-- wait for read or write pulse
+	cmd58,
+	cardsel,
+	idle,	-- wait for read or write pulse
 	read_block_cmd,
 	read_block_wait,
 	read_block_data,
 	send_cmd,
+	send_regreq,
+	receive_ocr_wait,
+	receive_ocr,
 	receive_byte_wait,
 	receive_byte,
 	write_block_cmd,
@@ -133,6 +139,7 @@ signal state, return_state : states;
 signal sclk_sig : std_logic := '0';
 signal cmd_out : std_logic_vector(55 downto 0);
 signal recv_data : std_logic_vector(7 downto 0);
+signal ocr_data : std_logic_vector(39 downto 0);
 
 signal clkCount : std_logic_vector(5 downto 0);
 signal clkEn : std_logic;
@@ -147,6 +154,8 @@ signal response_mode : std_logic := '1';
 signal data_sig : std_logic_vector(7 downto 0) := x"00";
 signal din_latched : std_logic_vector(7 downto 0) := x"00";
 signal dout : std_logic_vector(7 downto 0) := x"00";
+
+signal sdhc : std_logic := '0';
 
 signal sd_read_flag : std_logic := '0';
 signal host_read_flag : std_logic := '0';
@@ -177,14 +186,25 @@ begin
 
 	wr_adrs_reg: process(n_wr)
 	begin
-	-- sd address 0..8 (first 9 bits) always zero because each sector is 512 bytes
+	-- sdsc address 0..8 (first 9 bits) always zero because each sector is 512 bytes
 		if rising_edge(n_wr) then
-			if regAddr = "010" then
-				address(16 downto 9) <= dataIn;
-			elsif regAddr = "011" then
-				address(24 downto 17) <= dataIn;
-			elsif regAddr = "100" then
-				address(31 downto 25) <= dataIn(6 downto 0);
+			if sdhc = '0' then	-- SDSC card
+				if regAddr = "010" then
+					address(16 downto 9) <= dataIn;
+				elsif regAddr = "011" then
+					address(24 downto 17) <= dataIn;
+				elsif regAddr = "100" then
+					address(31 downto 25) <= dataIn(6 downto 0);
+				end if;
+			else	-- SDHC card
+			-- SDHC address is the 512 bytes block address. starts at bit 0
+				if regAddr = "010" then
+					address(7 downto 0) <= dataIn;	-- 128 k
+				elsif regAddr = "011" then
+					address(15 downto 8) <= dataIn;	-- 32 M
+				elsif regAddr = "100" then
+					address(23 downto 16) <= dataIn;	-- addresses upto 8 G
+				end if;
 			end if;
 		end if;
 	end process;
@@ -265,28 +285,52 @@ begin
 					end if;
 
 				when cmd0 =>
-					cmd_out <= x"ff400000000095";   -- CMD0 - CRC must be (and is!) correct for this one
+					cmd_out <= x"ff400000000095";	-- GO_IDLE_STATE here, Select SPI
 					bit_counter := 55;
-					return_state <= cmd55;
+					return_state <= regreq;
 					state <= send_cmd;
 
+				when regreq =>
+					cmd_out <= x"ff48000001aa87";	-- SEND_IF_COND
+					bit_counter := 55;
+					return_state <= cmd55;
+					state <= send_regreq;
+
 				when cmd55 =>
-					cmd_out <= x"ff770000000001";	-- CMD55 - 55d or 40h = 77h
+					cmd_out <= x"ff770000000001";	-- APP_CMD
 					bit_counter := 55;
 					return_state <= cmd41;
 					state <= send_cmd;
 
 				when cmd41 =>
-					cmd_out <= x"ff690000000001";	-- CMD41 - 41d or 40h = 69h
+					cmd_out <= x"ff694000000077";	-- SD_SEND_OP_COND
 					bit_counter := 55;
 					return_state <= poll_cmd;
 					state <= send_cmd;
 
 				when poll_cmd =>
 					if (recv_data(0) = '0') then
-						state <= idle;
+						state <= cmd58;
 					else
 						state <= cmd55;
+					end if;
+
+				when cmd58 =>
+					cmd_out <= x"ff7a00000000fd";	-- READ_OCR
+					bit_counter := 55;
+					return_state <= cardsel;
+					state <= send_regreq;
+
+				when cardsel =>
+					if (ocr_data(31) = '0' ) then	-- power up not completed
+						state <= cmd58;
+					else
+						if (ocr_data(30) = '1' ) then	-- CCS bit
+							sdhc <= '1';
+						else
+							sdhc <= '0';
+						end if;
+						state <= idle;
 					end if;
 
 				when idle =>
@@ -360,6 +404,39 @@ begin
 						end if;
 					end if;
 					sclk_sig <= not sclk_sig;
+
+				when send_regreq =>
+					if (sclk_sig = '1') then	-- sending command
+						if (bit_counter = 0) then	-- command sent
+							state <= receive_ocr_wait;
+						else
+							bit_counter := bit_counter - 1;
+							cmd_out <= cmd_out(54 downto 0) & '1';
+						end if;
+					end if;
+					sclk_sig <= not sclk_sig;
+
+				when receive_ocr_wait =>
+					if (sclk_sig = '0') then
+						if (sdMISO = '0') then	-- wait for zero bit
+							ocr_data <= (others => '0');
+							bit_counter := 38;	-- already read bit 39
+							state <= receive_ocr;
+						end if;
+					end if;
+					sclk_sig <= not sclk_sig;
+
+				when receive_ocr =>
+					if (sclk_sig = '0') then
+						ocr_data <= ocr_data(38 downto 0) & sdMISO;	-- read next bit
+						if (bit_counter = 0) then
+							state <= return_state;
+						else
+							bit_counter := bit_counter - 1;
+						end if;
+					end if;
+					sclk_sig <= not sclk_sig;
+
 
 				when receive_byte_wait =>
 					if (sclk_sig = '0') then
