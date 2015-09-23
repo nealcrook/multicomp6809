@@ -2,14 +2,14 @@
 -- Reads and writes a single block of data as a data stream
 
 -- Adapted from design by Steven J. Merrifield, June 2008
--- Read states are derived from the Apple II emulator by Stephen Edwards 
+-- Read states are derived from the Apple II emulator by Stephen Edwards
 
 -- This version of the code contains modifications copyright by Grant Searle 2013
 -- You are free to use this file in your own projects but must never charge for it nor use it without
 -- acknowledgement.
 -- Please ask permission from Grant Searle before republishing elsewhere.
 -- If you use this file or any part of it, please add an acknowledgement to myself and
--- a link back to my main web site http://searle.hostei.com/grant/    
+-- a link back to my main web site http://searle.hostei.com/grant/
 -- and to the "multicomp" page at http://searle.hostei.com/grant/Multicomp/index.html
 --
 -- Please check on the above web pages to see if there are any updates before using this file.
@@ -169,10 +169,11 @@ begin
 		end if;
 	end process;
 
-	dataOut <= 
-	dout when regAddr = "000"
-	else status when regAddr = "001"
-	else "00000000";
+        -- output data is MUXed externally based on CS so only need to
+        -- drive 0 by default if dataOut is being ORed externally
+	dataOut <= dout   when regAddr = "000" else
+		   status when regAddr = "001" else
+		   x"00";
 
 	wr_dat_reg: process(n_wr)
 	begin
@@ -206,7 +207,7 @@ begin
 		end if;
 	end process;
 
-	process(n_wr, block_start_ack,init_busy)
+	process(n_wr, block_start_ack,init_busy) --todo nac: I merged this into process above
 	begin
 		if init_busy='1' then
 			block_write <= '0';
@@ -223,11 +224,11 @@ begin
 		variable byte_counter : integer range 0 to write_data_size;
 		variable bit_counter : integer range 0 to 160;
 	begin
-	if (n_reset='0') then
-		state <= rst;
-		sclk_sig <= '0';
-		sdCS <= '1';
-	elsif rising_edge(clk) then
+		if (n_reset='0') then
+			state <= rst;
+			sclk_sig <= '0';
+			sdCS <= '1';
+		elsif rising_edge(clk) then
 
 			case state is
 
@@ -340,8 +341,8 @@ begin
 					end if;
 
 				when send_cmd =>
-					if (sclk_sig = '1') then
-						if (bit_counter = 0) then
+					if (sclk_sig = '1') then	-- sending command
+						if (bit_counter = 0) then	-- command sent
 							state <= receive_byte_wait;
 						else
 							bit_counter := bit_counter - 1;
@@ -352,12 +353,12 @@ begin
 
 				when receive_byte_wait =>
 					if (sclk_sig = '0') then
-						if (sdMISO = '0') then
+						if (sdMISO = '0') then	-- wait for start bit
 							recv_data <= (others => '0');
-							if (response_mode='0') then
-								bit_counter := 3; -- already read bits 7..4
-							else
-								bit_counter := 6; -- already read bit 7
+							if (response_mode='0') then	-- data mode
+								bit_counter := 3;	-- already read bits 7..4
+							else	-- command mode
+								bit_counter := 6;	-- already read bit 7 (start bit)
 							end if;
 							state <= receive_byte;
 						end if;
@@ -366,7 +367,7 @@ begin
 
 				when receive_byte =>
 					if (sclk_sig = '0') then
-						recv_data <= recv_data(6 downto 0) & sdMISO;
+						recv_data <= recv_data(6 downto 0) & sdMISO;	-- read next bit
 						if (bit_counter = 0) then
 							state <= return_state;
 							-- if real data received then flag it (byte counter = 0 for both crc bytes)
@@ -420,7 +421,7 @@ begin
 					end if;
 
 				when write_block_byte =>
-				  if (sclk_sig = '1') then
+					if (sclk_sig = '1') then
 						if bit_counter=0 then
 							state <= write_block_data;
 						else
@@ -441,25 +442,25 @@ begin
 					sclk_sig <= not sclk_sig;
 
 				when others =>
-				   state <= idle;
-        end case;
-    end if;
-  end process;
+					state <= idle;
+			end case;
+		end if;
+	end process;
 
-  sdSCLK <= sclk_sig;
-  sdMOSI <= cmd_out(55) when cmd_mode='1' else data_sig(7);
+	sdSCLK <= sclk_sig;
+	sdMOSI <= cmd_out(55) when cmd_mode='1' else data_sig(7);
 
-  status(7) <= '1' when host_write_flag=sd_write_flag else '0'; -- tx byte empty when equal
-  status(6) <= '0' when host_read_flag=sd_read_flag else '1'; -- rx byte ready when not equal
-  status(5) <= block_busy;
-  status(4) <= init_busy;
+	status(7) <= '1' when host_write_flag=sd_write_flag else '0'; -- tx byte empty when equal
+	status(6) <= '0' when host_read_flag=sd_read_flag else '1'; -- rx byte ready when not equal
+	status(5) <= block_busy;
+	status(4) <= init_busy;
 
-  -- Make sure the drive LED is on for a visible amount of time
-  	ctl_led: process (clk, block_busy,init_busy)
+	-- Make sure the drive LED is on for a visible amount of time
+	ctl_led: process (clk, block_busy,init_busy)
 	begin
 		if block_busy='1' or init_busy = '1' then
-				led_on_count <= 200; -- ensure on for at least 200ms (assuming 1MHz clk)
-				driveLED <= '0';
+			led_on_count <= 200; -- ensure on for at least 200ms (assuming 1MHz clk)
+			driveLED <= '0';
 		elsif (rising_edge(clk)) then
 			if led_on_count>0 then
 				led_on_count <= led_on_count-1;
