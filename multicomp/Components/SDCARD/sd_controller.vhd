@@ -78,8 +78,13 @@
 library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
+use ieee.std_logic_unsigned.all;
 
 entity sd_controller is
+generic (
+        constant CLKEDGE_DIVIDER : integer := 50  -- 50MHz / 50 gives edges at 1MHz ie output
+                                                  -- sdSCLK of 500kHz.
+);
 port (
 	sdCS : out std_logic;
 	sdMOSI : out std_logic;
@@ -91,7 +96,7 @@ port (
 	dataIn : in std_logic_vector(7 downto 0);
 	dataOut : out std_logic_vector(7 downto 0);
 	regAddr : in std_logic_vector(2 downto 0);
-	clk : in std_logic;	-- twice the spi clk;
+	clk : in std_logic;
 	driveLED : out std_logic := '1'
 );
 
@@ -129,6 +134,8 @@ signal sclk_sig : std_logic := '0';
 signal cmd_out : std_logic_vector(55 downto 0);
 signal recv_data : std_logic_vector(7 downto 0);
 
+signal clkCount : std_logic_vector(5 downto 0);
+signal clkEn : std_logic;
 signal status : std_logic_vector(7 downto 0) := x"00";
 
 signal block_read : std_logic := '0';
@@ -155,6 +162,19 @@ signal address: std_logic_vector(31 downto 0) :=x"00000000";
 signal led_on_count : integer range 0 to 200;
 
 begin
+	clock_enable: process(clk)
+	begin
+		if rising_edge(clk) then
+			if clkCount < (CLKEDGE_DIVIDER - 1) then
+				clkCount <= clkCount + 1;
+			else
+				clkCount <= (others=>'0');
+			end if;
+		end if;
+	end process;
+
+	clkEn <= '1' when clkCount = 0 else '0';
+
 	wr_adrs_reg: process(n_wr)
 	begin
 	-- sd address 0..8 (first 9 bits) always zero because each sector is 512 bytes
@@ -217,7 +237,7 @@ begin
 			state <= rst;
 			sclk_sig <= '0';
 			sdCS <= '1';
-		elsif rising_edge(clk) then
+		elsif rising_edge(clk) and clkEn = '1' then
 
 			case state is
 
