@@ -32,11 +32,29 @@
 --    3    SDLBA1        write-only
 --    4    SDLBA2        write-only (only bits 6:0 are valid)
 --
--- Access using 32-bit address in which the low 9 bits are 0 (each sector is 512 bytes). The
--- address is set using the SDLBA registers like this:
+-- For both SDSC and SDHC (high capacity) cards, the block size is 512bytes (9-bit value) and the
+-- SDLBA registers select the block number. SDLBA2 is most significant, SDLBA0 is least significant.
+--
+-- For SDSC, the read/write address parameter is a 512-byte aligned byte address. ie, it has 9 low
+-- address bits explicitly set to 0. 23 of the 24 programmable address bits select the 512-byte block.
+-- This gives an address capacity of 2^23 * 512 = 4GB .. BUT maximum SDSC capacity is 2GByte.
+--
+-- The SDLBA registers are used like this:
 --
 -- 31 30 29 28.27 26 25 24.23 22 21 20.19 18 17 16.15 14 13 12.11 10 09 08.07 06 05 04.03 02 01 00
 --+------- SDLBA2 -----+------- SDLBA1 --------+------- SDLBA0 --------+ 0  0  0  0  0  0  0  0  0
+--
+-- For SDHC cards, the read/write address parameter is the ordinal number of 512-byte block ie, the
+-- 9 low address bits are implicity 0. The 24 programmable address bits select the 512-byte block.
+-- This gives an address capacity of 2^24 * 512 = 8GByte. SDHC can be upto 32GByte but this design
+-- can only access the low 8GByte (could add SDLBA3 to get the extra address lines if required).
+--
+-- The SDLBA registers are used like this:
+--
+-- 31 30 29 28.27 26 25 24.23 22 21 20.19 18 17 16.15 14 13 12.11 10 09 08.07 06 05 04.03 02 01 00
+--  0  0  0  0  0  0  0  0+---------- SDLBA2 -----+------- SDLBA1 --------+------- SDLBA0 --------+
+--
+-- The end result of all this is that the addressing looks the same for SDSC and SDHC cards.
 --
 -- SDSTATUS (RO)
 --    b7     Write Data Byte can be accepted
