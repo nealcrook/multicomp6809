@@ -139,7 +139,6 @@ type states is (
 	send_cmd,
 	send_regreq,
 	receive_ocr_wait,
-	receive_ocr,
 	receive_byte_wait,
 	receive_byte,
 	write_block_cmd,
@@ -438,23 +437,10 @@ begin
 						if (sdMISO = '0') then	-- wait for zero bit
 							recv_data <= (others => '0');
 							bit_counter := 38;	-- already read bit 39
-							state <= receive_ocr;
+							state <= receive_byte;
 						end if;
 					end if;
 					sclk_sig <= not sclk_sig;
-
-				-- read 40-bit data: R7 response (R1 + 32-bits)
-				when receive_ocr =>
-					if (sclk_sig = '0') then
-						recv_data <= recv_data(38 downto 0) & sdMISO;	-- read next bit
-						if (bit_counter = 0) then
-							state <= return_state;
-						else
-							bit_counter := bit_counter - 1;
-						end if;
-					end if;
-					sclk_sig <= not sclk_sig;
-
 
 				when receive_byte_wait =>
 					if (sclk_sig = '0') then
@@ -470,7 +456,7 @@ begin
 					end if;
 					sclk_sig <= not sclk_sig;
 
-				-- read 8-bit data or R1 response
+				-- read 8-bit data or 8-bit R1 response or 40-bit R7 response
 				when receive_byte =>
 					if (sclk_sig = '0') then
 						recv_data <= recv_data(38 downto 0) & sdMISO;	-- read next bit
