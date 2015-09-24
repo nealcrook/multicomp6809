@@ -157,8 +157,8 @@ constant write_data_size : integer := 515;
 signal state, return_state : states;
 signal sclk_sig : std_logic := '0';
 signal cmd_out : std_logic_vector(55 downto 0);
-signal recv_data : std_logic_vector(7 downto 0);
-signal ocr_data : std_logic_vector(39 downto 0);
+-- at different times holds 8-bit data, 8-bit R1 response or 40-bit R7 response
+signal recv_data : std_logic_vector(39 downto 0);
 
 signal clkCount : std_logic_vector(5 downto 0);
 signal clkEn : std_logic;
@@ -343,10 +343,10 @@ begin
 					state <= send_regreq;
 
 				when cardsel =>
-					if (ocr_data(31) = '0' ) then	-- power up not completed
+					if (recv_data(31) = '0' ) then	-- power up not completed
 						state <= cmd58;
 					else
-						sdhc <= ocr_data(30);	-- CCS bit
+						sdhc <= recv_data(30);	-- CCS bit
 						state <= idle;
 					end if;
 
@@ -436,7 +436,7 @@ begin
 				when receive_ocr_wait =>
 					if (sclk_sig = '0') then
 						if (sdMISO = '0') then	-- wait for zero bit
-							ocr_data <= (others => '0');
+							recv_data <= (others => '0');
 							bit_counter := 38;	-- already read bit 39
 							state <= receive_ocr;
 						end if;
@@ -446,7 +446,7 @@ begin
 				-- read 40-bit data: R7 response (R1 + 32-bits)
 				when receive_ocr =>
 					if (sclk_sig = '0') then
-						ocr_data <= ocr_data(38 downto 0) & sdMISO;	-- read next bit
+						recv_data <= recv_data(38 downto 0) & sdMISO;	-- read next bit
 						if (bit_counter = 0) then
 							state <= return_state;
 						else
@@ -473,13 +473,13 @@ begin
 				-- read 8-bit data or R1 response
 				when receive_byte =>
 					if (sclk_sig = '0') then
-						recv_data <= recv_data(6 downto 0) & sdMISO;	-- read next bit
+						recv_data <= recv_data(38 downto 0) & sdMISO;	-- read next bit
 						if (bit_counter = 0) then
 							state <= return_state;
 							-- if real data received then flag it (byte counter = 0 for both crc bytes)
 							if return_state= read_block_data and byte_counter > 0 then
 								sd_read_flag <= not sd_read_flag;
-								dout <= recv_data;
+								dout <= recv_data(7 downto 0);
 							end if;
 						else
 							bit_counter := bit_counter - 1;
