@@ -2,7 +2,8 @@
 --
 -- A simple memory mapping unit for a 6809 multicomp. Aims to provide a superset
 -- of the capability of the coco unit, but is NOT register-compatible. Also
--- provides a 50Hz timer interrupt.
+-- provides a 50Hz timer interrupt and a self-NMI control that allows code
+-- single-step.
 --
 -- The operation is fully synchronous on the master clock; a clock enable
 -- determines when the state changes. (Obviously) the state can only be allowed
@@ -68,7 +69,7 @@
 -- b7       ROMDIS Disable ROM. 0 after reset.
 -- b6       TR     Select upper group of mapping regs
 -- b5       MMUEN  Enable MMU. 0 after reset.
--- b4
+-- b4       NMI bit
 -- b3       } MAPSEL Select mapping register to
 -- b2       } write through MMUDAT. MAPSEL values 0-7 control
 -- b1       } the address translation when TR=0, MAPSEL values
@@ -91,6 +92,14 @@
 --
 -- You can write MMUDAT, MMUADR as separate 8-bit stores or as a 16-bit
 -- store.
+--
+-- The NMI bit should be set using an 8-bit store. On writes to
+-- MMUADR with bit4=1, the state of the other data bits is ignored
+-- (they do not change). The avoids the need to know the current
+-- state of any of the other bits. The NMI bit is self-clearing and
+-- generates an NMI edge after a specific delay. As part of a
+-- carefully-controlled code sequence it can be used to interrupt
+-- after execution of a single instruction (see SINGLE STEP, below)
 --
 -- Remember, these two registers are WRITE-ONLY!
 --
@@ -120,7 +129,29 @@
 --  $82   $83   Timer was and remains disabled, old pending interrupt cleared.
 --              N=1.
 --
--- TODO: write of $80 should always result in read-back of 0. If the interrupt
+--
+-- SINGLE STEP
+-- ===========
+--
+-- Start with the application context stored on the system stack. The stacked
+-- copy of PC points to the next instruction to be executed. The stacked CC has
+-- the E (entire) bit set. Now execute (exactly) this code sequence:
+--
+--   LDA #$10      * set bit 4
+--   STA MMUADR    * trigger NMI
+--   RTI           * resume application
+--
+-- The RTI restores the application context from the system stack. The NMI is
+-- generated on the first instruction executed at the recovered PC, so that this
+-- instruction executes to completion and then the processor stacks the application
+-- context and continues execution at the address indicated by the NMI exception
+-- vector.
+--
+-- The NMI service routine can perform the same code sequence to do another single
+-- step.
+
+
+-- TODO: write of $80 to TIMER should always result in read-back of 0. If the interrupt
 -- asserts on the same edge as a write of $80 is detected, the clear-down effect
 -- of b7 should override so that the interrupt never asserts. Test in simulation?
 -- TODO: is this timer interface efficient for sw dealing with xple interrupts?
@@ -152,7 +183,9 @@ port (
         ramWrInhib : out std_logic;
         romInhib   : out std_logic;
         -- timer interrupt
-        n_tint  : out std_logic
+        n_tint  : out std_logic;
+        -- single-step interrupt
+        nmi     : out std_logic
 );
 
 end mem_mapper2;
@@ -193,6 +226,11 @@ architecture rtl of mem_mapper2 is
   signal tenable : std_logic;
   signal tstat : std_logic_vector(7 downto 0);
 
+  -- nmi stuff
+  constant NMILIM : integer := 16;
+  signal nmi_i : std_logic;
+  signal nmiDly : integer range 0 to (NMILIM + 1);
+
 begin
   -- outputs
   ramAddr <= val(5 downto 0);
@@ -200,6 +238,7 @@ begin
   n_ramCSLo <= val(6);
   ramWrInhib <= val(7);
   n_tint <= n_tint_i;
+  nmi <= nmi_i;
 
   index <= tr & cpuAddr(15 downto 13);
   tstat <= not n_tint_i & "00000" & tenable & '0';
@@ -248,6 +287,9 @@ begin
         n_tint_i <= '1';
         tcount <= TMIN;
         tenable <= '0';
+        --
+        nmi_i <= '0';
+        nmiDly <= 0;
       elsif rising_edge(clk) then
         -- timer
         if (tenable = '0') then
@@ -272,10 +314,28 @@ begin
 
         -- write to MMUADR
         if hold = '0' and n_wr = '0' and regAddr = "110" then
-          romInhib   <= dataIn(7);
-          tr         <= dataIn(6);
-          mmuEn     <= dataIn(5);
-          mapSel    <= dataIn(3 downto 0);
+          -- if bit[4], ignore any other write data
+          if dataIn(4) = '1' then
+            -- initate NMI sequence
+            nmiDly <= 1;
+          else
+            romInhib   <= dataIn(7);
+            tr         <= dataIn(6);
+            mmuEn     <= dataIn(5);
+            mapSel    <= dataIn(3 downto 0);
+          end if;
+        end if;
+
+        if hold = '0' and nmiDly /= 0 then
+          if (nmi_i = '1') then
+            nmi_i <= '0';
+            nmiDly <= 0;
+          else
+            nmiDly <= nmiDly + 1;
+            if (nmiDly = NMILIM) then
+              nmi_i <= '1';
+            end if;
+          end if;
         end if;
 
         -- write to MMUDAT
