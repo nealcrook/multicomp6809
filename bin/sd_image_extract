@@ -1,0 +1,93 @@
+#!/bin/sh
+#
+# given an SDcard image file for multicomp, created by
+# create_sd_image, extract .dsk images for each of the four
+# FLEX disks and each of the four NITROS9 disks.
+#
+# All of the offsets here need to match with the values
+# in create_sd_image.
+
+SDFILE=multicomp09_sd.img
+
+
+echo working on $SDFILE
+
+
+
+###############################################################
+###############################################################
+# FLEX disks
+###############################################################
+###############################################################
+
+# Extract Drive 0: FLEX system disk
+# (Allow) 3MBytes at offset 68MByte
+# 68MByte is block offset 1048576 * 68/512 = 139264 (0x2.2000)
+# img File is 2949120/512=5760 blocks
+dd if=$SDFILE of=tmp.img ibs=512 obs=512 skip=139264 count=5760
+flex_disk_manip -insd tmp.img -out multicomp09_flex.dsk_extracted
+
+
+# Extract Drive 1
+# (Allow) 3MBytes at offset 71MByte
+# 71MByte is block offset 1048576 * 71/512 = 145408 (0x2.3800)
+# img File is 2949120/512=5760 blocks
+dd if=$SDFILE of=tmp.img ibs=512 obs=512 skip=145408 count=5760
+flex_disk_manip -insd tmp.img -out adventure.dsk_extracted
+
+
+# Extract Drive 2
+# (Allow) 3MBytes at offset 74MByte
+# 74MByte is block offset 1048576 * 74/512 = 151552 (0x2.5000)
+# img File is 1474560/512=2880 blocks
+dd if=$SDFILE of=tmp.img ibs=512 obs=512 skip=151552 count=2880
+flex_disk_manip -insd tmp.img -out CEDRIC.DSK_extracted
+
+
+# Extract Drive 3
+# (Allow) 3MBytes at offset 77MByte
+# 77MByte is block offset 1048576 * 77/512 = 157696 (0x2.6800)
+# img File is 1474560/512=2880 blocks
+dd if=$SDFILE of=tmp.img ibs=512 obs=512 skip=157696 count=2880
+flex_disk_manip -insd tmp.img -out SBUG.DSK_extracted
+
+
+###############################################################
+###############################################################
+# NITROS9 disks
+###############################################################
+###############################################################
+
+# Extract NITROS9 boot disk
+# (Allow) 2MBytes at offset 80MByte
+# 80MByte is block offset 1048576 * 80/512 = 163840 (0x2.8000)
+# img File is 1474560/512=2880 blocks
+dd if=$SDFILE of=tmp.img ibs=512 obs=512 skip=163840 count=2880
+nitros9_disk_manip -insd tmp.img -out nos96809l1v030300mc09_80d.dsk_extracted
+
+
+# Extract NITROS extras disk 1
+# use the "toolshed" utilities to create a disk image like this:
+# os9 format -e -t80 -ds -dd nitros9_1.dsk -n"NitrOS-9/6809 Level 1 util disk1"
+#
+# (Allow) 2MBytes at offset 82MByte
+# 82MByte is block offset 1048576 * 82/512 = 167936 (0x2.9000)
+# img File is 1474560/512=2880 blocks
+dd if=$SDFILE of=tmp.img ibs=512 obs=512 skip=167936 count=2880
+nitros9_disk_manip -insd tmp.img -out nitros9_1.dsk_extracted
+
+
+# Extract NITROS extras disk 2
+# (Allow) 2MBytes at offset 84MByte
+# 84MByte is block offset 1048576 * 84/512 = 172032 (0x2.A000)
+# img File is 1474560/512=2880 blocks
+dd if=$SDFILE of=tmp.img ibs=512 obs=512 skip=172032 count=2880
+nitros9_disk_manip -insd tmp.img -out nitros9_2.dsk_extracted
+
+
+# Extract NITROS extras disk 3
+# (Allow) 2MBytes at offset 86MByte
+# 86MByte is block offset 1048576 * 86/512 = 176128 (0x2.B000)
+# img File is 1474560/512=2880 blocks
+dd if=$SDFILE of=tmp.img ibs=512 obs=512 skip=176128 count=2880
+nitros9_disk_manip -insd tmp.img -out nitros9_3.dsk_extracted
