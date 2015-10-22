@@ -49,15 +49,6 @@
 -- After reset, GPIOADR=0, all DDR*=0 (output) all DAT*=0 (output low).
 --
 
--- pins declared as inout
--- can always READ from the pins
--- to write, eg:
---    sRamData <= cpuDataOut when n_WR='0' else (others => 'Z');
--- see example
--- https://www.altera.com/support/support-resources/design-examples/design-software/vhdl/v_bidir.html
-
-
-
 library ieee;
 use ieee.std_logic_1164.all;
 use ieee.numeric_std.all;
@@ -89,7 +80,7 @@ end gpio;
 architecture rtl of gpio is
 
   -- state
-  signal reg_adr    : std_logic_vector(7 downto 0);
+  signal reg        : std_logic_vector(7 downto 0);
   signal reg_dat0   : std_logic_vector(2 downto 0);
   signal reg_dat0_d : std_logic_vector(2 downto 0);
   signal reg_ddr0   : std_logic_vector(2 downto 0);
@@ -106,25 +97,37 @@ begin
 
 
   -- per-cycle write data
-  proc_dat0: process(reg_ddr0, reg_dat0, dat0_i)
+  proc_dat0: process(reg_ddr0, reg_dat0, dat0_i, dataIn, reg, n_wr, regAddr)
     begin
-      reg_dat0_d <= (reg_dat0 and not reg_ddr0) or (dat0_i and reg_ddr0);
+      if reg = x"00" and n_wr = '0' and regAddr = '1' then
+        -- write
+        reg_dat0_d <= (dataIn(2 downto 0) and not reg_ddr0) or (dat0_i and reg_ddr0);
+      else
+        -- hold
+        reg_dat0_d <= (reg_dat0 and not reg_ddr0) or (dat0_i and reg_ddr0);
+      end if;
     end process;
 
-  proc_dat2: process(reg_ddr2, reg_dat2, dat2_i)
+  proc_dat2: process(reg_ddr2, reg_dat2, dat2_i, dataIn, reg, n_wr, regAddr)
     begin
-      reg_dat2_d <= (reg_dat2 and not reg_ddr2) or (dat2_i and reg_ddr2);
+      if reg = x"02" and n_wr = '0' and regAddr = '1' then
+        -- write
+        reg_dat2_d <= (dataIn   and not reg_ddr2) or (dat2_i and reg_ddr2);
+      else
+        -- hold
+        reg_dat2_d <= (reg_dat2 and not reg_ddr2) or (dat2_i and reg_ddr2);
+      end if;
     end process;
 
   -- register read - conditioned externally with n_gpioCS and so can have
   -- a simple async decode here. MUXed externally so no need to drive a
   -- defined value when not being accessed. Result of all of this is that
   -- the n_rd is not needed here at all..
-  dataOut <= reg_adr            when regAddr = '0' else
-             "00000" & reg_dat0 when regAddr = '1' and reg_adr = "00000000" else
-             "00000" & reg_ddr0 when regAddr = '1' and reg_adr = "00000001" else
-             reg_dat2           when regAddr = '1' and reg_adr = "00000010" else
-             reg_ddr2           when regAddr = '1' and reg_adr = "00000011" else
+  dataOut <= reg                when regAddr = '0' else
+             "00000" & reg_dat0 when regAddr = '1' and reg = "00000000" else
+             "00000" & reg_ddr0 when regAddr = '1' and reg = "00000001" else
+             reg_dat2           when regAddr = '1' and reg = "00000010" else
+             reg_ddr2           when regAddr = '1' and reg = "00000011" else
              "00000000"; -- don't need this, but it's a clean way to
                          -- indicate "no such register"
 
@@ -133,7 +136,7 @@ begin
   proc_reg: process(clk, n_reset)
     begin
       if n_reset='0' then
-        reg_adr  <= "00000000";
+        reg      <= "00000000";
         reg_dat0 <= "000";
         reg_ddr0 <= "000";
         reg_dat2 <= "00000000";
@@ -146,11 +149,11 @@ begin
         if hold = '0' and n_wr = '0' then
           if regAddr = '0' then
             -- address register
-            reg_adr <= dataIn;
+            reg <= dataIn;
           else
             -- data direction register selected by data register
-            if reg_adr = "00000001" then reg_ddr0 <= dataIn(2 downto 0); end if;
-            if reg_adr = "00000011" then reg_ddr2 <= dataIn;             end if;
+            if reg = "00000001" then reg_ddr0 <= dataIn(2 downto 0); end if;
+            if reg = "00000011" then reg_ddr2 <= dataIn;             end if;
           end if;
         end if;
 
