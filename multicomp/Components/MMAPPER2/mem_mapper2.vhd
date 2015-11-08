@@ -168,7 +168,6 @@ port (
         hold    : in std_logic;
         -- conditioned with chip select externally
         n_wr    : in std_logic;
-        n_rd    : in std_logic;
         dataIn  : in std_logic_vector(7 downto 0);
         dataOut : out std_logic_vector(7 downto 0);
         -- select internal control register
