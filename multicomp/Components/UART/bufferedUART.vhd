@@ -14,6 +14,10 @@
 --
 -- Grant Searle
 -- eMail address available on my main web page link above.
+--
+-- 10-Nov-2015 foofoobedoo@gmail.com
+-- Modifications to use rising clk and to use baud rate enables rather than clocks,
+-- slowly but surely moving towards a totally synchronous implementation.
 
 library ieee;
 	use ieee.std_logic_1164.all;
@@ -22,19 +26,21 @@ library ieee;
 
 entity bufferedUART is
 	port (
-		clk     : in std_logic;
+		clk     : in  std_logic;
 		n_wr    : in  std_logic;
 		n_rd    : in  std_logic;
 		regSel  : in  std_logic;
 		dataIn  : in  std_logic_vector(7 downto 0);
 		dataOut : out std_logic_vector(7 downto 0);
-		n_int   : out std_logic; 
-		rxClock : in  std_logic; -- 16 x baud rate
-		txClock : in  std_logic; -- 16 x baud rate
+		n_int   : out std_logic;
+                -- these clock enables are asserted for one period of input clk,
+                -- at 16x the baud rate.
+		rxClkEn : in  std_logic; -- 16 x baud rate.
+		txClkEn : in  std_logic; -- 16 x baud rate
 		rxd     : in  std_logic;
 		txd     : out std_logic;
 		n_rts   : out std_logic :='0';
-		n_cts   : in  std_logic; 
+		n_cts   : in  std_logic;
 		n_dcd   : in  std_logic
    );
 end bufferedUART;
@@ -106,7 +112,7 @@ begin
 	-- stop flow if greater that 8 chars in buffer (to allow 8 byte overflow)
 	process (clk)
 	begin
-		if falling_edge(clk) then
+		if rising_edge(clk) then
 			if rxBuffCount<2 then
 				n_rts <= '0';
 			end if;
@@ -140,7 +146,7 @@ begin
 	-- However, then makes serial comms 100% reliable
 	process (clk)
 	begin
-		if falling_edge(clk) then
+		if rising_edge(clk) then
 			if rxd = '1' and rxFilter=50 then
 				rxdFiltered <= '1';
 			end if;
@@ -188,13 +194,13 @@ begin
 		end if;
 	end process;
 
-	process( rxClock , reset )
+	rx_fsm: process( clk, rxClkEn , reset )
 	begin
 		if reset='1' then
 			rxState <= idle;
 			rxBitCount<=(others=>'0');
 			rxClockCount<=(others=>'0');
-		elsif falling_edge(rxClock) then
+		elsif rising_edge(clk) and rxClkEn = '1' then
 			case rxState is
 			when idle =>
 				if rxdFiltered='1' then -- high so idle
@@ -233,10 +239,10 @@ begin
 					rxClockCount<=rxClockCount+1;
 				end if;
 			end case;
-		end if;              
+		end if;
 	end process;
 
-	process( txClock , reset )
+	tx_fsm: process( clk, txClkEn , reset )
 	begin
 		if reset='1' then
 			txState <= idle;
@@ -244,7 +250,7 @@ begin
 			txClockCount<=(others=>'0');
 			txByteSent <= '0';
 
-		elsif falling_edge(txClock) then
+		elsif rising_edge(clk) and txClkEn = '1' then
 			case txState is
 			when idle =>
 				txd <= '1';
