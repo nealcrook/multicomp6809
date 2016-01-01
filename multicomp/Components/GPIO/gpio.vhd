@@ -38,6 +38,8 @@
 -- A write to the data register sends the write data to the pin for each bit that is an output
 -- A read from the data register samples the pin for each bit that is an input, and returns the last
 -- value written for each bit that is an output.
+-- When you switch a pin from input to output, it will immediately assume the value that was
+-- most recently written to it.
 --
 -- The following registers are implemented:
 --
