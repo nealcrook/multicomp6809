@@ -119,9 +119,11 @@ constant CHARS_PER_SCREEN : integer := HORIZ_CHARS*VERT_CHARS;
 	signal	cursorVert: integer range 0 to VERT_CHAR_MAX :=0;
 	signal	cursorHoriz: integer range 0 to HORIZ_CHAR_MAX :=0;
 
+	-- save cursor position during erase-to-end-of-screen etc.
 	signal	cursorVertRestore: integer range 0 to VERT_CHAR_MAX :=0;
 	signal	cursorHorizRestore: integer range 0 to HORIZ_CHAR_MAX :=0;
 
+	-- save cursor position during ESC[s...ESC[u sequence
 	signal	savedCursorVert: integer range 0 to VERT_CHAR_MAX :=0;
 	signal	savedCursorHoriz: integer range 0 to HORIZ_CHAR_MAX :=0;
 
@@ -164,8 +166,8 @@ constant CHARS_PER_SCREEN : integer := HORIZ_CHARS*VERT_CHARS;
 	type		dispStateType is ( idle, dispWrite, dispNextLoc, clearLine, clearL2,
 						clearScreen, clearS2, clearChar, clearC2, insertLine, ins2, ins3, deleteLine, del2, del3);
 	signal	dispState : dispStateType :=idle;
-	type		nextStateType is ( none, waitForLeftBracket, processingParams, processingAdditionalParams );
-	signal	nextState : nextStateType :=none;
+	type		escStateType is ( none, waitForLeftBracket, processingParams, processingAdditionalParams );
+	signal	escState : escStateType :=none;
 
 	signal	param1: integer range 0 to 127 :=0;
 	signal	param2: integer range 0 to 127 :=0;
@@ -820,11 +822,11 @@ end generate GEN_NO_ATTRAM;
 		elsif rising_edge(clk) then
 			case dispState is
 			when idle =>
-				if (nextState/=processingAdditionalParams) and (dispByteWritten /= dispByteSent) then
+				if (escState/=processingAdditionalParams) and (dispByteWritten /= dispByteSent) then
 					dispCharWRData <= dispByteLatch;
 					dispByteSent <= not dispByteSent;
 				end if;
-				if (dispByteWritten /= dispByteSent) or (nextState=processingAdditionalParams) then
+				if (escState=processingAdditionalParams) or (dispByteWritten /= dispByteSent) then
 					if dispByteLatch = x"07" then -- BEEP
 						-- do nothing - ignore
 					elsif dispByteLatch = x"1B" then -- ESC
@@ -833,15 +835,17 @@ end generate GEN_NO_ATTRAM;
 						param2<=0;
 						param3<=0;
 						param4<=0;
-						nextState<= waitForLeftBracket;
-					elsif nextState=waitForLeftBracket and dispByteLatch=x"5B" then-- ESC[
-						nextState<= processingParams;
+						escState<= waitForLeftBracket;
+					elsif escState=waitForLeftBracket and dispByteLatch=x"5B" then -- ESC[
+						escState<= processingParams;
 						paramCount<=1;
 					elsif paramCount=1 and dispByteLatch=x"48" and param1=0 then -- ESC[H
 						cursorVert <= 0;
 						cursorHoriz <= 0;
 						paramCount<=0;
 					elsif paramCount=1 and dispByteLatch=x"4B" and param1=0 then -- ESC[K - erase EOL
+						cursorVertRestore <= cursorVert;
+						cursorHorizRestore <= cursorHoriz;
 						dispState <= clearLine;
 						paramCount<=0;
 					elsif paramCount=1 and dispByteLatch=x"73" and param1=0 then -- ESC[s - save cursor pos
@@ -960,10 +964,10 @@ end generate GEN_NO_ATTRAM;
 							param2 <= param3;
 							param3 <= param4;
 							paramCount<=paramCount-1;
-							nextState <= processingAdditionalParams;
+							escState <= processingAdditionalParams;
 						else
 							paramCount<=0;
-							nextState <= none;
+							escState <= none;
 						end if;
 					elsif paramCount=1 and dispByteLatch=x"41" then-- ESC[{param1}A - Cursor up
 						if  param1=0 and cursorVert>0 then -- no param so default to 1
@@ -1019,7 +1023,7 @@ end generate GEN_NO_ATTRAM;
 						paramCount<=0;
 					else
 						dispState <= dispWrite;
-						nextState <= none;
+						escState <= none;
 						paramCount<=0;
 					end if;
 				end if;
