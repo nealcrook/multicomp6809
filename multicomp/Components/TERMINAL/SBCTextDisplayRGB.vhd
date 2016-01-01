@@ -3,7 +3,7 @@
 -- acknowledgement.
 -- Please ask permission from Grant Searle before republishing elsewhere.
 -- If you use this file or any part of it, please add an acknowledgement to myself and
--- a link back to my main web site http://searle.hostei.com/grant/    
+-- a link back to my main web site http://searle.hostei.com/grant/
 -- and to the "multicomp" page at http://searle.hostei.com/grant/Multicomp/index.html
 --
 -- Please check on the above web pages to see if there are any updates before using this file.
@@ -35,7 +35,7 @@ entity SBCTextDisplayRGB is
 		constant CLOCKS_PER_PIXEL : integer := 2; -- min = 2
 		constant H_SYNC_ACTIVE : std_logic := '0';
 		constant V_SYNC_ACTIVE : std_logic := '0';
-		
+
 		constant DEFAULT_ATT : std_logic_vector(7 downto 0) := "00001111"; -- background iBGR | foreground iBGR (i=intensity)
 		constant ANSI_DEFAULT_ATT : std_logic_vector(7 downto 0) := "00000111" -- background iBGR | foreground iBGR (i=intensity)
 	);
@@ -49,7 +49,7 @@ entity SBCTextDisplayRGB is
 		dataOut	: out std_logic_vector(7 downto 0);
 		n_int	: out std_logic;
 		n_rts	: out std_logic :='0';
-		
+
 		-- RGB video signals
 		videoR0	: out std_logic;
 		videoR1	: out std_logic;
@@ -59,15 +59,15 @@ entity SBCTextDisplayRGB is
 		videoB1	: out std_logic;
 		hSync  	: buffer  std_logic;
 		vSync  	: buffer  std_logic;
-		
+
 		-- Monochrome video signals
 		video	: buffer std_logic;
-		sync  	: out  std_logic;		
-		
+		sync  	: out  std_logic;
+
 		-- Keyboard signals
 		ps2Clk	: inout std_logic;
 		ps2Data	: inout std_logic;
- 
+
 		-- FN keys passed out as general signals (momentary and toggled versions)
 		FNkeys	: out std_logic_vector(12 downto 0);
 		FNtoggledKeys	: out std_logic_vector(12 downto 0)
@@ -100,45 +100,45 @@ constant CHARS_PER_SCREEN : integer := HORIZ_CHARS*VERT_CHARS;
 	signal	vActive   : std_logic := '0';
 	signal	hActive   : std_logic := '0';
 
-	signal	pixelClockCount: STD_LOGIC_VECTOR(3 DOWNTO 0); 
-	signal	pixelCount: STD_LOGIC_VECTOR(2 DOWNTO 0); 
+	signal	pixelClockCount: STD_LOGIC_VECTOR(3 DOWNTO 0);
+	signal	pixelCount: STD_LOGIC_VECTOR(2 DOWNTO 0);
 
-	signal	horizCount: STD_LOGIC_VECTOR(11 DOWNTO 0); 
-	signal	vertLineCount: STD_LOGIC_VECTOR(9 DOWNTO 0); 
+	signal	horizCount: STD_LOGIC_VECTOR(11 DOWNTO 0);
+	signal	vertLineCount: STD_LOGIC_VECTOR(9 DOWNTO 0);
 
-	signal	charVert: integer range 0 to VERT_CHAR_MAX; --unsigned(4 DOWNTO 0); 
-	signal	charScanLine: STD_LOGIC_VECTOR(3 DOWNTO 0); 
+	signal	charVert: integer range 0 to VERT_CHAR_MAX; --unsigned(4 DOWNTO 0);
+	signal	charScanLine: STD_LOGIC_VECTOR(3 DOWNTO 0);
 
 -- functionally this only needs to go to HORIZ_CHAR_MAX. However, at the end of a line
 -- it goes 1 beyond in the hblank time. It could be avoided but it's fiddly with no
 -- benefit. Without the +1 the design synthesises and works fine but gives a fatal
 -- error in RTL simulation when the signal goes out of range.
-	signal	charHoriz: integer range 0 to 1+HORIZ_CHAR_MAX; --unsigned(6 DOWNTO 0); 
-	signal	charBit: STD_LOGIC_VECTOR(3 DOWNTO 0); 
+	signal	charHoriz: integer range 0 to 1+HORIZ_CHAR_MAX; --unsigned(6 DOWNTO 0);
+	signal	charBit: STD_LOGIC_VECTOR(3 DOWNTO 0);
 
 	signal	cursorVert: integer range 0 to VERT_CHAR_MAX :=0;
 	signal	cursorHoriz: integer range 0 to HORIZ_CHAR_MAX :=0;
 
 	signal	cursorVertRestore: integer range 0 to VERT_CHAR_MAX :=0;
 	signal	cursorHorizRestore: integer range 0 to HORIZ_CHAR_MAX :=0;
-	
+
 	signal	savedCursorVert: integer range 0 to VERT_CHAR_MAX :=0;
 	signal	savedCursorHoriz: integer range 0 to HORIZ_CHAR_MAX :=0;
-	
-	signal	startAddr: integer range 0 to CHARS_PER_SCREEN; 
+
+	signal	startAddr: integer range 0 to CHARS_PER_SCREEN;
 	signal 	cursAddr : integer range 0 to CHARS_PER_SCREEN;
-	  
+
 	signal 	dispAddr : integer range 0 to CHARS_PER_SCREEN;
 	signal 	charAddr : std_LOGIC_VECTOR(10 downto 0);
 
 	signal	dispCharData : std_LOGIC_VECTOR(7 downto 0);
 	signal	dispCharWRData : std_LOGIC_VECTOR(7 downto 0);
 	signal	dispCharRDData : std_LOGIC_VECTOR(7 downto 0);
-	
+
 	signal	dispAttData : std_LOGIC_VECTOR(7 downto 0);
 	signal	dispAttWRData : std_LOGIC_VECTOR(7 downto 0):=DEFAULT_ATT; -- iBGR(back) iBGR(text)
 	signal	dispAttRDData : std_LOGIC_VECTOR(7 downto 0);
-	
+
 	signal	charData : std_LOGIC_VECTOR(7 downto 0);
 
 	signal	cursorOn : std_logic := '1';
@@ -148,9 +148,9 @@ constant CHARS_PER_SCREEN : integer := HORIZ_CHARS*VERT_CHARS;
 	signal	kbWriteTimer : integer range 0 to 50000000 :=0;
 
 	signal	n_int_internal   : std_logic := '1';
-	signal	statusReg : std_logic_vector(7 downto 0) := (others => '0'); 
+	signal	statusReg : std_logic_vector(7 downto 0) := (others => '0');
 	signal	controlReg : std_logic_vector(7 downto 0) := "00000000";
-	 
+
 	type		kbBuffArray is array (0 to 7) of std_logic_vector(6 downto 0);
 	signal	kbBuffer : kbBuffArray;
 
@@ -160,7 +160,7 @@ constant CHARS_PER_SCREEN : integer := HORIZ_CHARS*VERT_CHARS;
 	signal	dispByteWritten : std_logic := '0';
 	signal	dispByteSent : std_logic := '0';
 
-	signal	dispByteLatch: std_logic_vector(7 DOWNTO 0); 
+	signal	dispByteLatch: std_logic_vector(7 DOWNTO 0);
 	type		dispStateType is ( idle, dispWrite, dispNextLoc, clearLine, clearL2,
 						clearScreen, clearS2, clearChar, clearC2, insertLine, ins2, ins3, deleteLine, del2, del3);
 	signal	dispState : dispStateType :=idle;
@@ -176,15 +176,15 @@ constant CHARS_PER_SCREEN : integer := HORIZ_CHARS*VERT_CHARS;
 	signal	attInverse : std_logic := '0';
 	signal	attBold : std_logic := DEFAULT_ATT(3);
 
-	signal	ps2Byte: std_logic_vector(7 DOWNTO 0); 
-	signal	ps2PreviousByte: std_logic_vector(7 DOWNTO 0); 
-	signal	ps2ConvertedByte: std_logic_vector(6 DOWNTO 0); 
+	signal	ps2Byte: std_logic_vector(7 DOWNTO 0);
+	signal	ps2PreviousByte: std_logic_vector(7 DOWNTO 0);
+	signal	ps2ConvertedByte: std_logic_vector(6 DOWNTO 0);
 	signal	ps2ClkCount : integer range 0 to 10 :=0;
 	signal	ps2WriteClkCount : integer range 0 to 20 :=0;
-	signal	ps2WriteByte: std_logic_vector(7 DOWNTO 0) := x"FF"; 
-	signal	ps2WriteByte2: std_logic_vector(7 DOWNTO 0):= x"FF"; 
+	signal	ps2WriteByte: std_logic_vector(7 DOWNTO 0) := x"FF";
+	signal	ps2WriteByte2: std_logic_vector(7 DOWNTO 0):= x"FF";
 	signal	ps2PrevClk: std_logic := '1';
-	signal 	ps2ClkFilter : integer range 0 to 50; 
+	signal 	ps2ClkFilter : integer range 0 to 50;
 	signal 	ps2ClkFiltered : std_logic := '1';
 
 	signal	ps2Shift: std_logic := '0';
@@ -203,34 +203,34 @@ constant CHARS_PER_SCREEN : integer := HORIZ_CHARS*VERT_CHARS;
         -- reports an error (even though the design synthesises OK)
 	signal   cursAddr_xx: std_logic_vector(10 downto 0);
 	signal   dispAddr_xx: std_logic_vector(10 downto 0);
-	
+
 	type		kbDataArray is array (0 to 131) of std_logic_vector(6 downto 0);
 
-        -- the ASCII codes are expressed in HEX and therefore are 8-bit.
-        -- However, the MSB is always 0 so we don't want to store the MSB. This
-        -- function allows us to express the codes here as pairs of hex digits,
-        -- for readability, but truncates the value to return 7 bits for the
-        -- hardware implementation.
-        function t (
-          val: std_logic_vector(7 downto 0)
-          ) return std_logic_vector is
-        begin
-            return val(6 downto 0);
-        end t;
+	-- the ASCII codes are expressed in HEX and therefore are 8-bit.
+	-- However, the MSB is always 0 so we don't want to store the MSB. This
+	-- function allows us to express the codes here as pairs of hex digits,
+	-- for readability, but truncates the value to return 7 bits for the
+	-- hardware implementation.
+	function t (
+	  val: std_logic_vector(7 downto 0)
+	  ) return std_logic_vector is
+	begin
+	  return val(6 downto 0);
+	end t;
 
 	-- scan-code-to-ASCII for UK KEYBOARD MAPPING (except for shift-3 = "#")
 	-- Read it like this: row 4,col 9 represents scan code 0x49. From a map
-        -- of the PS/2 keyboard scan codes this is the ". >" key so the unshifted
-        -- table as has 0x2E (ASCII .) and the shifted table has 0x3E (ASCII >)
-        -- Do not need a lookup for CTRL because this is simply the ASCII code
-        -- with bits 6,5 cleared.
-        -- A value of 0 represents either an unused keycode or a keycode like
-        -- SHIFT that is processed separately (not looked up in the table).
-        -- The FN keys do not generate ASCII values to the virtual UART here.
-        -- Rather, they are used to generate direct output signals. The key
-        -- codes in the table for the function keys are the values 0x11-0x1C
-        -- which cannot be generated directly by any keypress and so do not
-        -- conflict with normal operation.
+	-- of the PS/2 keyboard scan codes this is the ". >" key so the unshifted
+	-- table as has 0x2E (ASCII .) and the shifted table has 0x3E (ASCII >)
+	-- Do not need a lookup for CTRL because this is simply the ASCII code
+	-- with bits 6,5 cleared.
+	-- A value of 0 represents either an unused keycode or a keycode like
+	-- SHIFT that is processed separately (not looked up in the table).
+	-- The FN keys do not generate ASCII values to the virtual UART here.
+	-- Rather, they are used to generate direct output signals. The key
+	-- codes in the table for the function keys are the values 0x11-0x1C
+	-- which cannot be generated directly by any keypress and so do not
+	-- conflict with normal operation.
 
 	constant kbUnshifted : kbDataArray :=
 	(
@@ -274,9 +274,8 @@ begin
 	cursAddr_xx <= std_logic_vector(to_unsigned(cursAddr,11));
 
 -- DISPLAY ROM AND RAM
-
 GEN_EXT_CHARS: if (EXTENDED_CHARSET=1) generate
-begin	
+begin
 	fontRom : entity work.CGABoldRom -- 256 chars (2K)
 	port map(
 		address => charAddr,
@@ -284,9 +283,9 @@ begin
 		q => charData
 	);
 end generate GEN_EXT_CHARS;
-	
+
 GEN_REDUCED_CHARS: if (EXTENDED_CHARSET=0) generate
-begin	
+begin
 	fontRom : entity work.CGABoldRomReduced -- 128 chars (1K)
 	port map(
 		address => charAddr(9 downto 0),
@@ -296,7 +295,7 @@ begin
 end generate GEN_REDUCED_CHARS;
 
 GEN_2KRAM: if (CHARS_PER_SCREEN >1024) generate
-begin	
+begin
  	dispCharRam: entity work.DisplayRam2K -- For 80x25 display character storage
 	port map
 	(
@@ -315,8 +314,7 @@ begin
 end generate GEN_2KRAM;
 
 GEN_2KATTRAM: if (CHARS_PER_SCREEN >1024 and COLOUR_ATTS_ENABLED=1) generate
-begin	
-
+begin
  	dispAttRam: entity work.DisplayRam2K -- For 80x25 display attribute storage
 	port map
 	(
@@ -332,11 +330,10 @@ begin
 		q_a => dispAttData,
 		wren_a => '0'
 	);
-
 end generate GEN_2KATTRAM;
 
 GEN_1KRAM: if (CHARS_PER_SCREEN <1025) generate
-begin	
+begin
  	dispCharRam: entity work.DisplayRam1K -- For 40x25 display character storage
 	port map
 	(
@@ -355,7 +352,7 @@ begin
 end generate GEN_1KRAM;
 
 GEN_1KATTRAM: if (CHARS_PER_SCREEN <1025 and COLOUR_ATTS_ENABLED=1) generate
- 	dispAttRam: entity work.DisplayRam1K -- For 40x25 display attribute storage
+	dispAttRam: entity work.DisplayRam1K -- For 40x25 display attribute storage
 	port map
 	(
 		clock	=> clk,
@@ -370,28 +367,23 @@ GEN_1KATTRAM: if (CHARS_PER_SCREEN <1025 and COLOUR_ATTS_ENABLED=1) generate
 		q_a => dispAttData,
 		wren_a => '0'
 	);
-
 end generate GEN_1KATTRAM;
 
 GEN_NO_ATTRAM: if (COLOUR_ATTS_ENABLED=0) generate
-
-dispAttData <= dispAttWRData; -- If no attribute RAM then two colour output on RGB pins as defined by default/esc sequence
-
+	dispAttData <= dispAttWRData; -- If no attribute RAM then two colour output on RGB pins as defined by default/esc sequence
 end generate GEN_NO_ATTRAM;
 
-
 	FNkeys <= FNkeysSig;
-	FNtoggledKeys <= FNtoggledKeysSig;	
+	FNtoggledKeys <= FNtoggledKeysSig;
 
 	charAddr <= dispCharData & charScanLine(VERT_PIXEL_SCANLINES+1 downto VERT_PIXEL_SCANLINES-1);
 
 	dispAddr <= (startAddr + charHoriz+(charVert * HORIZ_CHARS)) mod CHARS_PER_SCREEN;
 	cursAddr <= (startAddr + cursorHoriz+(cursorVert * HORIZ_CHARS)) mod CHARS_PER_SCREEN;
 
-	sync <= vSync and hSync; -- composite sync for mono video out	
-	
+	sync <= vSync and hSync; -- composite sync for mono video out
+
 	-- SCREEN RENDERING
-	
 	screen_render: process (clk)
 	begin
 		if rising_edge(clk) then
@@ -437,7 +429,7 @@ end generate GEN_NO_ATTRAM;
 			else
 				vSync <= not V_SYNC_ACTIVE;
 			end if;
-			
+
 			if hActive='1' and vActive = '1' then
 				if pixelClockCount <(CLOCKS_PER_PIXEL-1) then
 					pixelClockCount <= pixelClockCount+1;
@@ -457,7 +449,7 @@ end generate GEN_NO_ATTRAM;
 						videoR1 <= dispAttWRData(0);
 						videoG1 <= dispAttWRData(1);
 						videoB1 <= dispAttWRData(2);
-						
+
 						video <= '1'; -- Monochrome video out
 					else
 						if charData(7-to_integer(unsigned(pixelCount))) = '1' then
@@ -521,14 +513,14 @@ end generate GEN_NO_ATTRAM;
 				videoR1 <= '0';
 				videoG1 <= '0';
 				videoB1 <= '0';
-				
+
 				video <= '0'; -- Monochrome video out
                                 pixelClockCount <= (others => '0');
 			end if;
 		end if;
-	end process;	
- 
-	
+	end process;
+
+
 	-- Hardware cursor blink
 	cursor_blink: process(clk)
 	begin
@@ -544,16 +536,16 @@ end generate GEN_NO_ATTRAM;
 				cursorOn <= '1';
 			end if;
 		end if;
-	end process;	
+	end process;
 
-	
+
 	-- minimal 6850 compatibility
 	statusReg(0) <= '0' when kbInPointer=kbReadPointer else '1';
 	statusReg(1) <= '1' when dispByteWritten=dispByteSent else '0';
 	statusReg(2) <= '0'; --n_dcd;
 	statusReg(3) <= '0'; --n_cts;
 	statusReg(7) <= not(n_int_internal);
-	  
+
 	-- interrupt mask
 	n_int <= n_int_internal;
 	n_int_internal <= '0' when (kbInPointer /= kbReadPointer) and controlReg(7)='1'
@@ -562,7 +554,7 @@ end generate GEN_NO_ATTRAM;
 
 	kbBuffCount <= 0 + kbInPointer - kbReadPointer when kbInPointer >= kbReadPointer
 		else 8 + kbInPointer - kbReadPointer;
-	n_rts <= '1' when kbBuffCount > 4 else '0';	
+	n_rts <= '1' when kbBuffCount > 4 else '0';
 
 	reg_rd: process( n_rd )
 	begin
@@ -598,7 +590,6 @@ end generate GEN_NO_ATTRAM;
 
 
 	-- PROCESS DATA FROM PS2 KEYBOARD
-
 	ps2Data <= ps2DataOut when ps2DataOut='0' else 'Z';
 	ps2Clk <= ps2ClkOut when ps2ClkOut='0' else 'Z';
 
@@ -606,7 +597,6 @@ end generate GEN_NO_ATTRAM;
 	-- Filtered clock will not switch low to high until there is 50 more high samples than lows
 	-- hysteresis will then not switch high to low until there is 50 more low samples than highs.
 	-- Introduces a minor (1uS) delay with 50MHz clock
-
 	kbd_filter: process(clk)
 	begin
 		if rising_edge(clk) then
@@ -624,7 +614,7 @@ end generate GEN_NO_ATTRAM;
 			end if;
 		end if;
 	end process;
-	
+
 	kbd_ctl: process( clk )
 	-- 11 bits
 	-- start(0) b0 b1 b2 b3 b4 b5 b6 b7 parity(odd) stop(1)
@@ -670,7 +660,7 @@ end generate GEN_NO_ATTRAM;
 					ps2ClkCount<=ps2ClkCount+1;
 				else -- stop bit - use this time to store
 					-- FN1-FN12 keys return values 0x11-0x1C. They are not presented as ASCII codes through
-                                        -- the virtual UART but instead toggle the FNkeys, FNtoggledKeys outputs.
+					-- the virtual UART but instead toggle the FNkeys, FNtoggledKeys outputs.
 					if ps2ConvertedByte>x"10" and ps2ConvertedByte<x"1D" then
 						if ps2PreviousByte /= x"F0" then
 							FNtoggledKeysSig(to_integer(unsigned(ps2ConvertedByte))-16#10#) <= FNtoggledKeysSig(to_integer(unsigned(ps2ConvertedByte))-16#10#);
@@ -692,8 +682,8 @@ end generate GEN_NO_ATTRAM;
 						else
 							ps2Ctrl <= '0';
 						end if;
-                                        -- Self-test passed (after power-up).
-                                        -- Send SET-LEDs command to establish SCROLL, CAPS AND NUM
+					-- Self-test passed (after power-up).
+					-- Send SET-LEDs command to establish SCROLL, CAPS AND NUM
 					elsif ps2Byte = x"AA" then
 							ps2WriteByte <= x"ED";
 							ps2WriteByte2(0) <= ps2Scroll;
@@ -702,8 +692,8 @@ end generate GEN_NO_ATTRAM;
 							ps2WriteByte2(7 downto 3) <= "00000";
 							n_kbWR <= '0';
 							kbWriteTimer<=0;
-                                        -- SCROLL-LOCK pressed - set flags and
-                                        -- update LEDs
+					-- SCROLL-LOCK pressed - set flags and
+					-- update LEDs
 					elsif ps2Byte = x"7E" then
 						if ps2PreviousByte /= x"F0" then
 							ps2Scroll <= not ps2Scroll;
@@ -715,8 +705,8 @@ end generate GEN_NO_ATTRAM;
 							n_kbWR <= '0';
 							kbWriteTimer<=0;
 						end if;
-                                        -- NUM-LOCK pressed - set flags and
-                                        -- update LEDs
+					-- NUM-LOCK pressed - set flags and
+					-- update LEDs
 					elsif ps2Byte = x"77" then
 						if ps2PreviousByte /= x"F0" then
 							ps2Num <= not ps2Num;
@@ -728,8 +718,8 @@ end generate GEN_NO_ATTRAM;
 							n_kbWR <= '0';
 							kbWriteTimer<=0;
 						end if;
-                                        -- CAPS-LOCK pressed - set flags and
-                                        -- update LEDs
+					-- CAPS-LOCK pressed - set flags and
+					-- update LEDs
 					elsif ps2Byte = x"58" then
 						if ps2PreviousByte /= x"F0" then
 							ps2Caps <= not ps2Caps;
@@ -814,7 +804,7 @@ end generate GEN_NO_ATTRAM;
 							kbWriteTimer<=0;
 					end if;
 				else
-					kbWatchdogTimer<=kbWatchdogTimer+1;				
+					kbWatchdogTimer<=kbWatchdogTimer+1;
 				end if;
 			end if;
 
@@ -823,10 +813,8 @@ end generate GEN_NO_ATTRAM;
 
 
 	-- PROCESS DATA WRITTEN TO DISPLAY
-	
 	display_store: process( clk , n_reset)
 	begin
-	
 		if n_reset='0' then
 			dispAttWRData <= DEFAULT_ATT;
 		elsif rising_edge(clk) then
@@ -910,19 +898,11 @@ end generate GEN_NO_ATTRAM;
 						end if;
 						if param1 = 1 then
 							attBold <= '1';
---							if attInverse='0' then
-								dispAttWRData(3) <= '1';
---							else
---								dispAttWRData(7) <= '1';
---							end if;
+							dispAttWRData(3) <= '1';
 						end if;
 						if param1 = 22 then
 							attBold <= '0';
---							if attInverse='0' then
-								dispAttWRData(3) <= '0';
---							else
---								dispAttWRData(7) <= '0';
---							end if;
+							dispAttWRData(3) <= '0';
 						end if;
 						if param1 = 7 then
 							if attInverse = '0' then
@@ -986,7 +966,7 @@ end generate GEN_NO_ATTRAM;
 							nextState <= none;
 						end if;
 					elsif paramCount=1 and dispByteLatch=x"41" then-- ESC[{param1}A - Cursor up
-						if  param1=0 and cursorVert>0 then -- no param to default to 1
+						if  param1=0 and cursorVert>0 then -- no param so default to 1
 							cursorVert<=cursorVert-1;
 						elsif  param1<cursorVert then
 							cursorVert<=cursorVert-param1;
@@ -995,7 +975,7 @@ end generate GEN_NO_ATTRAM;
 						end if;
 						paramCount<=0;
 					elsif paramCount=1 and dispByteLatch=x"42" then-- ESC[{param1}B - Cursor down
-						if  param1=0 and cursorVert<VERT_CHAR_MAX then -- no param to default to 1
+						if  param1=0 and cursorVert<VERT_CHAR_MAX then -- no param so default to 1
 							cursorVert<=cursorVert+1;
 						elsif (cursorVert+param1)<VERT_CHAR_MAX then
 							cursorVert<=cursorVert+param1;
@@ -1004,7 +984,7 @@ end generate GEN_NO_ATTRAM;
 						end if;
 						paramCount<=0;
 					elsif paramCount=1 and dispByteLatch=x"43" then-- ESC[{param1}C - Cursor forward
-						if  param1=0 and cursorHoriz<HORIZ_CHAR_MAX then -- no param to default to 1
+						if  param1=0 and cursorHoriz<HORIZ_CHAR_MAX then -- no param so default to 1
 							cursorHoriz<=cursorHoriz+1;
 						elsif (cursorHoriz+param1)<HORIZ_CHAR_MAX then
 							cursorHoriz<=cursorHoriz+param1;
@@ -1013,7 +993,7 @@ end generate GEN_NO_ATTRAM;
 						end if;
 						paramCount<=0;
 					elsif paramCount=1 and dispByteLatch=x"44" then-- ESC[{param1}D - Cursor backward
-						if  param1=0 and cursorHoriz>0 then -- no param to default to 1
+						if  param1=0 and cursorHoriz>0 then -- no param so default to 1
 							cursorHoriz<=cursorHoriz-1;
 						elsif param1<cursorHoriz then
 							cursorHoriz<=cursorHoriz-param1;
@@ -1188,7 +1168,6 @@ end generate GEN_NO_ATTRAM;
 					dispState <= deleteLine;
 				end if;
 			end case;
-		end if;              
+		end if;
 	end process;
-	
- end rtl;
+end rtl;
