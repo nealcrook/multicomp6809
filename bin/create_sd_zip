@@ -1,0 +1,25 @@
+#!/bin/sh
+# Create zip'd image file for multicomp
+# Assumes create_sd_image has already been run
+#
+rm -f multicomp09_sd.zip
+date > readme.txt
+cat << EOF >> readme.txt
+
+This is an SDcard image for the 6809 multicomp. It contains
+images for BASIC, BUGGY, FLEX, CUBIX and NITROS9.
+
+Refer to the instructions here:
+
+http://www.retrobrewcomputers.org/doku.php?id=boards:sbc:multicomp:cycloneii-c:start
+
+If you report a problem with this image please include this file
+because the checksums below provide some degree of traceability for
+the images.
+
+EOF
+
+md5sum fpgacubix.img r09sase.bin chromium.scr EXT_BASIC_NO_USING.bin multicomp09_flex_qload.bin multicomp09_flex_io.bin multicomp09_flex_sd.bin multicomp09_flex_buggy.bin multicomp09_flex.img flex_drive1.img flex_drive2.img flex_drive3.img nitros9_0.img nitros9_1.img nitros9_2.img nitros9_3.img multicomp09_sd.img >> readme.txt
+
+zip -r multicomp09_sd.zip readme.txt multicomp09_sd.img
+rm readme.txt
