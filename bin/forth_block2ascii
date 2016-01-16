@@ -34,6 +34,7 @@ open INFILE, $file or die "ERROR could not open $file";
 while (!eof(INFILE)) {
     my $txt;
     my $unprintables;
+    my $sum = 0;
     if ($print) {
         printf("                  +%s+\n", $spacer);
     }
@@ -42,25 +43,30 @@ while (!eof(INFILE)) {
     }
     for (my $l = $line; $l < $LINES_PER_BLOCK+$line; $l=$l+1) {
         read INFILE,  $txt, 64;
+        for my $i (0..63) {
+            $sum = $sum + ord(substr $txt, $i, 1);
+        }
         # remove unprintables
         $unprintables = ($txt =~ s/[^ \w\*\(\)\-\.\,\'\"\;\:\#\$\&\?\@\/\\\>\<\+\!\[\]\=\|]/\?/g);
+        $unprintables = $unprintables == 0 ? " " : "*";
         if ($print) {
-            printf("          %03d:%02d  |%s%s\n",$block, $l, $txt, $unprintables==0 ? "|":"|*");
+            printf("          %03d:%02d  |%s|%s %4X\n",$block, $l, $txt, $unprintables, $sum);
         }
         else {
             printf("$txt\n");
         }
     }
+    $block = $block + 1;
     if ($print) {
-        printf("                  +%s+\n\n", $spacer);
+        if (($block % $BLOCKS_PER_PAGE) == 0) {
+            printf("                  +%s+\n$FF\n", $spacer);
+        }
+        else {
+            printf("                  +%s+\n\n",  $spacer);
+        }
     }
     else {
         printf("\n\n");
-    }
-
-    $block = $block + 1;
-    if ( (($block % $BLOCKS_PER_PAGE) == 0) && $print) {
-        print $FF;
     }
 }
 
