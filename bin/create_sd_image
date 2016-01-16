@@ -20,10 +20,17 @@ dd if=fpgacubix.img of=multicomp09_sd.img
 dd if=r09sase.bin of=multicomp09_sd.img obs=1M seek=64
 
 
+# FORTH block files (optional)
+# 4 files each of up to 256Kbytes, starting at offset 65MByte
+# Block offset 256*1024 * 260/512 = 0x2.0800 (260 = 4*65)
+dd if=forthblk0.blk of=multicomp09_sd.img obs=256K seek=260
+# Block offset 256*1024 * 261/512 = 0x2.0A00
+dd if=forthblk1.blk of=multicomp09_sd.img obs=256K seek=261
+# Block offset 256*1024 * 262/512 = 0x2.0C00
+dd if=forthblk2.blk of=multicomp09_sd.img obs=256K seek=262
 # Copy of CamelForth Chromium source (just to give some text to look at!)
-# 240Kbytes at offset 65MByte
-# 65MByte is block offset 1048576 * 65/512 = 0x2.0800
-dd if=chromium.scr of=multicomp09_sd.img obs=1M seek=65
+# Block offset 256*1024 * 263/512 = 0x2.0E00
+dd if=chromium.scr  of=multicomp09_sd.img obs=256K seek=263
 
 
 # BASIC ROM
@@ -135,4 +142,9 @@ dd if=nitros9_2.img of=multicomp09_sd.img obs=1M seek=84
 # The .dsk file needs to be expanded to 512byte sectors.
 nitros9_disk_manip nitros9_3.dsk -outsd nitros9_3.img
 dd if=nitros9_3.img of=multicomp09_sd.img obs=1M seek=86
+
+##this is a much bigger image, but it runs from the same start
+##point and so the driver should be able to cope without modification
+##nitros9_disk_manip VCCEmuDisk.vhd -outsd nitros9_3.img
+##dd if=nitros9_3.img of=multicomp09_sd.img obs=1M seek=86
 

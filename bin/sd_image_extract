@@ -1,8 +1,9 @@
 #!/bin/sh
 #
 # given an SDcard image file for multicomp, created by
-# create_sd_image, extract .dsk images for each of the four
-# FLEX disks and each of the four NITROS9 disks.
+# create_sd_image, extract .dsk images for the CamelForth
+# blocks, each of the four FLEX disks and each of the four
+# NITROS9 disks.
 #
 # All of the offsets here need to match with the values
 # in create_sd_image.
@@ -11,6 +12,21 @@ SDFILE=multicomp09_sd.img
 
 
 echo working on $SDFILE
+
+
+
+###############################################################
+###############################################################
+# CamelForth Block files; 4, 256Kbyte files
+###############################################################
+###############################################################
+
+# 65MByte is block offset 1048576 * 65/512 = 133120 (0x2.0800)
+# blk file is 256*1024/512=512 blocks
+dd if=$SDFILE of=forthblk0.blk ibs=512 obs=512 skip=133120 count=512
+dd if=$SDFILE of=forthblk1.blk ibs=512 obs=512 skip=133632 count=512
+dd if=$SDFILE of=forthblk2.blk ibs=512 obs=512 skip=134144 count=512
+dd if=$SDFILE of=forthblk3.blk ibs=512 obs=512 skip=134656 count=512
 
 
 
