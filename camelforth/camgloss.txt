@@ -191,6 +191,7 @@ LEAVE  --    L: -- adrs             exit DO..LOOP
 LITERAL x --      append numeric literal to dict.
 LOOP   adrs --   L: 0 a1 a2 .. aN --
 MAX    n1 n2 -- n3                 signed maximum
+MARKER --                  create a restore point
 MIN    n1 n2 -- n3                 signed minimum
 MOD    n1 n2 -- n3               signed remainder
 MOVE   addr1 addr2 u --                smart move
