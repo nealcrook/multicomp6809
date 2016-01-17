@@ -42,8 +42,12 @@ while (!eof(INFILE)) {
         printf("( ------------------ Block %03d --------------------------------)\n", $block);
     }
     for (my $l = $line; $l < $LINES_PER_BLOCK+$line; $l=$l+1) {
-        read INFILE,  $txt, 64;
-        for my $i (0..63) {
+        my $bytes = read INFILE,  $txt, $CHAR_PER_LINE;
+        if ($bytes != $CHAR_PER_LINE) {
+            print STDERR "ERROR at block $block -- file ended mid-block\n";
+            exit 1;
+        }
+        for my $i (0..$CHAR_PER_LINE - 1) {
             $sum = $sum + ord(substr $txt, $i, 1);
         }
         # remove unprintables
