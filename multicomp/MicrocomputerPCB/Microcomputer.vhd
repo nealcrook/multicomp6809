@@ -84,6 +84,11 @@ use  IEEE.STD_LOGIC_ARITH.all;
 use  IEEE.STD_LOGIC_UNSIGNED.all;
 
 entity Microcomputer is
+    -- need this set to 0 normally, so that there are enough resources for
+    -- 80-column VDU. Set to 1 for minimal system, AND change the generics
+    -- for the SBCTextDisplayRGB entity below.
+    generic( constant INTERNAL_RAM : integer := 0
+             );
     port(
         n_reset     : in std_logic;
         clk         : in std_logic;
@@ -164,6 +169,8 @@ architecture struct of Microcomputer is
     signal n_sRamCSLo_i           : std_logic;
 
     signal basRomData             : std_logic_vector(7 downto 0);
+    -- internalRam declarations are only used when internal RAM is configured
+    signal internalRam1DataOut    : std_logic_vector(7 downto 0);
     signal interface1DataOut      : std_logic_vector(7 downto 0);
     signal interface2DataOut      : std_logic_vector(7 downto 0);
     signal interface3DataOut      : std_logic_vector(7 downto 0);
@@ -178,6 +185,7 @@ architecture struct of Microcomputer is
     signal n_int3                 : std_logic :='1';
     signal n_tint                 : std_logic;
 
+    signal n_internalRam1CS       : std_logic :='1';
     signal n_basRomCS             : std_logic :='1';
     signal n_interface1CS         : std_logic :='1';
     signal n_interface2CS         : std_logic :='1';
@@ -201,6 +209,8 @@ architecture struct of Microcomputer is
 
     signal n_WR_vdu               : std_logic := '1';
     signal n_RD_vdu               : std_logic := '1';
+
+    signal wren_internalRam1      : std_logic := '1';
 
     signal romInhib               : std_logic := '0';
     signal ramWrInhib             : std_logic := '0';
@@ -256,6 +266,21 @@ begin
     sRamData <= cpuDataOut when n_WR='0' else (others => 'Z');
 
 
+-- Internal 2K RAM
+    OPT_INTERNAL_RAM: if (INTERNAL_RAM=1) generate
+    begin
+        wren_internalRam1 <= not(n_WR or n_internalRam1CS);
+
+        ram1: entity work.InternalRam2K
+        port map(
+             address => cpuAddress(10 downto 0),
+             clock => clk,
+             data => cpuDataOut,
+             wren => wren_internalRam1,
+             q => internalRam1DataOut);
+     end generate OPT_INTERNAL_RAM;
+
+
 -- ____________________________________________________________________________________
 -- INPUT/OUTPUT DEVICES GO HERE
 
@@ -264,11 +289,18 @@ begin
 
     io1 : entity work.SBCTextDisplayRGB
 
-    -- 80x25 uses all the internal RAM
     generic map(
-        DISPLAY_TOP_SCANLINE => 35,
-        VERT_SCANLINES => 448,
-        V_SYNC_ACTIVE => '1'
+      -- Select one or other (NOT BOTH!) sets
+
+      -- 80x25 uses all the internal RAM
+      DISPLAY_TOP_SCANLINE => 35,
+      VERT_SCANLINES => 448,
+      V_SYNC_ACTIVE => '1'
+
+      -- 40x25 leaves resource for internal 2k RAM
+
+--      HORIZ_CHARS => 40,
+--      CLOCKS_PER_PIXEL => 4
     )
 
     port map (
@@ -451,6 +483,7 @@ begin
     n_interface3CS <= '0' when cpuAddress(15 downto 1) = "111111111101010" else '1'; -- 2 bytes FFD4-FFD5
     n_gpioCS       <= '0' when cpuAddress(15 downto 1) = "111111111101011" else '1'; -- 2 bytes FFD6-FFD7
     n_sdCardCS     <= '0' when cpuAddress(15 downto 3) = "1111111111011"   else '1'; -- 8 bytes FFD8-FFDF
+    n_internalRam1CS <= '0' when cpuAddress(15 downto 11) = "00000" else '1';
     -- experimented with allowing RAM to be written to "underneath" ROM but
     -- there is no advantage vs repaging the region, and it causes problems because
     -- it's necessary to avoid writing to the I/O space.
@@ -465,6 +498,7 @@ begin
                         gpioDataOut          when n_gpioCS = '0'       else
                         sdCardDataOut or mmDataOut  when n_sdCardCS = '0' else
                         basRomData           when n_basRomCS = '0' else
+                        internalRam1DataOut when n_internalRam1CS= '0' else
                         sRamData;
 
 -- ____________________________________________________________________________________

@@ -12,7 +12,7 @@
 --
 -- Grant Searle
 -- eMail address available on my main web page link above.
-
+--
 -- Modifications to Grant's original design by foofoobedoo@gmail.com
 --
 -- This is microcomputer4. Compared with Grant's original design,
@@ -54,6 +54,15 @@
 -- * vduffd0 (pin 48) is input, selects I/O assignment:
 --   OFF: PS2/VGA is UART0 at address $FFD0-$FFD1, SERIALA is UART1 at $FFD2-$FFD3
 --   ON : PS2/VGA is UART0 at address $FFD2-$FFD3, SERIALA is UART1 at $FFD0-$FFD1
+--
+-- Note on confusing name: In the directory ROMS/6809 there is a file
+-- named 6809M.HEX and a file named CAMELFORTH_2KRAM.hex. The first contains
+-- the 8K ROM image with absolute addresses in the HEX address field records
+-- (suitable for use with the emulator), the second contains the 8K ROM image
+-- with relative addresses in the HEX address fields (suitable for use in the
+-- FPGA build flow). The "2KRAM" in the name indicates that the image was
+-- build to work with 2K of RAM. Actually, the design has a full 64K of RAM
+-- available. Just don't worry about it. I chose a lousy name.
 
 library ieee;
 use ieee.std_logic_1164.all;
@@ -142,8 +151,8 @@ architecture struct of Microcomputer is
     signal n_sRamCSLo_i           : std_logic;
 
     signal basRomData             : std_logic_vector(7 downto 0);
-    --signal internalRam1DataOut        : std_logic_vector(7 downto 0);
-    --signal internalRam2DataOut        : std_logic_vector(7 downto 0);
+    -- internalRam declarations are only used when internal RAM is configured
+    signal internalRam1DataOut    : std_logic_vector(7 downto 0);
     signal interface1DataOut      : std_logic_vector(7 downto 0);
     signal interface2DataOut      : std_logic_vector(7 downto 0);
     signal interface3DataOut      : std_logic_vector(7 downto 0);
@@ -158,8 +167,7 @@ architecture struct of Microcomputer is
     signal n_int3                 : std_logic :='1';
     signal n_tint                 : std_logic;
 
-    --signal n_internalRam1CS     : std_logic :='1';
-    --signal n_internalRam2CS     : std_logic :='1';
+    signal n_internalRam1CS       : std_logic :='1';
     signal n_basRomCS             : std_logic :='1';
     signal n_interface1CS         : std_logic :='1';
     signal n_interface2CS         : std_logic :='1';
@@ -184,7 +192,7 @@ architecture struct of Microcomputer is
     signal n_WR_vdu               : std_logic := '1';
     signal n_RD_vdu               : std_logic := '1';
 
---    signal wren_Ram1              : std_logic := '1';
+    signal wren_internalRam1      : std_logic := '1';
 
     signal romInhib               : std_logic := '0';
     signal ramWrInhib             : std_logic := '0';
@@ -238,15 +246,16 @@ begin
     sRamAddress_i(12 downto 0) <= cpuAddress(12 downto 0);
     sRamData <= cpuDataOut when n_WR='0' else (others => 'Z');
 
+    
     -- Internal 2K
-    --wren_Ram1 <= not(n_WR or n_internalRam1CS);
+    --wren_internalRam1 <= not(n_WR or n_internalRam1CS);
 
     --ram1: entity work.InternalRam2K
     --port map(
     --      address => cpuAddress(10 downto 0),
     --      clock => clk,
     --      data => cpuDataOut,
-    --      wren => wren_Ram1,
+    --      wren => wren_internalRam1,
     --      q => internalRam1DataOut);
 
 
