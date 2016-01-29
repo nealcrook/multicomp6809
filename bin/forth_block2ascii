@@ -34,7 +34,7 @@ open INFILE, $file or die "ERROR could not open $file";
 while (!eof(INFILE)) {
     my $txt;
     my $unprintables;
-    my $sum = 0;
+    my $block_sum = 0;
     if ($print) {
         printf("                  +%s+\n", $spacer);
     }
@@ -43,6 +43,7 @@ while (!eof(INFILE)) {
     }
     for (my $l = $line; $l < $LINES_PER_BLOCK+$line; $l=$l+1) {
         my $bytes = read INFILE,  $txt, $CHAR_PER_LINE;
+        my $sum = 0;
         if ($bytes != $CHAR_PER_LINE) {
             print STDERR "ERROR at block $block -- file ended mid-block\n";
             exit 1;
@@ -50,11 +51,12 @@ while (!eof(INFILE)) {
         for my $i (0..$CHAR_PER_LINE - 1) {
             $sum = $sum + ord(substr $txt, $i, 1);
         }
+        $block_sum = $block_sum + $sum;
         # remove unprintables
         $unprintables = ($txt =~ s/[^ \w\*\(\)\-\.\,\'\"\;\:\#\$\&\?\@\/\\\>\<\+\!\[\]\=\|]/\?/g);
         $unprintables = $unprintables == 0 ? " " : "*";
         if ($print) {
-            printf("          %03d:%02d  |%s|%s %4X\n",$block, $l, $txt, $unprintables, $sum);
+            printf("          %03d:%02d  |%s|%s %04X\n",$block, $l, $txt, $unprintables, $sum);
         }
         else {
             printf("$txt\n");
@@ -63,10 +65,10 @@ while (!eof(INFILE)) {
     $block = $block + 1;
     if ($print) {
         if (($block % $BLOCKS_PER_PAGE) == 0) {
-            printf("                  +%s+\n$FF\n", $spacer);
+            printf("                  +%s+  %4X\n$FF\n", $spacer, $block_sum);
         }
         else {
-            printf("                  +%s+\n\n",  $spacer);
+            printf("                  +%s+  %04X\n\n",  $spacer, $block_sum);
         }
     }
     else {
