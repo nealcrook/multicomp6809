@@ -404,7 +404,7 @@ begin
             dataOut => mmDataOut,
             regAddr => cpuAddress(2 downto 0),
 
-            cpuAddr => cpuAddress(15 downto 13),
+            cpuAddr => cpuAddress(15 downto 9),
             ramAddr => sRamAddress_i(18 downto 13),
             ramWrInhib => ramWrInhib,
             romInhib => romInhib,
@@ -413,7 +413,8 @@ begin
             n_ramCSLo => n_sRamCSLo_i,
 
             n_tint => n_tint,
-            nmi => nmi
+            nmi => nmi,
+            frt => n_LED7 -- debug
     );
 
     n_WR_gpio <= n_gpioCS or n_WR;

@@ -42,7 +42,7 @@
 --
 -- Each physical block can be write-protected so that it acts like ROM.
 --
--- Logical block 7 ($D000-FFFF) acts differently in two ways:
+-- Logical block 7 ($D000-FFFF) acts differently in three ways:
 -- 1. The boot ROM sits in this block, overlaying any RAM that is mapped
 --    there. The ROM is enabled after reset but can be disabled by a
 --    register write
@@ -51,6 +51,14 @@
 --    block, accesses to ROM are ignored and I/O is accessed instead.
 --    If you map RAM to this block, write accesses go to I/O and to
 --    RAM (ie, the RAM locations at $FFD0-$FFDF are corrupted).
+-- 3. When the "Fixed RAM Top" (FRT) is enabled, the address range
+--    $FE00-FFCF, $FFE0-$FFFF are *always* mapped to physical RAM
+--    block 7. This 256byte region is the "vector page" on the COCO
+--    (interrupted here by the I/O space). This special mapping is
+--    performed for both reads and writes. Furthermore, when this
+--    mapping is enabled, I/O writes will corrupt the associated
+--    locations in physical RAM block 7, regardless of what RAM block
+--    is mapped into logical block 7.
 --
 -- The MMU is disabled by reset
 --
@@ -84,6 +92,24 @@
 -- b2       }
 -- b1       }
 -- b0       }
+--
+--
+-- Magic: for NitrosL2, want a fixed 512byte region of r/w memory
+-- at the top of the address space. There is no space to provide
+-- an enable for this behaviour (which I call FRT for FixedRamTop)
+-- and so some special magic is used, as follows:
+--
+-- IF ROMDIS=1 & MMUEN=1 then a write with b4=0 (see NMI behaviour
+-- below) and b7=0 and b5=1 does NOT enable the ROM but actually
+-- sets FRT=1. Any write with MMUEN=0 sets FRT=0 again. In summary:
+-- Current           Action        End State
+-- -----------------+-------------+-----------------
+-- ROMDIS MMUEn FRT  ROMDIS MMUEn  ROMDIS MMUEn FRT
+-- x      x     x    RESET         0      0     0
+-- x      x     x    0      1      0      1     x
+-- x      x     x    1      1      1      1     x
+-- x      x     x    x      0      x      0     0
+-- 1      1     x    0      1      1      1     1
 --
 -- If you select a physical block that is outside the actual size
 -- of your RAM, the behaviour is undefined (it will probably alias).
@@ -173,7 +199,7 @@ port (
         -- select internal control register
         regAddr : in std_logic_vector(2 downto 0);
         -- incoming CPU address to decode
-        cpuAddr : in std_logic_vector(15 downto 13);
+        cpuAddr : in std_logic_vector(15 downto 9);
         -- high-order lines to external RAM - upto 512x8.
         ramAddr : out std_logic_vector(18 downto 13);
         -- RAM chip select - upto 2 devices.
@@ -184,7 +210,9 @@ port (
         -- timer interrupt
         n_tint  : out std_logic;
         -- single-step interrupt
-        nmi     : out std_logic
+        nmi     : out std_logic;
+        -- for debug
+        frt  : out std_logic
 );
 
 end mem_mapper2;
@@ -211,6 +239,7 @@ architecture rtl of mem_mapper2 is
   signal mmuEn : std_logic;
   signal mapSel : std_logic_vector(3 downto 0);
   signal tr : std_logic;
+  signal frt_i : std_logic;
 
   -- convenience
   signal index : std_logic_vector(3 downto 0);
@@ -230,6 +259,10 @@ architecture rtl of mem_mapper2 is
   signal nmi_i : std_logic;
   signal nmiDly : integer range 0 to (NMILIM + 1);
 
+  -- rom control stuff
+  signal romInhib_i : std_logic;
+
+
 begin
   -- outputs
   ramAddr <= val(5 downto 0);
@@ -238,6 +271,8 @@ begin
   ramWrInhib <= val(7);
   n_tint <= n_tint_i;
   nmi <= nmi_i;
+  romInhib <= romInhib_i;
+  frt <= frt_i;
 
   index <= tr & cpuAddr(15 downto 13);
   tstat <= not n_tint_i & "00000" & tenable & '0';
@@ -248,10 +283,16 @@ begin
              x"00";
 
   -- decode
-  amap: process(index, cpuAddr, mmuEn, map0, map1, map2, map3, map4, map5, map6, map7,
+  amap: process(index, cpuAddr, frt_i, mmuEn, map0, map1, map2, map3, map4, map5, map6, map7,
                 map8, map9, mapa,mapb,mapc, mapd, mape, mapf)
     begin
-      if (mmuEn = '0') then
+      if (mmuEn = '0') or (frt_i = '1' and cpuAddr(15 downto 9) = "1111111") then
+        -- EITHER the mmu is disabled - in which case we want a flat 1-to-1
+        -- mapping
+        -- OR the fixed RAM top is enabled, so that the top 512 bytes come
+        -- from the top of 1-1 mapped space. ie: from top of block7 (in the
+        -- first RAM device). The mapping is the same in both cases (in the
+        -- latter case, cpuAddr(15 downto 13) is already Known to be "111".
         val <= "00000" & cpuAddr(15 downto 13);
       else
         case index is
@@ -280,7 +321,8 @@ begin
   proc_reg: process(clk, n_reset)
     begin
       if n_reset='0' then
-        romInhib <= '0';
+        romInhib_i <= '0';
+        frt_i <= '0';
         mmuEn <= '0';
         --
         n_tint_i <= '1';
@@ -313,15 +355,32 @@ begin
 
         -- write to MMUADR
         if hold = '0' and n_wr = '0' and regAddr = "110" then
-          -- if bit[4], ignore any other write data
+          -- Magic: if bit[4] (NMI), ignore any other write data
+          -- (register is WO and this saves us having to know any
+          -- existing state)
           if dataIn(4) = '1' then
             -- initate NMI sequence
             nmiDly <= 1;
           else
-            romInhib   <= dataIn(7);
-            tr         <= dataIn(6);
-            mmuEn     <= dataIn(5);
-            mapSel    <= dataIn(3 downto 0);
+            -- More magic: need a control bit to enable a fixed RAM
+            -- RAM region at the top of memory, but there is no
+            -- spare control bit. Instead, detect the situation where
+            -- (i) ROM is disabled (ii) MMU is enabled (iii) ROM gets
+            -- enabled again. In this case, instead of enabling
+            -- the ROM, we enabled the fixed RAM region.
+            if romInhib_i = '1' and mmuEn = '1' and dataIn(7) = '0' and dataIn(5) = '1' then
+              romInhib_i <= '1';
+              frt_i      <= '1';
+              tr         <= dataIn(6);
+              mmuEn      <= dataIn(5);
+              mapSel     <= dataIn(3 downto 0);
+            else
+              romInhib_i <= dataIn(7);
+              frt_i      <= frt_i and dataIn(5); -- clear when MMU disabled
+              tr         <= dataIn(6);
+              mmuEn      <= dataIn(5);
+              mapSel     <= dataIn(3 downto 0);
+            end if;
           end if;
         end if;
 
