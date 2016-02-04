@@ -14,7 +14,11 @@ This repository is a venue for sharing the hardware and software that I have use
 
 For detail on how to use any of this stuff, click on the "wiki" button on the right.
 
-More on Camelforth here:
+More on CamelForth here:
 https://launchpad.net/camelforth
 http://www.camelforth.com/
 http://www.bradrodriguez.com/papers/index.html
+
+Approximate WIKI Change Log:
+
+03Feb2016 Rework FLEX stuff to add more detail and make it clearer
