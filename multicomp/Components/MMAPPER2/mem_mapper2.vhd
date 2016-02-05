@@ -37,15 +37,17 @@
 -- bit "TR" is used to select which group is used. This allows software to
 -- switch rapidly between two sets of mappings.
 --
--- To program the table you select the entry by a write to one register
--- then write the physical block number for that entry to another register.
+-- To program a table entry you first select the table entry using a write
+-- to one register then select the physical physical block number for that
+-- entry using a write to another register. These two operations can be
+-- combined into a single 16-bit write.
 --
 -- Each physical block can be write-protected so that it acts like ROM.
 --
 -- Logical block 7 ($D000-FFFF) acts differently in three ways:
 -- 1. The boot ROM sits in this block, overlaying any RAM that is mapped
 --    there. The ROM is enabled after reset but can be disabled by a
---    register write
+--    register write.
 -- 2. The multicomp I/O is decoded in this block, in address range
 --    $FFD0-$FFDF. The I/O is always present. If you map ROM to this
 --    block, accesses to ROM are ignored and I/O is accessed instead.
@@ -60,10 +62,8 @@
 --    locations in physical RAM block 7, regardless of what RAM block
 --    is mapped into logical block 7.
 --
--- The MMU is disabled by reset
---
--- TODO: change mappings at reset or leave them unchanged? Currently
--- they are unchanged, reset just clears MMUEN to give a 1-1 mapping.
+-- At reset, the MMU is disabled (giving a 1-1 mapping) but the
+-- mapping registers themselves are NOT reset.
 --
 -- MMU PROGRAMMING INTERFACE
 -- =========================
@@ -75,9 +75,9 @@
 --
 -- MMUADR
 -- b7       ROMDIS Disable ROM. 0 after reset.
--- b6       TR     Select upper group of mapping regs
+-- b6       TR     Select upper group of mapping registers.
 -- b5       MMUEN  Enable MMU. 0 after reset.
--- b4       NMI bit
+-- b4       NMI bit.
 -- b3       } MAPSEL Select mapping register to
 -- b2       } write through MMUDAT. MAPSEL values 0-7 control
 -- b1       } the address translation when TR=0, MAPSEL values
@@ -92,7 +92,6 @@
 -- b2       }
 -- b1       }
 -- b0       }
---
 --
 -- Magic: for NitrosL2, want a fixed 512byte region of r/w memory
 -- at the top of the address space. There is no space to provide
