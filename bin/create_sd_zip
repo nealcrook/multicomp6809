@@ -19,7 +19,7 @@ the images.
 
 EOF
 
-md5sum fpgacubix.img r09sase.bin forthblk0.blk forthblk1.blk forthblk2.blk chromium.scr EXT_BASIC_NO_USING.bin multicomp09_flex_qload.bin multicomp09_flex_io.bin multicomp09_flex_sd.bin multicomp09_flex_buggy.bin multicomp09_flex.img flex_drive1.img flex_drive2.img flex_drive3.img nitros9_0.img nitros9_1.img nitros9_2.img nitros9_3.img multicomp09_sd.img >> readme.txt
+md5sum fpgacubix.img cubix_autoboot.bin forthblk0.blk forthblk1.blk forthblk2.blk chromium.scr EXT_BASIC_NO_USING.bin multicomp09_flex_qload.bin multicomp09_flex_io.bin multicomp09_flex_sd.bin multicomp09_flex_buggy.bin multicomp09_flex.img flex_drive1.img flex_drive2.img flex_drive3.img nitros9_0.img nitros9_1.img nitros9_2.img nitros9_3.img multicomp09_sd.img >> readme.txt
 
 zip -r multicomp09_sd.zip readme.txt multicomp09_sd.img
 rm readme.txt

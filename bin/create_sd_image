@@ -17,7 +17,7 @@ dd if=fpgacubix.img of=multicomp09_sd.img
 # CUBIX boot ROM
 # 2Kbytes at offset 64Mbyte
 # 64MByte is block offset 1048576 * 64/512 = 0x2.0000
-dd if=r09sase.bin of=multicomp09_sd.img obs=1M seek=64
+dd if=cubix_autoboot.bin of=multicomp09_sd.img obs=1M seek=64
 
 
 # FORTH block files (optional)

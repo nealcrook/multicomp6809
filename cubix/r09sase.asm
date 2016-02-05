@@ -52,7 +52,7 @@ M010D   EQU     $010D
 M1000   EQU     $1000
 M2100   EQU     $2100
 MC700   EQU     $C700
-ZC808   EQU     $C808
+GOCUBIX EQU     $C808
 MF000   EQU     $F000
 ZFAE9   EQU     $FAE9
 ZFAF2   EQU     $FAF2
@@ -283,7 +283,7 @@ ZF99A   JSR     ZFA58                    *F99A: BD FA 58       '..X'
 ZF9BF   LDA     ,U                       *F9BF: A6 C4          '..'
         JSR     SDRD                     *F9C1: BD FA 0E       '...'
         CMPX    #MF000                   *F9C4: 8C F0 00       '...'
-        BCC     ZF9EC                    *F9C7: 24 23          '$#'
+        BCC     LOADED                   *F9C7: 24 23          '$#'
         LDA     $06,U                    *F9C9: A6 46          '.F'
         INCA                             *F9CB: 4C             'L'
         STA     $06,U                    *F9CC: A7 46          '.F'
@@ -304,7 +304,7 @@ ZF9BF   LDA     ,U                       *F9BF: A6 C4          '..'
         STA     $04,U                    *F9E6: A7 44          '.D'
         CMPA    $01,U                    *F9E8: A1 41          '.A'
         BNE     ZF9BF                    *F9EA: 26 D3          '&.'
-ZF9EC   JMP     ZC808                    *F9EC: 7E C8 08       '~..'
+LOADED  JMP     GOCUBIX                  *F9EC: 7E C8 08       '~..'
 
 * Print CR/LF. Destroys A.
 PUTCR   LDA     #$0D
