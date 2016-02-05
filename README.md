@@ -22,3 +22,4 @@ http://www.bradrodriguez.com/papers/index.html
 Approximate WIKI Change Log:
 
 03Feb2016 Rework FLEX stuff to add more detail and make it clearer
+05Feb2016 Rework CUBIX stuff to describe new single-step boot. Remove references to obsolete SDINIT.
