@@ -24,12 +24,13 @@
 * MON - Entry from FLEX (run-time). Keep sp? load dp.
 *   Exit: restore dp, branch to FLEX warm start point (which
 *   resets sp)
-* NMI - Entry from special key-press. State saved on existing
+* NMI - Entry from single-step logic.
+* FIQ - Entry from special key-press. State saved on existing
 *   stack. Load dp. Honour Interactive flag.
 *   Exit: ensure UART output idle (main program could have discerned
-*   this just as NMI was serviced), Do rti.
-* FIRQ - Entry from timer interrupt; either periodic timer or
-*   single step. State saved in existing stack. Load dp. Check
+*   this just as FIQ was serviced), Do rti.
+* IRQ - Entry from periodic timer interrupt.
+*   State saved in existing stack. Load dp. Check
 *   sstep flag.
 *   Exit: if timer, service and return through rti. If
 *   sstep rti will return to cli [NAC HACK 2015Jul18] could have a trace
@@ -66,12 +67,12 @@
 *
 *
 * Interrupts:
-* multicomp timer interrupt is currently on irq. This expects firq.
-*
+* multicomp timer interrupt is on IRQ.
+* multicomp single-step logic is on NMI
 *
 *
 * ** to delete?:
-* xrecord step
+* xrecord
 * ** to add:
 * sdcard load
 * flags for timer interrupt and interactive mode
@@ -121,6 +122,8 @@
 * 19. BUG when assembling leading whitespace causes an error.
 * 20. (my bug) with separate DP between buggy and application, cannot call
 *     any buggy routines if those routines use dp accesses.
+* 21. Since Multicomp09 use NMI for single step, could remove all of the
+*     toggling of interrupt masks here.
 
 * NEXT:
 * put harness in place to allow entry to and exit from FLEX
@@ -151,6 +154,7 @@ codestart       equ $e400
 * MULTICOMP I/O port addresses
 aciasta         equ $ffd0       ;Status port of VDU pseudo ACIA
 aciadat         equ $ffd1       ;Data port of VDU pseudo ACIA
+mmuadr          equ $ffde       ;mmu and single-step logic
 
 * FLEX vectors
 flexwrm         equ $CD03
@@ -197,7 +201,7 @@ linebuf         rmb buflen      ;Input line buffer.
 * move it elsewhere and use ZP for system variables! Likewise, the vectors
 * need not be in the ZP.
 
-* Interrupt vectors (start at $280)
+* Interrupt vectors (start at $E280)
 * All interrupts except RESET are vectored through jumps.
 * FIRQ is timer interrupt, IRQ is ACIA interrupt.
 swi3vec         rmb 3
@@ -212,7 +216,7 @@ asmerrvec       rmb 3           ;Error handler for assembler errors.
 pseudovec       rmb 3           ;Vector for asm pseudo instructions.
 
 * Next the non zero page system variables.
-oldpc           rmb 2           ;Saved pc value for J command.
+oldpc           rmb 2           ;Saved pc value for J/T commands.
 addr            rmb 2           ;Address parameter.
 length          rmb 2           ;Length parameter.
 
@@ -300,15 +304,17 @@ reset           orcc #$FF       ;Disable interrupts.
 
                 bsr initacia    ;Initialize serial port.
                 andcc #$0       ;Enable interrupts
+
 * Put the 'saved' registers of the program being monitored on top of the
 * stack. There are 12 bytes on the stack: cc,a,b,dp,xh,xl,yh,yl,uh,ul,pch,pcl
 * pc is initialized to ramstart, the rest to zero.
                 ldx #0
                 tfr x,y
                 ldu #ramstart
-                pshs x,u
-                pshs x,y
-                pshs x,y
+                pshs u,x        ; pcl pch ul  uh
+                pshs y,x        ; yl  yh  xl  xh
+                pshs y,x        ; dp  b   a   cc
+
                 ldx #oldpc
                 ldb #endvars-oldpc
 clvar           clr ,x+
@@ -487,13 +493,15 @@ unlaunch        ldd 10,s
                 std 10,s             ;Decrement pc before breakpoint
 unlaunch1       andcc #$0            ;reenable the interrupts.
                 lda #wsstart/256
-                tfr a,dp             ;Restore direct page register for buggy
+                tfr a,dp             ;Restore direct page register
                 jsr disarm           ;Disarm the breakpoints.
                 jsr dispregs
+
+* Command loop
 cmdline         jsr <xcloseout
                 sts savesp
                 ldb #'.'
-                jsr <putchar
+                jsr <putchar         ;Prompt
                 ldx #linebuf
                 ldb #buflen
                 jsr <getline
@@ -840,51 +848,44 @@ prog            ldy 10,s        ;Get program counter value.
 ***************************************************************
 * Command: T, single step trace an instruction.
 * Syntax T
-
-*[NAC HACK 2015Jul15] this should work with multicomp09, too. It expects
-* a 50Hz timer, which I have. It expects the timer to be wired to FIRQ
-* but mine is wired to IRQ (easy to change..)
-* the timing below is tuned for clocks = processor cycles so needs
-* adjustment for my divided clock with accelerated internal cycles.
-* The idea of switching the interrupt vector seems to mean that the
-* timer will run slow when single step is in use: the interrupt that
-* goes through SYNC will not increment the timer and the single step
-* interrupt will not increment the timer.
-* might be nicer to have a flag in the ISR that determines whether a
-* single step is in progress. Then, can do the timer stuff as well.
-* Saves messing with the vector so might all take more or less the
-* same amount of code and complexity.
-
+*
 
 trace           jsr traceone
                 jsr dispregs
                 jmp cmdline
 
-traceone        orcc #$50       ;Disable the interrupts.
+traceone        orcc #$50       ;Disable interrupts.
                 ldd ,s++
-                std oldpc       ;Remove saved pc from stack.
+                std oldpc       ;Remove "traceone" return address from
+                                ;the stack -- it is in the way!
                 ldd #traceret
-                std firqvec+1   ;Adjust timer IRQ vector.
-                sync            ;Synchronize on the next timer interrupt.
-                                ;1 cycle
-                ldx #4441       ;3 cycles
-traceloop       leax -1,x       ;6 cycles\x4441= 39969 cycles.
-                bne traceloop   ;3 cycles/
-                nop             ;2 cycles.
-                nop             ;2 cycles.
-                nop             ;2 cycles.
-                brn traceret    ;3 cycles.
-                puls x,y,u,a,b,dp,cc,pc ;17 cycles, total=39999 20ms @ 2MHz
-                                        ;Pull all registers and execute.
-                                        ;Is timed such that next timer IRQ
-                                        ;occurs right after it.
-traceret        puls cc
-                pshs x,y,u,a,b,dp,cc;Store full register set instead of cc.
-                ldd #timerirq
-                std firqvec+1   ;Restore timer IRQ vector.
-                jmp [oldpc]
+                std nmivec+1    ;Adjust NMI vector.
+
+                lda ,s          ;Grab CC
+                ora #$80
+                sta ,s          ;Write back with ENTIRE=1
 
 ***************************************************************
+* multicomp09 has a blob of hardware that triggers an NMI with*
+* specific timing as the result of a specific memory write.   *
+* Refer to the description in mem_mapper2.vhd and the         *
+* waveforms on the WIKI. Do not mess with this instruction    *
+* sequence!!                                                  *
+                lda #$10        ;Set bit 4                    *
+                sta mmuadr                                    *
+                rti             ;Resume application           *
+***************************************************************
+
+* Come here after the execution of 1 instruction at the target PC.
+* Full system state is (back) on the stack.
+traceret        ldd #endirq     ;[NAC HACK 2015Oct01] BUG!! Should save/restore the value
+                std nmivec+1    ;Restore NMI vector.
+                lda #wsstart/256
+                tfr a,dp        ;Restore direct page register
+                jmp [oldpc]     ;back to caller of "traceone"
+
+***************************************************************
+
 * Display the contents of 8 bit register, name in B, contents in A
 disp8           jsr <putchar
                 ldb #'='
@@ -911,7 +912,7 @@ disp16          jsr <putchar
 dispregs        ldb #'X'
                 ldy 6,s         ;Note that there's one return address on
                 bsr disp16      ;stack so saved register offsets are
-                ldb #'Y'        ;inremented by 2.
+                ldb #'Y'        ;incremented by 2.
                 ldy 8,s
                 bsr disp16
                 ldb #'U'
@@ -3292,7 +3293,7 @@ mhelp           fcb     CR,LF
 
 
 * Other messages, as null-terminated strings.
-welcome         fcc "BUGGY for Multicomp09, 2015Aug23 (type h for help)"
+welcome         fcc "BUGGY for Multicomp09, 2016Feb11 (type h for help)"
                 fcb 0
 unknown         fcc "Unknown command"
                 fcb 0
@@ -3324,16 +3325,16 @@ brmsg           fcc "Branch too long"
                 fcb 0
 
 * This jump table will be copied to the interrupt jump table area in RAM.
-intvectbl       jmp endirq
-                jmp endirq
-                jmp timerirq
-                jmp aciairq
-                jmp unlaunch
-                jmp endirq
-                jmp xerrhand
-                jmp expr
-                jmp asmerr   ; [NAC HACK 2015Aug23] bugfix! original was asmerrvec
-                jmp pseudo
+intvectbl       jmp endirq      ; swi3vec
+                jmp endirq      ; swi2vec
+                jmp timerirq    ; firqvec
+                jmp aciairq     ; irqvec
+                jmp unlaunch    ; swivec
+                jmp endirq      ; nmivec
+                jmp xerrhand    ; xerrvec
+                jmp expr        ; exprvec
+                jmp asmerr      ; asmerrvec   [NAC HACK 2015Aug23] bugfix! original was: jmp asmerrvec
+                jmp pseudo      ; pseudovec
 intvecend       equ *
 
 * This jump table will be copied to the I/O jump table area in RAM.
