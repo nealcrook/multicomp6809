@@ -74,14 +74,14 @@ type serialStateType is ( idle, dataBit, stopBit );
 signal rxState : serialStateType;
 signal txState : serialStateType;
 
-signal reset : std_logic := '0';
+signal func_reset : std_logic := '0';
 
 type rxBuffArray is array (0 to 15) of std_logic_vector(7 downto 0);
 signal rxBuffer : rxBuffArray;
 
-signal rxInPointer: integer range 0 to 63 :=0;
-signal rxReadPointer: integer range 0 to 63 :=0;
-signal rxBuffCount: integer range 0 to 63 :=0;
+signal rxInPointer: integer range 0 to 63 :=0;       -- registered on clk
+signal rxReadPointer: integer range 0 to 63 :=0;     -- registered on n_rd
+signal rxBuffCount: integer range 0 to 63 :=0;       -- combinational
 
 signal rxFilter : integer range 0 to 50; 
 
@@ -136,8 +136,16 @@ begin
    --            always 0 (no parity)    n/a        n/a
 	
 	-- write of xxxxxx11 to control reg will reset
-	reset <= '1' when n_wr = '0' and dataIn(1 downto 0) = "11" and regSel = '0' else '0';
-
+	process (clk)
+	begin
+		if rising_edge(clk) then
+			if n_wr = '0' and dataIn(1 downto 0) = "11" and regSel = '0' then
+				func_reset <= '1';
+                        else
+				func_reset <= '0';
+                        end if;
+		end if;
+	end process;
 
 	-- RX de-glitcher - important because the FPGA is very sensistive
 	-- Filtered RX will not switch low to high until there is 50 more high samples than lows
@@ -162,9 +170,11 @@ begin
 		end if;
 	end process;
 	
-	process( n_rd )
+	process( n_rd, func_reset )
 	begin
-		if falling_edge(n_rd) then -- Standard CPU - present data on leading edge of rd
+		if func_reset='1' then
+			rxReadPointer <= 0;
+		elsif falling_edge(n_rd) then -- Standard CPU - present data on leading edge of rd
 			if regSel='1' then
 				dataOut <= rxBuffer(rxReadPointer);
 				if rxInPointer /= rxReadPointer then
@@ -194,12 +204,13 @@ begin
 		end if;
 	end process;
 
-	rx_fsm: process( clk, rxClkEn , reset )
+	rx_fsm: process( clk, rxClkEn , func_reset )
 	begin
-		if reset='1' then
+		if func_reset='1' then
 			rxState <= idle;
 			rxBitCount<=(others=>'0');
 			rxClockCount<=(others=>'0');
+                        rxInPointer<=0;
 		elsif rising_edge(clk) and rxClkEn = '1' then
 			case rxState is
 			when idle =>
@@ -242,9 +253,9 @@ begin
 		end if;
 	end process;
 
-	tx_fsm: process( clk, txClkEn , reset )
+	tx_fsm: process( clk, txClkEn , func_reset )
 	begin
-		if reset='1' then
+		if func_reset='1' then
 			txState <= idle;
 			txBitCount<=(others=>'0');
 			txClockCount<=(others=>'0');

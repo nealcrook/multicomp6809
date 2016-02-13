@@ -152,7 +152,8 @@ ramfree         equ wsstart+$400 ;free RAM after local storage
 codestart       equ $e400
 
 * MULTICOMP I/O port addresses
-aciasta         equ $ffd0       ;Status port of VDU pseudo ACIA
+aciasta         equ $ffd0       ;RO Status port of VDU pseudo ACIA
+aciactl         equ $ffd0       ;WO Control port of VDU pseudo ACIA
 aciadat         equ $ffd1       ;Data port of VDU pseudo ACIA
 mmuadr          equ $ffde       ;mmu and single-step logic
 
@@ -337,10 +338,8 @@ blockmove       lda ,x+
 
 ***************************************************************
 * Initialize serial communications port, buffers, interrupts.
-initacia        ldb #$03
-* Multicomp
-*               stb aciactl
-                ldb #%00110101
+initacia        ldb #$03        ;Functional reset
+                stb aciactl
                 rts
 
 ***************************************************************

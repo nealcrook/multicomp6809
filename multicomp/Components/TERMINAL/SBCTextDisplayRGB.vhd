@@ -97,6 +97,8 @@ constant CHARS_PER_SCREEN : integer := HORIZ_CHARS*VERT_CHARS;
 	signal	FNkeysSig	: std_logic_vector(12 downto 0) := (others => '0');
 	signal	FNtoggledKeysSig	: std_logic_vector(12 downto 0) := (others => '0');
 
+	signal	func_reset: std_logic := '0';
+
 	signal	vActive   : std_logic := '0';
 	signal	hActive   : std_logic := '0';
 
@@ -156,9 +158,9 @@ constant CHARS_PER_SCREEN : integer := HORIZ_CHARS*VERT_CHARS;
 	type		kbBuffArray is array (0 to 7) of std_logic_vector(6 downto 0);
 	signal	kbBuffer : kbBuffArray;
 
-	signal	kbInPointer: integer range 0 to 15 :=0;
-	signal	kbReadPointer: integer range 0 to 15 :=0;
-	signal	kbBuffCount: integer range 0 to 15 :=0;
+	signal	kbInPointer: integer range 0 to 15 :=0;   -- registered on clk
+	signal	kbReadPointer: integer range 0 to 15 :=0; -- registered on n_rd
+	signal	kbBuffCount: integer range 0 to 15 :=0;   -- combinational
 	signal	dispByteWritten : std_logic := '0';
 	signal	dispByteSent : std_logic := '0';
 
@@ -558,9 +560,23 @@ end generate GEN_NO_ATTRAM;
 		else 8 + kbInPointer - kbReadPointer;
 	n_rts <= '1' when kbBuffCount > 4 else '0';
 
-	reg_rd: process( n_rd )
+	-- write of xxxxxx11 to control reg will reset
+	process (clk)
 	begin
-		if falling_edge(n_rd) then -- Standard CPU - present data on leading edge of rd
+		if rising_edge(clk) then
+			if n_wr = '0' and dataIn(1 downto 0) = "11" and regSel = '0' then
+				func_reset <= '1';
+                        else
+				func_reset <= '0';
+                        end if;
+		end if;
+	end process;
+
+	reg_rd: process( n_rd, func_reset )
+	begin
+		if func_reset='1' then
+			kbReadPointer <= 0;
+		elsif falling_edge(n_rd) then -- Standard CPU - present data on leading edge of rd
 			if regSel='1' then
 				dataOut <= '0' & kbBuffer(kbReadPointer);
 				if kbInPointer /= kbReadPointer then
@@ -617,13 +633,18 @@ end generate GEN_NO_ATTRAM;
 		end if;
 	end process;
 
-	kbd_ctl: process( clk )
+	kbd_ctl: process( clk, func_reset )
 	-- 11 bits
 	-- start(0) b0 b1 b2 b3 b4 b5 b6 b7 parity(odd) stop(1)
 	begin
 		if rising_edge(clk) then
 
 			ps2PrevClk <= ps2ClkFiltered;
+
+			if func_reset = '1' then
+				-- reset keyboard pointers
+				kbInPointer <= 0;
+			end if;
 
 			if n_kbWR = '0' and kbWriteTimer<25000 then
 				ps2WriteClkCount<= 0;
