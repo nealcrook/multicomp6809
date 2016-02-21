@@ -53,7 +53,7 @@ while (!eof(INFILE)) {
         }
         $block_sum = $block_sum + $sum;
         # remove unprintables
-        $unprintables = ($txt =~ s/[^ \w\*\(\)\-\.\,\'\"\;\:\#\$\&\?\@\/\\\>\<\+\!\[\]\=\|]/\?/g);
+        $unprintables = ($txt =~ s/[^ \w\*\(\)\-\.\,\'\"\;\:\#\$\&\^\?\@\/\\\>\<\+\!\[\]\=\|]/\?/g);
         $unprintables = $unprintables == 0 ? " " : "*";
         if ($print) {
             printf("          %03d:%02d  |%s|%s %04X\n",$block, $l, $txt, $unprintables, $sum);
