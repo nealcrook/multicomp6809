@@ -66,7 +66,7 @@ MARKER M-EDITOR 16 25 THRU
 Bootstrap: need these words
 
 BLKADRS            double variable storing sda2, sda10 of blocks file. ie:
-                   lba2 BLKADRS ! lba10 BLKADRS 2 + !
+                   lba2 BLKADRS ! lba10 BLKADRS CELL+ !
 MKBLKF ( blocks -- )  make block file (zero out that many 1k blocks on SDcard at
                    address given by BLKADRS)
 BADBLOB ( -- )     error message then QUIT or ABORT?
@@ -75,12 +75,10 @@ BLOB ( "FOO" -- )  create marker data structure for binary blob
 SDWRZ  ( sda10 blocks -- ) zero out that many 512-byte blocks on the SDcard -
                    like other SD words, assumes SDLBA2 has been run already.
 WRBLOB ( n "FOO" -- ) write binary of FOO (defined by BLOB) to the current blocks
-                   file starting at 1k block n. Error if blocks file address is
-                   FF.FFFF (not initialised by LDBLKF). Error if FOO fails magic
+                   file starting at 1k block n. Error if FOO fails magic
                    number check. Error if FOO has a byte count of 0.
 RDBLOB ( n -- )    Read binary from the current blocks file, at 1k block n, into
-                   memory starting at HERE. Error if the blocks file address is
-                   FF.FFFF (not initialised by LDBLKF). Error if the binary fails
+                   memory starting at HERE. Error if the binary fails
                    magic number check. Error if HERE does not match load address.
                    After the load, HERE and LATEST are updated so that the definitions
                    in the binary appear as though they were just compiled.
@@ -100,12 +98,11 @@ BLOB FRED \ creates a dictionary entry with a DOES> effect
 
 FRED \ "seals" the binary by setting the end-addr
 
-0 1280 100 MKBLKF
+100 MKBLKF
 40 WRBLOB FRED     \ write FRED to block file at block offset 40
 
 ( power cycle )
 
-0 1280 LDBLKF
 40 RDBLOB          \ restore definitions
 
 (etc)
@@ -190,20 +187,20 @@ TO CHANGE INIT TABLE VALUES *AND* SIZE (BOTH IN SCR 50/120)
 HEX 1000 ALLOT
 
 VARIABLE BLKADRS CELL ALLOT
-0002 BLKADRS ! 0800 BLKADRS 2 + ! \ Is endian correct?
+0002 BLKADRS ! 0800 BLKADRS CELL+ ! \ Is endian correct?
 
 : BADBLOB ." ERROR BAD BLOB " TYPE CR ABORT ;
 \ Abort if CFA does not contain magic number
 : BADMAG DUP 6 + S" CF09" S= IF S" MAGIC NUMBER" BADBLOB THEN ;
 \ Abort if CFA has load-addr == end-addr
-: BADSIZ DUP @ OVER 2 + @ = IF S" ZERO BYTES" BADBLOB THEN ;
+: BADSIZ DUP @ OVER CELL+ @ = IF S" ZERO BYTES" BADBLOB THEN ;
 \ Abort if CFA has load-addr that differs from HERE
 : BADLD  DUP @ HERE <> IF S" LOAD ADDR" BADBLOB THEN ;
 
 : BLOB LATEST @ HERE DUP CREATE , , , \ start-addr, end-addr, link-addr
-  4346 , 3039 , DOES>     \ "CF09" magic number
-    DUP 2 + HERE SWAP !   \ run-time: fill in end-addr
-    4 + LATEST @ SWAP ! ; \ and link-addr
+  4346 , 3039 , DOES>       \ "CF09" magic number
+    CELL+ DUP HERE SWAP !   \ run-time: fill in end-addr
+    CELL+ LATEST @ SWAP ! ; \ and link-addr
 
 : RMBLOB ' >BODY BADMAG DUP @ DP ! @ @ LATEST ! ;
 
@@ -218,25 +215,25 @@ HEX
 
 : MKBLKF 1 LSHIFT
   BLKADRS @ SDLBA2 0 DO
-    BLKADRS 2 + @ I + SDWRZ
+    BLKADRS CELL+ @ I + SDWRZ
   LOOP 0 SDLBA2 ;
 
 : WRBLOB 1 LSHIFT BLKADRS 2 + @ +
   ' >BODY BADMAG BADSIZ
-  DUP 2 + @ OVER @ - \ size in bytes
+  DUP CELL+ @ OVER @ - \ size in bytes
   9 RSHIFT 1 + \ size in 512b sd sectors
   SWAP @ SWAP
   BLKADRS @ SDLBA2 SDWRn ;
 
 : RDBLOB ( n -- ) \ read blob from block file starting at block n
-  BLKADRS @ SDLBA2 1 LSHIFT BLKADRS 2 + @ + HERE \ 1st-sector load-addr
+  BLKADRS @ SDLBA2 1 LSHIFT BLKADRS CELL+ @ + HERE \ 1st-sector load-addr
   2DUP SDRD \ load first sector.
-  HERE 2 + NFA>CFA 3 + \ PFA of blob
+  HERE CELL+ NFA>CFA 3 + \ PFA of blob
   BADMAG BADLD  \ sanity checks
   \ 1st-sector load-addr pfa
 
   \ calculate how many more sectors, then load them
-  DUP 2 + @ OVER @ - \ size in bytes
+  DUP CELL+ @ OVER @ - \ size in bytes
   9 RSHIFT \ remaining 512b sd sectors
   SWAP >R  \ 1st-sector load-addr count
   BEGIN
@@ -249,9 +246,9 @@ HEX
   DROP 2DROP R>
 
   \ stitch the blob into place
-  LATEST @ HERE !      \ Update ..oldest link in loaded blob.
-  DUP 2 + @ DP !       \ ..HERE from blob's end-addr
-      4 + @ LATEST ! ; \ ..LATEST from value stored in blob
+  LATEST    @ HERE !     \ Update ..oldest link in loaded blob
+  CELL+ DUP @ DP !       \ ..HERE from blob's end-addr
+  CELL+     @ LATEST ! ; \ ..LATEST from value stored in blob
 
 
 \ TEST CODE. AIM IS TO BE >1 BLOCK WORTH OF DATA
