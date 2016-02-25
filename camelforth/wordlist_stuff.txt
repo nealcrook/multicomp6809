@@ -1,0 +1,128 @@
+\ a WID is an NFA. For a WID created by WORDLIST, the name
+\ associated with the WID has a length of 0.
+
+HEX
+
+\ USER data structure:
+\ ( This needs to be done somewhat differently when it's
+\ in ROM space).
+
+VARIABLE CURRENT             \ WID of compilation wordlist
+CREATE #WIDS 0 C,            \ number of WIDs in the stack
+CREATE CONTEXT 8 CELLS ALLOT \ search stack. CONTEXT @ is TOS.
+
+\ non-ANS. Create a definition "name" and associate a new
+\ wordlist with it. The run-time effect of "name" is to replace
+\ the first WID in the search order with the WID of this
+\ wordlist.
+: VOCABULARY ( "name" --)
+   HERE CELL+ CREATE COMPILE, \ nfa
+   0 COMPILE,                 \ 0 link means wordlist is empty
+   DOES> @ CONTEXT ! ;        \ replace wid with this wid
+
+\ Like CREATE but nameless (name of length 0).
+: CREATE-NONAME ( -- xt)
+     LATEST @ ,     \ compile link field
+     HERE LATEST !  \ new "latest" link
+     0 C,           \ length field
+     HERE BD C,
+     [ ' EXIT F - ] LITERAL , ; \ <DOCREATE> **SUPERHACK**
+
+\ create a new, empty wordlist. All wordlists created in this
+\ way are nameless (name length is 0)
+: WORDLIST ( -- wid)    \ create a new, empty wordlist
+    CREATE-NONAME 1-    \ xt>nfa for 0-length name.
+    0 COMPILE, ;
+
+\ non-ANS. Print name of wordlist associated with WID
+: .wid ( wid --)
+   DUP U. 4 SPACES DUP CHAR+ SWAP C@ 3F AND DUP 0= IF
+       DROP ." <unnamed>"
+   ELSE TYPE THEN ;
+
+
+\ TODO
+: FIND ( c-addr -- c-addr 0 | xt 1 | xt -1)
+;
+
+
+: GET-CURRENT ( -- wid) \ wid of the compilation wordlist
+    CURRENT @ ;
+
+: SET-CURRENT ( wid --) \ set the compilation wordlist to the
+    CURRENT ! ;         \ wordlist identified by wid
+
+: DEFINITIONS ( -- ) \ Make compilation wordlist the same as
+                     \ the first wordlist in the search order
+    CONTEXT @ CURRENT ! ;
+
+: GET-ORDER ( -- widn .. wid1 n)
+    #WIDS C@ DUP 0= IF DROP ELSE 1- -1 SWAP BEGIN
+        DUP CELLS CONTEXT + @ ROT ROT \ run loop for
+        1- 2DUP =                     \ n-1, n-2, .. 0
+    UNTIL 2DROP THEN #WIDS C@ ;
+
+: SET-ORDER ( widn .. wid1 n --)
+    DUP #WIDS C!
+    DUP 0= IF DROP ELSE
+        0 DO I CELLS CONTEXT + ! LOOP
+    THEN ;
+
+\ TODO
+: SEARCH-WORDLIST ( c-addr u wid -- 0 | xt 1 | xt -1)
+;
+
+
+: ALSO ( --) \ like DUP on wid-stack
+    CONTEXT DUP CELL+ 7 CELLS CMOVE>
+    #WIDS DUP C@ 1+ DUP 8 > IF 2DROP ELSE SWAP C! THEN ;
+;
+
+: PREVIOUS ( --) \ like DROP on wid-stack
+    #WIDS DUP C@ DUP 0= IF 2DROP ELSE
+        1- SWAP C!
+        CONTEXT DUP CELL+ SWAP 7 CELLS CMOVE THEN ;
+
+\ non-ANS. Push a wid onto the search order
+: >ORDER ( wid --)
+    ALSO CONTEXT ! ;
+
+
+: ORDER ( --) \ display wid-stack, from first to last searched,
+              \ and the compilation wid, in human-readable
+              \ format.
+    CR #WIDS C@ 0 2DUP <> IF
+        DO I CELLS CONTEXT + @ .wid CR LOOP
+    THEN
+    CR CURRENT @ .wid ."  (Compilation)" CR ;
+
+
+\ FORTH is ANS. ROOT is the conventional name for the search
+\ order left on the wid-stack by ONLY.
+VOCABULARY FORTH
+VOCABULARY ROOT
+VOCABULARY ASSEMBLER
+VOCABULARY NON-STD
+
+\ FORTH-WORDLIST ( -- wid)
+\ non-destructive ANS way to get wid applied by FORTH
+\ in order to create ANS word FORTH-WORDLIST.
+GET-CURRENT
+ALSO FORTH DEFINITIONS PREVIOUS GET-CURRENT
+CONSTANT FORTH-WORDLIST
+SET-CURRENT
+
+: ONLY ( --)  \ set wid-stack to minimum (eg "root") containing
+              \ at least FORTH-WORDLIST and SET-ORDER
+    ROOT 1 #WIDS C! ;
+
+\ FOR REFERENCE - existing FIND
+: zFIND       \ c-addr -- c-addr 0/1/-1   not found/immed/normal
+    LATEST @ BEGIN              \ -- a nfa
+        2DUP C@ BF AND SWAP C@  \ -- a nfa n1 n2
+        = IF 2DUP CHAR+ SWAP DUP CHAR+ SWAP C@ S= ELSE 1 THEN
+        DUP IF DROP NFA>LFA @ DUP THEN
+    0= UNTIL                    \ -- a nfa  OR  a 0
+    DUP IF                      \ if found, check immed status
+        NIP DUP NFA>CFA         \ -- nfa xt
+        SWAP IMMED?  0= 1 OR  THEN ;
