@@ -57,7 +57,7 @@ CREATE BSTATE
   A LSHIFT BSTATE @ F3FF AND OR BSTATE ! ;
 
 \ given a buffer number return the start address of that buffer
-: buf2adr ( buf -- a-addr)
+: buf2a ( buf -- a-addr)
   A LSHIFT BBBASE + ;
 
 \ given a buffer number set up SDLBA2 and end with parameters
@@ -66,7 +66,7 @@ CREATE BSTATE
 \ inspection, the code here is correct for the current imp.
 \ Remember, SDcard blocks are 512bytes.
 : buf2sd ( buf -- sdblock c-addr-src 2)
-  DUP buf2adr SWAP BLKADRS 2@ SDLBA2
+  DUP buf2a SWAP BLKADRS 2@ SDLBA2
   SWAP 2* CELL+ BSTATE + @ 2* + SWAP 2 ;
 
 \ given a buffer number, read the assigned block into that buffer
@@ -93,16 +93,22 @@ CREATE BSTATE
 
 \ block assignment - assign, read, make Current
 : BLOCK ( blk -- a-addr)
-  asnblk DUP curbuf DUP bufrd buf2adr ;
+  asnblk DUP curbuf DUP bufrd buf2a ;
 
 \ buffer assignment - assign (don't read), make Current
 : BUFFER ( blk -- a-addr)
-  asnblk DUP curbuf buf2adr ;
+  asnblk DUP curbuf           buf2a ;
 
+\ have to save current input source. If current source
+\ is block, need to save the block number; to resume, the
+\ block may not be in a buffer any more, so need to read
+\ it again and fix up the address in case it is now in
+\ a different buffer.
 : LOAD ( blk --)
-  'SOURCE 2@ >R >R  >IN @ >R ( save)
+  'SOURCE 2@ >R >R  BLK @ >R  >IN @ >R ( save)
   DUP BLK ! BLOCK 0 >IN ! 400 INTERPRET
-  R> >IN !  R> R> 'SOURCE 2! ( restore) ;
+  R> >IN !  R> DUP 0= IF DROP 0 ELSE DUP BLK ! BLOCK THEN
+  R> 3FF AND OR R> 'SOURCE 2! ( restore) ;
 
 : THRU ( blk1 blk2 -- ) \ LOAD a range of blocks
   1+ SWAP DO I LOAD LOOP ;
