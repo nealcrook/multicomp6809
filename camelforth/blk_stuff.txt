@@ -125,10 +125,10 @@ CREATE BSTATE
 : EMPTY-BUFFERS ( --) \ unassign all buffers, Modified or otherwise
   0 BSTATE ! ;
 
-: lprfx 10 SPACES ;
-: ltop lprfx 40 0 DO 2D EMIT LOOP CR ;
+: ltop 40 0 DO 2D EMIT LOOP CR ;
 
 : LIST ( blk --)
   CR ltop DUP SCR ! BLOCK 10 0 DO
-    lprfx 40 0 DO .A LOOP CR LOOP DROP ltop ;
+       40 0 DO .A      LOOP CR
+  LOOP DROP ltop ;
 
