@@ -67,8 +67,6 @@ Bootstrap: need these words
 
 BLKADRS            double variable storing sda2, sda10 of blocks file. ie:
                    lba2 BLKADRS ! lba10 BLKADRS CELL+ !
-MKBLKF ( blocks -- )  make block file (zero out that many 1k blocks on SDcard at
-                   address given by BLKADRS)
 BADBLOB ( -- )     error message then QUIT or ABORT?
 BLOB ( "FOO" -- )  create marker data structure for binary blob
 "FOO"              seal/reseal the data structure created by BLOB FOO
@@ -98,7 +96,6 @@ BLOB FRED \ creates a dictionary entry with a DOES> effect
 
 FRED \ "seals" the binary by setting the end-addr
 
-100 MKBLKF
 40 WRBLOB FRED     \ write FRED to block file at block offset 40
 
 ( power cycle )
@@ -212,11 +209,6 @@ HEX
 \ 21) and code it below.
 : FIXBLOB ['] BLOB 21 +  \ current addr for BLOB DOES>
   ' >BODY BADMAG 2 - ! ; \ overwrite addr of BLOB DOES> in defined blob
-
-: MKBLKF 1 LSHIFT
-  BLKADRS @ SDLBA2 0 DO
-    BLKADRS CELL+ @ I + SDWRZ
-  LOOP 0 SDLBA2 ;
 
 : WRBLOB 1 LSHIFT BLKADRS 2 + @ +
   ' >BODY BADMAG BADSIZ
