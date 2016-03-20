@@ -70,12 +70,15 @@ CREATE BSTATE
   SWAP 2* CELL+ BSTATE + @ 2* + SWAP 2 ;
 
 \ given a buffer number, read the assigned block into that buffer
+\ UNLESS it's marked as Modified -- in which case, it must already
+\ BE in the buffer, and re-reading it would corrupt the new version
 : bufrd ( buf --)
-  buf2sd SDRDn ;
+  1 OVER LSHIFT BSTATE @ AND ( Modified?)
+  IF DROP ELSE buf2sd SDRDn THEN ;
 
 : bufwr ( buf -- ) \ if buf is Modified, save it, mark !Modified
   1 OVER LSHIFT BSTATE @ AND DUP IF
-    ( buf bitmask) BSTATE @ XOR BSTATE ! ( clear Dirty)
+    ( buf bitmask) BSTATE @ XOR BSTATE ! ( clear Modified)
     ( buf) buf2sd SDWRn
   ELSE 2DROP THEN ;
 
