@@ -7,7 +7,6 @@
 MARKER BLKWRDS
 HEX
 
-
 \ Changes needed elsewhere:
 \ Extend EVALUATE to store 0 in BLK - that also means that BLK
 \ need not be initialised here.
@@ -134,4 +133,3 @@ CREATE BSTATE
   CR ltop DUP SCR ! BLOCK 10 0 DO
        40 0 DO .A      LOOP CR
   LOOP DROP ltop ;
-
