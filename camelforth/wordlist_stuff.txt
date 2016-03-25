@@ -1,5 +1,11 @@
-\ a WID is an NFA. For a WID created by WORDLIST, the name
-\ associated with the WID has a length of 0.
+\ a WID is an address. WID @ is the address of the NFA of
+\ youngest definition in the WID's wordlist; therefore,
+\ the WID is just like LATEST (because LATEST @ acts in
+\ the same way for the single-wordlist system).
+\ WID CELL+ @ is either 0 (for a WID created by WORDLIST)
+\ or (for a WID created by VOCABULARY) is the address of
+\ the NFA of the VOCABULARY -- .wid needs/uses this
+\ distinction to identify un-named wordlists.
 
 HEX
 
@@ -16,35 +22,23 @@ CREATE CONTEXT 8 CELLS ALLOT \ search stack. CONTEXT @ is TOS.
 \ the first WID in the search order with the WID of this
 \ wordlist.
 : VOCABULARY ( "name" --)
-   HERE CELL+ CREATE COMPILE, \ nfa
-   0 COMPILE,                 \ 0 link means wordlist is empty
-   DOES> @ CONTEXT ! ;        \ replace wid with this wid
+   HERE CELL+ CREATE      \ the created definition's nfa
+   0 , ,                  \ 0 for empty wordlist, nfa for .wid
+   DOES> CONTEXT ! ;      \ replace top wid with this wid
 
-\ Like CREATE but nameless (name of length 0).
-: CREATE-NONAME ( -- xt)
-     LATEST @ ,     \ compile link field
-     HERE LATEST !  \ new "latest" link
-     0 C,           \ length field
-     HERE BD C,
-     [ ' EXIT F - ] LITERAL , ; \ <DOCREATE> **SUPERHACK**
-
-\ create a new, empty wordlist. All wordlists created in this
-\ way are nameless (name length is 0)
+\ create a new, empty wordlist. Wordlists created in this
+\ way are nameless: they are not linked into any wordlist
+\ and there is no way to locate them using FIND. The layout
+\ is a cell containing the WID followed by a cell containing
+\ 0. The second cell of 0 is ONLY there to allow .wid to
+\ identify it.
 : WORDLIST ( -- wid)    \ create a new, empty wordlist
-    CREATE-NONAME 1-    \ xt>nfa for 0-length name.
-    0 COMPILE, ;
+    HERE 0 DUP , , ;    \ 0 for empty wordlist, 0 for nameless
 
 \ non-ANS. Print name of wordlist associated with WID
 : .wid ( wid --)
-   DUP U. 4 SPACES DUP CHAR+ SWAP C@ 3F AND DUP 0= IF
-       DROP ." <unnamed>"
-   ELSE TYPE THEN ;
-
-
-\ TODO
-: FIND ( c-addr -- c-addr 0 | xt 1 | xt -1)
-;
-
+   DUP U. 4 SPACES CELL+ @ ?DUP IF DUP CHAR+ SWAP C@ 3F AND TYPE
+   ELSE ." <unnamed>" THEN ;
 
 : GET-CURRENT ( -- wid) \ wid of the compilation wordlist
     CURRENT @ ;
@@ -68,15 +62,9 @@ CREATE CONTEXT 8 CELLS ALLOT \ search stack. CONTEXT @ is TOS.
         0 DO I CELLS CONTEXT + ! LOOP
     THEN ;
 
-\ TODO
-: SEARCH-WORDLIST ( c-addr u wid -- 0 | xt 1 | xt -1)
-;
-
-
 : ALSO ( --) \ like DUP on wid-stack
     CONTEXT DUP CELL+ 7 CELLS CMOVE>
     #WIDS DUP C@ 1+ DUP 8 > IF 2DROP ELSE SWAP C! THEN ;
-;
 
 : PREVIOUS ( --) \ like DROP on wid-stack
     #WIDS DUP C@ DUP 0= IF 2DROP ELSE
@@ -86,7 +74,6 @@ CREATE CONTEXT 8 CELLS ALLOT \ search stack. CONTEXT @ is TOS.
 \ non-ANS. Push a wid onto the search order
 : >ORDER ( wid --)
     ALSO CONTEXT ! ;
-
 
 : ORDER ( --) \ display wid-stack, from first to last searched,
               \ and the compilation wid, in human-readable
@@ -116,6 +103,14 @@ SET-CURRENT
               \ at least FORTH-WORDLIST and SET-ORDER
     ROOT 1 #WIDS C! ;
 
+\ TODO - search a single wordlist
+: SEARCH-WORDLIST ( c-addr u wid -- 0 | xt 1 | xt -1)
+;
+
+\ TODO - search all the searchlists in the current search order
+: FIND ( c-addr -- c-addr 0 | xt 1 | xt -1)
+;
+
 \ FOR REFERENCE - existing FIND
 : zFIND       \ c-addr -- c-addr 0/1/-1   not found/immed/normal
     LATEST @ BEGIN              \ -- a nfa
@@ -126,3 +121,107 @@ SET-CURRENT
     DUP IF                      \ if found, check immed status
         NIP DUP NFA>CFA         \ -- nfa xt
         SWAP IMMED?  0= 1 OR  THEN ;
+
+
+\ from hforth:
+
+\   SEARCH-WORDLIST	( c-addr u wid -- 0 | xt 1 | xt -1)	\ SEARCH
+\		Search word list for a match with the given name.
+\		Return execution token and -1 or 1 ( IMMEDIATE) if found.
+\		Return 0 if not found.
+\
+\   : SEARCH-WORDLIST
+\		(search-wordlist) DUP IF NIP THEN ;
+
+
+
+\   (search-wordlist)	( c-addr u wid -- 0 | xt f 1 | xt f -1)
+\		Search word list for a match with the given name.
+\		Return execution token and not-compile-only flag and
+\		-1 or 1 ( IMMEDIATE) if found. Return 0 if not found.
+\
+\		format is: wid---->[   a    ]
+\				       |
+\			     +---------+
+\			     V
+\		[   a'   ][ccbbaann][ggffeedd]...
+\		    |
+\		    +--------+
+\			     V
+\		[   a''  ][ccbbaann][ggffeedd]...
+\
+\		a, a' etc. point to the cell that contains the name of the
+\		word. The length is in the low byte of the cell (little byte
+\		for little-endian, big byte for big-endian).
+\		Eventually, a''' contains 0 to indicate the end of the wordlist
+\		(oldest entry). a=0 indicates an empty wordlist.
+\		xt is the xt of the word. aabbccddeedd etc. is the name of
+\		the word, packed into cells.
+\
+\   : (search-wordlist)
+\		ROT >R SWAP DUP 0= IF -16 THROW THEN
+\				\ attempt to use zero-length string as a name
+\		>R		\ wid  R: ca1 u
+\		BEGIN @ 	\ ca2  R: ca1 u
+\		   DUP 0= IF R> R> 2DROP EXIT THEN	\ not found
+\		   DUP COUNT [ =MASK ] LITERAL AND R@ = \ ca2 ca2+char f
+\		      IF   R> R@ SWAP DUP >R		\ ca2 ca2+char ca1 u
+\			   same?			\ ca2 flag
+\		    \ ELSE DROP -1	\ unnecessary since ca2+char is not 0.
+\		      THEN
+\		WHILE cell-		\ pointer to next word in wordlist
+\		REPEAT
+\		R> R> 2DROP DUP name>xt SWAP		\ xt ca2
+\		C@ DUP [ =COMP ] LITERAL AND 0= SWAP
+\		[ =IMED ] LITERAL AND 0= 2* 1+ ;
+\
+
+
+\   FIND	( c-addr -- c-addr 0 | xt 1 | xt -1)	 \ SEARCH
+\		Search dictionary for a match with the given counted name.
+\		Return execution token and -1 or 1 ( IMMEDIATE) if found;
+\		c-addr 0 if not found.
+\
+\   : FIND	DUP COUNT search-word ?DUP IF NIP ROT DROP EXIT THEN
+\		2DROP 0 ;
+
+\   search-word ( c-addr u -- c-addr u 0 | xt f 1 | xt f -1)
+\		Search dictionary for a match with the given name. Return
+\		execution token, not-compile-only flag and -1 or 1
+\		( IMMEDIATE) if found; c-addr u 0 if not.
+\
+\   : search-word
+\		#order @ DUP			\ not found if #order is 0
+\		IF 0
+\		   DO 2DUP			\ ca u ca u
+\		      I CELLS #order CELL+ + @	\ ca u ca u wid
+\		      (search-wordlist) 	\ ca u; 0 | w f 1 | w f -1
+\		      ?DUP IF			\ ca u; 0 | w f 1 | w f -1
+\			 >R 2SWAP 2DROP R> UNLOOP EXIT \ xt f 1 | xt f -1
+\		      THEN			\ ca u
+\		   LOOP 0			\ ca u 0
+\		THEN ;
+\
+\ ANS
+\ FIND 39
+\ FIND 119
+\ SEARCH-WORDLIST 120
+\
+\ FIND ( c-addr -- c-addr 0 | xt 1 | xt -1 )
+\                  not fnd    immed  non-immed
+\ c-addr is a counted string.
+\
+\ SEARCH: extend to include all the word-lists in the search order.
+\
+\ SEARCH-WORDLIST ( c-addr u -- 0 | xt 1 | xt -1 )
+\
+\ ie, string is addr,len format and is never retained at end. FIND and SEARCH-WORDLIST
+\ can be derived simply from a core word. Code above looks a little over-complex.
+\
+\
+\ To stitch this in to CamelForth need to affect everything that uses LATEST: - at
+\ least 19 words.
+\
+\ With word lists implemented, would also need to rework the BLOB code to store
+\ and restore the search order (assuming it's in the USER space and not in the
+\ dictionary encompassed by the blob).
