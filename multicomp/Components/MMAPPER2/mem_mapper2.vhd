@@ -151,7 +151,7 @@
 --  $02   $03   Timer was and remains enabled, no interrupt. N=0.
 --  $80   $81   Timer was and remains disabled, old pending interrupt cleared.
 --              N=1.
---  $82   $83   Timer was and remains disabled, old pending interrupt cleared.
+--  $82   $83   Timer was and remains enabled,  old pending interrupt cleared.
 --              N=1.
 --
 --
