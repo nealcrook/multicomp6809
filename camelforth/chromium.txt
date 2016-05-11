@@ -678,33 +678,39 @@ case, any of the following actions can be specified:
 
 A simple example is
     : CONSTANT  CREATE , DOES> @ ;
-    3 CONSTANT THREE
+    3 CONSTANT THREE 9 CONSTANT NINE
 
 In a DTC target this will create the following code:
-здддддддддбдддддддддддбддддддбдддбдддддддб<1>дддддддбдддбдддддд©
-Ё8CONSTANTЁJSR DOCOLONЁCREATEЁ , Ё(DOES>)ЁJSR DODOESЁ @ Ё EXIT Ё
-юдддддддддадддддддддддаддддддадддадддддддаддддддддддадддадддддды
-   зддддддбдддддддддддбдддддд©
-   Ё5THREEЁ JSR <1>   Ё   3  Ё
-   юддддддадддддддддддадддддды
+
+           <------- create part -------->|<--- action part --->
++---------+-----------+------+---+-------+<1>-------+---+------+
+| CONSTANT|JSR DOCOLON|CREATE| , |(DOES>)|JSR DODOES| @ | EXIT |
++---------+-----------+------+---+-------+----------+---+------+
+        +------+-----+-----+------+------+-----+-----+------+
+        | THREE| JSR <1>   |   3  | NINE | JSR <1>   |   9  |
+        +------+-----------+------+------+-----------+------+
 
 In the host system this will create the following code:
 
-                        value h-comp h-exec
-здддддддддбддддддддбддддддбдддддддбдддддбддддддддд©
-Ё8CONSTANTЁDOMIRRORЁ tcfa Ё M,REF Ё <2> Ё ...     Ё
-юдддддддддаддддддддаддддддадддддддадддддаддддддддды
-з<2>ддбдддддддбддддбдддбдддддбддддддддб<3>ддбддддбддддбдддддд©
-ЁNEST ЁTCREATEЁ T, ЁLITЁ <1> Ё(MDOES>)ЁNEST ЁTPFAЁ T@ ЁUNNESTЁ
-юдддддадддддддаддддадддадддддаддддддддадддддаддддаддддадддддды
-   зддддддбддддддддбддддддбдддддддбдддддбддддддддд©
-   Ё5THREEЁDOMIRRORЁ tcfa Ё M,REF Ё <3> Ё ...     Ё
-   юддддддаддддддддаддддддадддддддадддддаддддддддды
+                    value  h-comp  h-exec
++---------+--------+------+-------+------+--+--+--+--+
+| CONSTANT|DOMIRROR| tcfa | M,REF | <2>  | ...       |
++---------+--------+------+-------+------+--+--+--+--+
++<2>--+-------+----+---+-----+--------+<3>--+----+----+------+
+|NEST |TCREATE| T, |LIT| <1> |(MDOES>)|NEST |TPFA| T@ |UNNEST|
++-----+-------+----+---+-----+--------+-----+----+----+------+
++---------+--------+------+-------+------+--+--+--+--+
+|  THREE  |DOMIRROR| tcfa | M,REF | <3>  | ...       |
++---------+--------+------+-------+------+--+--+--+--+
++---------+--------+------+-------+------+--+--+--+--+
+|  NINE   |DOMIRROR| tcfa | M,REF | <3>  | ...       |
++---------+--------+------+-------+------+--+--+--+--+
 
 where <1> is the address of the target's DOES> code, <2> is the
 address of the host's CREATE code, and <3> is the address of the
 host's DOES> code.  <2> and <3> are headerless colon definitions
-in the host machine.
+in the host machine. Notice how <3> extracts the constant's
+values (3, 9) from the target address space, using T@.
 
 (DOES>)  is a mirror word in the TARGET vocabulary, allowing the
     compiler to compile forward-references to the target's
@@ -738,10 +744,10 @@ MDOES> ( - )  a) compiles the latest specified TARG-DOES address
     ensures that the host's DOES> phrase will be entered with
     the pfa of the corresponding target "child" on the stack.
 
-MDOES> ("mirror-does") may be used explicitly in the EMULATES:
+MDOES> ("mirror-does") may be used explicitly in the EMULATE:
 code for a defining word, e.g.
     : CONSTANT  CREATE  , DOES>  @   ;         (target's code)
-    EMULATES:  TCREATE T, MDOES> T@  ;EMULATES (host's code)
+    EMULATE:  TCREATE T, MDOES> T@  ;EMULATE  (host's code)
 This example should make the parallel between the target words
 and the metacompiler words obvious.
 
