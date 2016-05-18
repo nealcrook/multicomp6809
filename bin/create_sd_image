@@ -148,3 +148,33 @@ dd if=nitros9_3.img of=multicomp09_sd.img obs=1M seek=86
 ##nitros9_disk_manip VCCEmuDisk.vhd -outsd nitros9_3.img
 ##dd if=nitros9_3.img of=multicomp09_sd.img obs=1M seek=86
 
+###############################################################
+# FUZIX Kernel
+# (Allow) 1MByte at offset 96MByte
+# boot loader: load and execute at 0xd000
+# 96MByte   is block offset 1048576/2 * 192/512 = 0x3.0000
+dd if=fuzix_boot.bin of=multicomp09_sd.img obs=512K seek=192
+# Kernel: loaded by the boot loaded
+# 96.5MByte is block offset 1048576/2 * 193/512 = 0x3.0400
+dd if=fuzix.bin      of=multicomp09_sd.img obs=512K seek=193
+
+###############################################################
+# TODO FUZIX Swap file
+# Reserve 1MByte at offset 97MByte
+# 97MByte is block offset 1048576 * 97/512 = 0x3.0800
+
+###############################################################
+# FUZIX Root file system
+# 32Mbyte at offset 98MByte
+# 98MByte is block offset 1048576 * 98/512 = 0x3.1000
+# The root file system is in FUZIX format
+dd if=fuzixfs.dsk of=multicomp09_sd.img obs=1M seek=98
+
+###############################################################
+# FUZIX Additional file system
+# 32Mbyte at offset 130MByte
+# 130MByte is block offset 1048576 * 130/512 = 0x4.1000
+# The root file system is in FUZIX format .. TODO? 512 or 256?
+#dd if=fuzixfs_blank.dsk of=multicomp09_sd.img obs=1M seek=130
+
+
