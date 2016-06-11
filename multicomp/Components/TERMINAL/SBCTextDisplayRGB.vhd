@@ -254,7 +254,7 @@ constant CHARS_PER_SCREEN : integer := HORIZ_CHARS*VERT_CHARS;
         --       \|                                           BACKSP                     KP1               KP4      KP7
 	t(x"00"),t(x"5C"),t(x"00"),t(x"00"),t(x"00"),t(x"00"),t(x"08"),t(x"00"),t(x"00"),t(x"31"),t(x"00"),t(x"34"),t(x"37"),t(x"00"),t(x"00"),t(x"00"), -- 6
         -- KP0   KP.      KP2      KP5      KP6      KP8      ESC      NUMLCK   F11      KP+      KP3      KP-      KP*      KP9      SCRLCK
-	t(x"30"),t(x"2E"),t(x"32"),t(x"35"),t(x"36"),t(x"38"),t(x"03"),t(x"00"),t(x"1B"),t(x"2B"),t(x"33"),t(x"2D"),t(x"2A"),t(x"39"),t(x"00"),t(x"00"), -- 7
+	t(x"30"),t(x"2E"),t(x"32"),t(x"35"),t(x"36"),t(x"38"),t(x"1B"),t(x"00"),t(x"1B"),t(x"2B"),t(x"33"),t(x"2D"),t(x"2A"),t(x"39"),t(x"00"),t(x"00"), -- 7
         --                         F7
 	t(x"00"),t(x"00"),t(x"00"),t(x"17") -- 8
 	);
