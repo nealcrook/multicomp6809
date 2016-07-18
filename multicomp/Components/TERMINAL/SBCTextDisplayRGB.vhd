@@ -118,6 +118,7 @@ constant CHARS_PER_SCREEN : integer := HORIZ_CHARS*VERT_CHARS;
 	signal	charHoriz: integer range 0 to 1+HORIZ_CHAR_MAX; --unsigned(6 DOWNTO 0);
 	signal	charBit: STD_LOGIC_VECTOR(3 DOWNTO 0);
 
+	-- top left-hand corner of the display is 0,0 aka "home".
 	signal	cursorVert: integer range 0 to VERT_CHAR_MAX :=0;
 	signal	cursorHoriz: integer range 0 to HORIZ_CHAR_MAX :=0;
 
@@ -239,36 +240,36 @@ constant CHARS_PER_SCREEN : integer := HORIZ_CHARS*VERT_CHARS;
 	constant kbUnshifted : kbDataArray :=
 	(
 	--  0        1        2        3        4        5        6        7        8        9        A        B        C        D        E        F
-        --       F9                F5       F3       F1       F2       F12               F10      F8       F6       F4       TAB      `
-        t(x"00"),t(x"19"),t(x"00"),t(x"00"),t(x"13"),t(x"11"),t(x"12"),t(x"1C"),t(x"00"),t(x"1A"),t(x"18"),t(x"16"),t(x"00"),t(x"09"),t(x"60"),t(x"00"), -- 0
-        --       l-ALT    l-SHIFT           l-CTRL   q        1                                   z        s        a        w        2
+	--       F9                F5       F3       F1       F2       F12               F10      F8       F6       F4       TAB      `
+	t(x"00"),t(x"19"),t(x"00"),t(x"15"),t(x"13"),t(x"11"),t(x"12"),t(x"1C"),t(x"00"),t(x"1A"),t(x"18"),t(x"16"),t(x"14"),t(x"09"),t(x"60"),t(x"00"), -- 0
+	--       l-ALT    l-SHIFT           l-CTRL   q        1                                   z        s        a        w        2
 	t(x"00"),t(x"00"),t(x"00"),t(x"00"),t(x"00"),t(x"71"),t(x"31"),t(x"00"),t(x"00"),t(x"00"),t(x"7A"),t(x"73"),t(x"61"),t(x"77"),t(x"32"),t(x"00"), -- 1
-        --       c        x        d        e        4        3                          SPACE    v        f        t        r        5
+	--       c        x        d        e        4        3                          SPACE    v        f        t        r        5
 	t(x"00"),t(x"63"),t(x"78"),t(x"64"),t(x"65"),t(x"34"),t(x"33"),t(x"00"),t(x"00"),t(x"20"),t(x"76"),t(x"66"),t(x"74"),t(x"72"),t(x"35"),t(x"00"), -- 2
-        --       n        b        h        g        y        6                                   m        j        u        7        8
+	--       n        b        h        g        y        6                                   m        j        u        7        8
 	t(x"00"),t(x"6E"),t(x"62"),t(x"68"),t(x"67"),t(x"79"),t(x"36"),t(x"00"),t(x"00"),t(x"00"),t(x"6D"),t(x"6A"),t(x"75"),t(x"37"),t(x"38"),t(x"00"), -- 3
-        --       ,        k        i        o        0        9                          .        /        l        ;        p        -
+	--       ,        k        i        o        0        9                          .        /        l        ;        p        -
 	t(x"00"),t(x"2C"),t(x"6B"),t(x"69"),t(x"6F"),t(x"30"),t(x"39"),t(x"00"),t(x"00"),t(x"2E"),t(x"2F"),t(x"6C"),t(x"3B"),t(x"70"),t(x"2D"),t(x"00"), -- 4
-        --                '                 [        =                          CAPLOCK  r-SHIFT  ENTER    ]                 #~
+	--                '                 [        =                          CAPLOCK  r-SHIFT  ENTER    ]                 #~
 	t(x"00"),t(x"00"),t(x"27"),t(x"00"),t(x"5B"),t(x"3D"),t(x"00"),t(x"00"),t(x"00"),t(x"00"),t(x"0D"),t(x"5D"),t(x"00"),t(x"23"),t(x"00"),t(x"00"), -- 5
-        --       \|                                           BACKSP                     KP1               KP4      KP7
+	--       \|                                           BACKSP                     KP1               KP4      KP7
 	t(x"00"),t(x"5C"),t(x"00"),t(x"00"),t(x"00"),t(x"00"),t(x"08"),t(x"00"),t(x"00"),t(x"31"),t(x"00"),t(x"34"),t(x"37"),t(x"00"),t(x"00"),t(x"00"), -- 6
-        -- KP0   KP.      KP2      KP5      KP6      KP8      ESC      NUMLCK   F11      KP+      KP3      KP-      KP*      KP9      SCRLCK
+	-- KP0   KP.      KP2      KP5      KP6      KP8      ESC      NUMLCK   F11      KP+      KP3      KP-      KP*      KP9      SCRLCK
 	t(x"30"),t(x"2E"),t(x"32"),t(x"35"),t(x"36"),t(x"38"),t(x"1B"),t(x"00"),t(x"1B"),t(x"2B"),t(x"33"),t(x"2D"),t(x"2A"),t(x"39"),t(x"00"),t(x"00"), -- 7
-        --                         F7
+	--                         F7
 	t(x"00"),t(x"00"),t(x"00"),t(x"17") -- 8
 	);
 	constant kbShifted : kbDataArray :=
 	(
 	--  0        1        2        3        4        5        6        7        8        9        A        B        C        D        E        F
-	t(x"00"),t(x"19"),t(x"00"),t(x"00"),t(x"13"),t(x"11"),t(x"12"),t(x"1C"),t(x"00"),t(x"1A"),t(x"18"),t(x"16"),t(x"00"),t(x"09"),t(x"00"),t(x"00"), -- 0
+	t(x"00"),t(x"19"),t(x"00"),t(x"15"),t(x"13"),t(x"11"),t(x"12"),t(x"1C"),t(x"00"),t(x"1A"),t(x"18"),t(x"16"),t(x"14"),t(x"09"),t(x"00"),t(x"00"), -- 0
 	t(x"00"),t(x"00"),t(x"00"),t(x"00"),t(x"00"),t(x"51"),t(x"21"),t(x"00"),t(x"00"),t(x"00"),t(x"5A"),t(x"53"),t(x"41"),t(x"57"),t(x"22"),t(x"00"), -- 1
 	t(x"00"),t(x"43"),t(x"58"),t(x"44"),t(x"45"),t(x"24"),t(x"23"),t(x"00"),t(x"00"),t(x"20"),t(x"56"),t(x"46"),t(x"54"),t(x"52"),t(x"25"),t(x"00"), -- 2
 	t(x"00"),t(x"4E"),t(x"42"),t(x"48"),t(x"47"),t(x"59"),t(x"5E"),t(x"00"),t(x"00"),t(x"00"),t(x"4D"),t(x"4A"),t(x"55"),t(x"26"),t(x"2A"),t(x"00"), -- 3
 	t(x"00"),t(x"3C"),t(x"4B"),t(x"49"),t(x"4F"),t(x"29"),t(x"28"),t(x"00"),t(x"00"),t(x"3E"),t(x"3F"),t(x"4C"),t(x"3A"),t(x"50"),t(x"5F"),t(x"00"), -- 4
 	t(x"00"),t(x"00"),t(x"40"),t(x"00"),t(x"7B"),t(x"2B"),t(x"00"),t(x"00"),t(x"00"),t(x"00"),t(x"0D"),t(x"7D"),t(x"00"),t(x"7E"),t(x"00"),t(x"00"), -- 5
 	t(x"00"),t(x"7C"),t(x"00"),t(x"00"),t(x"00"),t(x"00"),t(x"08"),t(x"00"),t(x"00"),t(x"31"),t(x"00"),t(x"34"),t(x"37"),t(x"00"),t(x"00"),t(x"00"), -- 6
-	t(x"30"),t(x"2E"),t(x"32"),t(x"35"),t(x"36"),t(x"38"),t(x"0C"),t(x"00"),t(x"1B"),t(x"2B"),t(x"33"),t(x"2D"),t(x"2A"),t(x"39"),t(x"00"),t(x"00"), -- 7
+	t(x"30"),t(x"2E"),t(x"32"),t(x"35"),t(x"36"),t(x"38"),t(x"1B"),t(x"00"),t(x"1B"),t(x"2B"),t(x"33"),t(x"2D"),t(x"2A"),t(x"39"),t(x"00"),t(x"00"), -- 7
 	t(x"00"),t(x"00"),t(x"00"),t(x"17") -- 8
 	);
 
@@ -682,9 +683,10 @@ end generate GEN_NO_ATTRAM;
 					end if;
 					ps2ClkCount<=ps2ClkCount+1;
 				else -- stop bit - use this time to store
-					-- FN1-FN12 keys return values 0x11-0x1C. They are not presented as ASCII codes through
+					-- FN1-FN10 keys return values 0x11-0x1A. They are not presented as ASCII codes through
 					-- the virtual UART but instead toggle the FNkeys, FNtoggledKeys outputs.
-					if ps2ConvertedByte>x"10" and ps2ConvertedByte<x"1D" then
+					-- F11, F12 are not included because we need code 0x1B for ESC
+					if ps2ConvertedByte>x"10" and ps2ConvertedByte<x"1B" then
 						if ps2PreviousByte /= x"F0" then
 							FNtoggledKeysSig(to_integer(unsigned(ps2ConvertedByte))-16#10#) <= FNtoggledKeysSig(to_integer(unsigned(ps2ConvertedByte))-16#10#);
 							FNKeysSig(to_integer(unsigned(ps2ConvertedByte))-16#10#) <= '1';
@@ -860,7 +862,7 @@ end generate GEN_NO_ATTRAM;
 					elsif escState=waitForLeftBracket and dispByteLatch=x"5B" then -- ESC[
 						escState<= processingParams;
 						paramCount<=1;
-					elsif paramCount=1 and dispByteLatch=x"48" and param1=0 then -- ESC[H
+					elsif paramCount=1 and dispByteLatch=x"48" and param1=0 then -- ESC[H - home
 						cursorVert <= 0;
 						cursorHoriz <= 0;
 						paramCount<=0;
@@ -911,7 +913,7 @@ end generate GEN_NO_ATTRAM;
 					elsif paramCount =1 and dispByteLatch=x"4D" then-- ESC[M - delete line
 						cursorVertRestore <= cursorVert;
 						cursorHorizRestore <= cursorHoriz;
-						cursorHoriz <= 0;
+						cursorHoriz <= HORIZ_CHAR_MAX;
 						cursorVert <= cursorVert+1;
 						dispState <= deleteLine;
 						paramCount<=0;
@@ -1148,11 +1150,11 @@ end generate GEN_NO_ATTRAM;
 					end if;
 				end if;
 			when insertLine =>
-				dispCharWRData <= dispCharRDData;
-				dispAttWRData <= dispAttRDData;
 				cursorVert <= cursorVert+1;
 				dispState <= ins2;
 			when ins2 =>
+				dispCharWRData <= dispCharRDData;
+				dispAttWRData <= dispAttRDData;
 				dispWR <= '1';
 				dispState <= ins3;
 			when ins3 =>
@@ -1170,25 +1172,24 @@ end generate GEN_NO_ATTRAM;
 					dispState <= insertLine;
 				end if;
 			when deleteLine =>
-				dispCharWRData <= dispCharRDData;
-				dispAttWRData <= dispAttRDData;
 				cursorVert <= cursorVert-1;
 				dispState <= del2;
 			when del2 =>
+				dispCharWRData <= dispCharRDData;
+				dispAttWRData <= dispAttRDData;
 				dispWR <= '1';
 				dispState <= del3;
 			when del3 =>
 				dispWR <= '0';
-				if cursorHoriz = HORIZ_CHAR_MAX and cursorVert = VERT_CHAR_MAX-1 then
-					cursorHoriz <= 0;
+				if cursorHoriz = 0 and cursorVert = VERT_CHAR_MAX-1 then
 					cursorVert <= VERT_CHAR_MAX;
 					dispState <= clearLine;
-				elsif cursorHoriz<HORIZ_CHAR_MAX then
-					cursorHoriz <= cursorHoriz+1;
+				elsif cursorHoriz>0 then
+					cursorHoriz <= cursorHoriz-1;
 					cursorVert <= cursorVert+1;
 					dispState <= deleteLine;
 				else
-					cursorHoriz <= 0;
+					cursorHoriz <= HORIZ_CHAR_MAX;
 					cursorVert <= cursorVert+2;
 					dispState <= deleteLine;
 				end if;
