@@ -51,6 +51,7 @@ set_global_assignment -name PARTITION_FITTER_PRESERVATION_LEVEL PLACEMENT_AND_RO
 set_global_assignment -name PARTITION_COLOR 16764057 -section_id Top
 
 set_location_assignment PIN_9 -to n_LED9
+set_location_assignment PIN_7 -to n_LED7
 set_location_assignment PIN_48 -to vduffd0
 
 set_location_assignment PIN_101 -to rxd1
@@ -100,18 +101,18 @@ set_location_assignment PIN_113 -to sRamData[2]
 set_location_assignment PIN_115 -to sRamData[1]
 set_location_assignment PIN_119 -to sRamData[0]
 
-set_location_assignment PIN_60  -to gpio2[7]
-set_location_assignment PIN_59  -to gpio2[6]
-set_location_assignment PIN_58  -to gpio2[5]
-set_location_assignment PIN_57  -to gpio2[4]
-set_location_assignment PIN_55  -to gpio2[3]
-set_location_assignment PIN_53  -to gpio2[2]
-set_location_assignment PIN_52  -to gpio2[1]
-set_location_assignment PIN_51  -to gpio2[0]
+set_location_assignment PIN_60 -to gpio2[7]
+set_location_assignment PIN_59 -to gpio2[6]
+set_location_assignment PIN_58 -to gpio2[5]
+set_location_assignment PIN_57 -to gpio2[4]
+set_location_assignment PIN_55 -to gpio2[3]
+set_location_assignment PIN_53 -to gpio2[2]
+set_location_assignment PIN_52 -to gpio2[1]
+set_location_assignment PIN_51 -to gpio2[0]
 
-set_location_assignment PIN_42  -to gpio0[2]
-set_location_assignment PIN_41  -to gpio0[1]
-set_location_assignment PIN_40  -to gpio0[0]
+set_location_assignment PIN_42 -to gpio0[2]
+set_location_assignment PIN_41 -to gpio0[1]
+set_location_assignment PIN_40 -to gpio0[0]
 
 set_location_assignment PIN_75 -to video
 set_location_assignment PIN_74 -to videoSync
@@ -195,19 +196,7 @@ set_global_assignment -name QIP_FILE ../Components/TERMINAL/DisplayRam1K.qip
 set_global_assignment -name QIP_FILE ../Components/TERMINAL/DisplayRam2K.qip
 set_global_assignment -name QIP_FILE ../Components/TERMINAL/CGABoldRomReduced.qip
 set_global_assignment -name VHDL_FILE ../Components/TERMINAL/CGABoldRom.vhd
-set_global_assignment -name VHDL_FILE ../Components/M6809/cpu09l.vhd
 set_global_assignment -name VHDL_FILE ../Components/M6809p/cpu09p.vhd
-set_global_assignment -name VHDL_FILE ../Components/M6800/cpu68.vhd
-set_global_assignment -name VHDL_FILE ../Components/Z80/T80s.vhd
-set_global_assignment -name VHDL_FILE ../Components/Z80/T80_Reg.vhd
-set_global_assignment -name VHDL_FILE ../Components/Z80/T80_Pack.vhd
-set_global_assignment -name VHDL_FILE ../Components/Z80/T80_MCode.vhd
-set_global_assignment -name VHDL_FILE ../Components/Z80/T80_ALU.vhd
-set_global_assignment -name VHDL_FILE ../Components/Z80/T80.vhd
-set_global_assignment -name VHDL_FILE ../Components/M6502/T65_Pack.vhd
-set_global_assignment -name VHDL_FILE ../Components/M6502/T65_MCode.vhd
-set_global_assignment -name VHDL_FILE ../Components/M6502/T65_ALU.vhd
-set_global_assignment -name VHDL_FILE ../Components/M6502/T65.vhd
 set_global_assignment -name VHDL_FILE ../Components/SDCARD/sd_controller.vhd
 set_global_assignment -name VHDL_FILE ../Components/UART/bufferedUART.vhd
 set_global_assignment -name VHDL_FILE Microcomputer.vhd
@@ -216,11 +205,8 @@ set_global_assignment -name CDF_FILE output_files/Microcomputer.cdf
 set_global_assignment -name QIP_FILE InternalRam1K.qip
 set_global_assignment -name QIP_FILE InternalRam2K.qip
 set_global_assignment -name QIP_FILE InternalRam4K.qip
-set_global_assignment -name QIP_FILE ../ROMS/6809/M6809_EXT_BASIC_ROM.qip
-set_global_assignment -name QIP_FILE ../ROMS/Z80/Z80_CPM_BASIC_ROM.qip
 set_global_assignment -name QIP_FILE ../ROMS/6809/M6809_CAMELFORTH_ROM.qip
-set_global_assignment -name QIP_FILE ../ROMS/6502/M6502_BASIC_ROM.qip
-set_global_assignment -name QIP_FILE ../ROMS/Z80/Z80_BASIC_ROM.qip
+
 
 
 
