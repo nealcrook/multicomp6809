@@ -536,7 +536,31 @@ begin
             serialClkEn <= '0';
         end if;
 
-        -- NAC tidy this up!! Add reset, default all outputs, use case statement?
+        -- CPU clock control. The CPU input clock is 50MHz and the HOLD input acts
+		  -- as a clock enable. When the CPU is executing internal cycles (indicated by
+		  -- VMA=0), HOLD asserts on alternate cycles so that the effective clock rate
+		  -- is 25MHz. When the CPU is performing memory accesses (VMA=1), HOLD asserts
+		  -- for 4 cycles in 5 so that the effective clock rate is 10MHz. The slower
+		  -- cycle time is calculated to meet the access time for the external RAM.
+		  -- The n_WR, n_RD signals (and the SRAM WE/OE signals) are asserted for the
+		  -- last 4 cycles of the 5-cycle access; these are not the critical path for
+		  -- the access: the critical path is the addresss and chip select, which are
+		  -- nominally valid for all 5 cycles.
+		  -- The clock control is implemented by a counter, which tracks VMA. The
+		  -- HOLD and n_WR, n_RD controls are a synchronous decode from the counter.
+		  -- When VMA=0, state transitions 0,4,0,4,0,4...
+		  -- When VMA=1, state transitions 0,1,2,3,4,0,1,2,3,4...
+		  --
+		  -- In both cases, HOLD is negated (clock runs) when state=4 and so the CPU
+		  -- address (and VMA) transitions when state goes 4->0.
+		  --
+		  -- Speed-up options (if your RAM can take it)
+		  -- - You can easily take 1 or 2 cycles out of this timing (eg to remove 1 cycle
+		  --   change 3 to 2 and 4 to 3 in the logic below).
+		  -- - Theoretically, since the 6809 timing-closes at 50MHz, you can eliminate
+		  --   the wait state from the VMA=0 cycles. However, that would mean generating
+		  --   HOLD combinatorially from VMA which might introduce a timing loop.
+
         -- state control - counter influenced by VMA
         if state = 0 and vma = '0' then
             state <= "100";
@@ -544,15 +568,17 @@ begin
             if state < 4 then
                 state <= state + 1;
             else
-                state <= (others=>'0'); -- this gives synchronous reset
+                -- this gives the 4->0 transition and also provides
+                -- synchronous reset.
+                state <= (others=>'0');
             end if;
         end if;
 
         -- decode HOLD from state and VMA
         if state = 3 or (state = 0 and vma = '0') then
-            hold <= '0';
+            hold <= '0'; -- run the clock
         else
-            hold <= '1';
+            hold <= '1'; -- pause the clock
         end if;
 
         -- decode memory and RW control from state etc.
