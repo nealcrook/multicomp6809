@@ -2,8 +2,8 @@
 #
 # given an SDcard image file for multicomp, created by
 # create_sd_image, extract .dsk images for the CamelForth
-# blocks, each of the four FLEX disks and each of the four
-# NITROS9 disks.
+# blocks, each of the four FLEX disks, each of the four
+# NITROS9 disks and the FUZIX disk.
 #
 # All of the offsets here need to match with the values
 # in create_sd_image.
@@ -75,9 +75,9 @@ flex_disk_manip -insd tmp.img -out SBUG.DSK_extracted
 ###############################################################
 
 # Extract NITROS9 boot disk
-# (Allow) 2MBytes at offset 80MByte
+# (Allow) 2MBytes at offset 80MByte, but disk is only 1MByte
 # 80MByte is block offset 1048576 * 80/512 = 163840 (0x2.8000)
-# img File is 1474560/512=2880 blocks
+# img File is 1024*1024/512=2880 blocks
 dd if=$SDFILE of=tmp.img ibs=512 obs=512 skip=163840 count=2880
 nitros9_disk_manip -insd tmp.img -out nos96809l1v030300mc09_80d.dsk_extracted
 
@@ -86,24 +86,43 @@ nitros9_disk_manip -insd tmp.img -out nos96809l1v030300mc09_80d.dsk_extracted
 # use the "toolshed" utilities to create a disk image like this:
 # os9 format -e -t80 -ds -dd nitros9_1.dsk -n"NitrOS-9/6809 Level 1 util disk1"
 #
-# (Allow) 2MBytes at offset 82MByte
+# (Allow) 2MBytes at offset 82MByte, but disk is only 1MByte
 # 82MByte is block offset 1048576 * 82/512 = 167936 (0x2.9000)
-# img File is 1474560/512=2880 blocks
+# img File is 1024*1024/512=2880 blocks
 dd if=$SDFILE of=tmp.img ibs=512 obs=512 skip=167936 count=2880
 nitros9_disk_manip -insd tmp.img -out nitros9_1.dsk_extracted
 
 
 # Extract NITROS extras disk 2
-# (Allow) 2MBytes at offset 84MByte
+# (Allow) 2MBytes at offset 84MByte, but disk is only 1MByte
 # 84MByte is block offset 1048576 * 84/512 = 172032 (0x2.A000)
-# img File is 1474560/512=2880 blocks
+# img File is 1024*1024/512=2880 blocks
 dd if=$SDFILE of=tmp.img ibs=512 obs=512 skip=172032 count=2880
 nitros9_disk_manip -insd tmp.img -out nitros9_2.dsk_extracted
 
 
 # Extract NITROS extras disk 3
-# (Allow) 2MBytes at offset 86MByte
+# (Allow) 2MBytes at offset 86MByte, but disk is only 1MByte
 # 86MByte is block offset 1048576 * 86/512 = 176128 (0x2.B000)
-# img File is 1474560/512=2880 blocks
+# img File is 1024*1024/512=2880 blocks
 dd if=$SDFILE of=tmp.img ibs=512 obs=512 skip=176128 count=2880
 nitros9_disk_manip -insd tmp.img -out nitros9_3.dsk_extracted
+
+
+###############################################################
+###############################################################
+# FUZIX disk
+###############################################################
+###############################################################
+
+# 32Mbyte at offset 98MByte
+# 98MByte is block offset 1048576 * 98/512 = 200704 (0x3.1000)
+# 32Mbyte is count 32*1024*1024/512 = 65536
+# .. image is actually 32MByte minus 1 block: 65535.
+dd if=$SDFILE of=fuzixfs.dsk_extracted ibs=512 obs=512 skip=200704 count=65535
+
+
+
+# tidy up
+rm -f tmp.img
+
