@@ -42,6 +42,7 @@
 # and to export a FLEX binary file as an S19 file (which can encode all of the information
 # found in a FLEX binary file, and which can easily be converted to a binary using
 # host tools, if required).
+# TODO add s19 conversion type to 'export'
 
 use strict;
 no strict 'refs'; # CLI makes subroutine from command name.
@@ -2285,7 +2286,7 @@ EOF
         print <<EOF
     export <file specifier> [<conversions>] [<path in local file system>]
 
-    Save the specified files to a directory in the host's filesystem.
+    Copy the specified files to a directory in the host filesystem.
     By default, the files will be saved in the current working directory
     but this can be overridden by specifying a path.
 
@@ -2306,7 +2307,46 @@ EOF
     }
     elsif ($cmd eq 'import') {
         print <<EOF
-TODO not yet implemented. Behaviour not yet defined
+    import <file on host filesystem> <virtual drive number> [<conversions>]
+
+    Copy the specified file(s) from the host filesystem to the
+    specified virtual drive.
+
+    Every file is saved with the same name as its name in the host
+    filesystem; any existing file of the same name will be
+    overwritten.
+
+    If the file name on the host filesystem is too long (base more
+    than 8 or extension more than 3 characters) an error is
+    reported and the import of that file is skipped.
+
+    If there are insufficient free directory entries or free blocks
+    on the virtual drive, the import of that file is skipped.
+
+    The default conversion is:
+    xxx=raw
+
+    See 'help conversions' for more details.
+
+    Because import does not attempt to guess the file type, it
+    may be necessary to import files in groups, applying different
+    conversions based on file extension and user knowledge.
+
+    To copy files between virtual drives, it is best to mount
+    both virtual drives and use the copy command, rather than
+    using the export/import commands. Using copy ensures a
+    byte-accurate copy, avoiding two problems:
+
+    * export/import is error-prone because you need to specify
+      conversions in each step
+    * export/import may not result in a byte-accurate copy;
+      text-file compression may be more aggressive, binary files
+      will omit redundant (eg overlapping) records.
+
+    Example:
+    import ../*.* 0 xxx=raw
+    import ../*.TXT 0 xxx=compress
+    import ../*.CMD 0 xxx=s19
 EOF
     }
     elsif ($cmd eq 'dir') {
@@ -2526,14 +2566,14 @@ EOF
     }
     elsif ($cmd eq 'conversions') {
         print <<EOF
-    The FLEX advance programmers guide documents 3 file formats:
+    The FLEX advanced programmers guide documents 3 file formats:
 
     * A text format that may include a simple run-length compression
-    of spaces
+      of spaces
     * A binary record format for executable images
     * A random access file format
 
-    flex_vfs provides the following file converters:
+    flex_vfs provides the following file converters for export/type:
 
     raw - a literal byte stream representing the data payload of
     every sector in the file. For a file of N sectors, the file will
@@ -2545,12 +2585,34 @@ EOF
 
     dump - hex and ASCII dump.
 
-    The 'type', 'import' and 'export' commands use a simple heuristic
-    to classify a file as 'txt' 'bin' or 'xxx' (anything else) and to
-    pick a sensible default converter. The converters can be overridden
-    by specifying name/value pairs. For example:
+    s19 - parse a binary record and export it in S19 format TODO!
+
+    .. and the following file converters for import:
+
+    raw - a literal byte stream representing the data payload of
+    the host file. A file of N bytes will require N/(256-4) sectors;
+    the final sector will be padded with NULL bytes.
+
+    compress - compress a test file. Pad the final sector with NULL
+    bytes
+
+    s19 - parse an S19 file and convert it to FLEX binary record
+    format.
+
+    The 'type' and 'export' commands use a simple heuristic to
+    classify files as 'txt', 'bin' or 'xxx' (anything else).
+    A default converter is set for each of these file types. The
+    converters can be overridden by specifying name/value pairs.
+    For example:
 
     txt=raw bin=dump xxx=dump
+
+    The 'import' command does not attempt to classify files but
+    considers every file to be of type 'xxx'. The default converter
+    can be overridden by specifying a name/value pair.
+    For example:
+
+    xxx=compress
 
     Any file types with unspecified converters will use the defaults.
 EOF
