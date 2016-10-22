@@ -526,6 +526,8 @@ sub cmd_dir {
 }
 
 
+# TODO: currently accepts "delete fs". Change it to "delete fs [fs..]" ie multiple file specifiers - each
+# of which is run through the match/rm_files/rd_dir sequence in turn.
 sub cmd_delete {
     my ($fs) = check_arg('fs', @_);
     return unless defined($fs);
