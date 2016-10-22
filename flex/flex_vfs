@@ -30,6 +30,19 @@
 # BUG: pressing CTRL-D results in lots of PERL warnings
 # TODO: make check_arg return a hash ref rather than a list? Will require big rework but
 # might make check_arg less hacky.
+# TODO: when only 1 image is mounted, make drive number optional/implicit to save typing
+# TODO: allow delete to accept a list of file names
+# TODO: make mount infer type from .dsk *and* .DSK files
+# TODO: make mount tolerate bad formats - eg when SIR is inconsistent. Analyse one disk
+# from the 8" set which as this problem and find out what happened to the "missing"
+# sectors. Maybe mount such images as read-only? Maybe these are "bad" sectors?
+# TODO: for import, the following formats: raw, compress. May need a separate mechanism
+# to create a FLEX record-based binary file from a binary on the host: need to be able
+# to express the absolute address of the file and possibly the entry address. Maybe
+# provide a mechanism to import an S19 file (which contains all of that information)
+# and to export a FLEX binary file as an S19 file (which can encode all of the information
+# found in a FLEX binary file, and which can easily be converted to a binary using
+# host tools, if required).
 
 use strict;
 no strict 'refs'; # CLI makes subroutine from command name.
