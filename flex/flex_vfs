@@ -32,7 +32,6 @@
 # might make check_arg less hacky.
 # TODO: when only 1 image is mounted, make drive number optional/implicit to save typing
 # TODO: allow delete to accept a list of file names
-# TODO: make mount infer type from .dsk *and* .DSK files
 # TODO: make mount tolerate bad formats - eg when SIR is inconsistent. Analyse one disk
 # from the 8" set which as this problem and find out what happened to the "missing"
 # sectors. Maybe mount such images as read-only? Maybe these are "bad" sectors?
@@ -878,8 +877,8 @@ sub check_arg {
         }
         elsif ($f eq 'of') {
             # optional format. If present, takes precedence and must be img or dsk
-            # If absent, inferred from file extension of host file. Incoming
-            # arguments changed to declare the format.
+            # If absent, inferred from file extension of host file - in which
+            # case, the incoming argument list is changed to declare the format.
 
             if ((defined $_[$i]) && (($_[$i] eq 'img') or ($_[$i] eq 'dsk'))) {
                 # explicit format takes priority. Nothing more to do.
@@ -887,7 +886,7 @@ sub check_arg {
             else {
                 # extract extension from host file.. which is required to
                 # occur earlier in the argument list.
-                my @ext = split /\./, $host_file;
+                my @ext = split /\./, lc($host_file);
                 if ((defined $ext[-1]) && (($ext[-1] eq 'img') or ($ext[-1] eq 'dsk'))) {
                     # insert incoming argument so it's always present/valid
                     splice @_, $i, 0, $ext[-1];
@@ -2138,8 +2137,8 @@ sub help_for {
     Legal formats are dsk and img (use "help formats" for
     more information).
 
-    If the file extension is .dsk or .img the format is inferred and
-    the format is optional.
+    If the file extension is .dsk or .img (in upper, lower or mixed
+    case) the format is inferred - specifying the format is optional.
 
     If the format is specified, it overrides any inference made on
     the basis of the file extension.
