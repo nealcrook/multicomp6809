@@ -47,7 +47,7 @@
 use strict;
 no strict 'refs'; # CLI makes subroutine from command name.
 use warnings;
-
+use File::Basename;
 
 # FLEX constants
 #
@@ -479,7 +479,24 @@ sub type_export_common {
 
 
 sub cmd_import {
-    print "import TODO - not yet implemented\n";
+    my ($hf_ref, $drive, $conv_ref, $path) = check_arg('hw v oc', @_);
+    return unless defined($hf_ref);
+
+    if (not $dsk[$drive]->{mounted}) {
+        print "ERROR drive $drive is not mounted\n";
+        return;
+    }
+
+    # defaults for 'import'
+    $conv_ref->{xxx} = exists $conv_ref->{xxx} ? $conv_ref->{xxx} : "raw";
+
+
+    printf "In import. Files to import are:\n%s\ndrive: %d, path: %s\n",join( " ",@$hf_ref),$drive,$path;
+
+
+## [NAC HACK 2016Oct22] have all the args. Now iterate over list of files, converting and importing them
+    print "ERROR import not yet implemented.\n";
+
 }
 
 
@@ -764,14 +781,19 @@ sub cmd_uppercase {
 #################################################################
 # Subroutines
 
-# string of expected argument formats, followed by argument list
-# prints error message for any mismatch.
-# returns args if all OK.
-# otherwise returns nothing.
-# "v a b", ("arg1", "arg2", "arg3", "arg4)
-# argument formats are:
+# Check/validate a set of arguments against expected format.
+# eg: check_arg('v h of', @_);
+# string of expected argument formats, followed by argument list.
+# On error: print error message(s) and return nothing
+# On success: return a list of valid arguments. In the simple
+# case, there is a 1-to-1 mapping between the argument list/
+# the input list/the output list. In some cases, though,
+# additional values get inserted. See case-by-case comments.
+#
+# argument formats:
 # v - virtual drive number
 # h - existing file in host filesystem
+# hw - wildcard in host filesystem (matches at least 1 file)
 # nh - file in host filesystem (may or may not exist)
 # od - optional directory in host filesystem (must exist) default to .
 # of - optional file format: dsk or img, also inferred from h
@@ -819,15 +841,16 @@ sub check_arg {
             }
         }
         elsif ($f eq 'oc') {
-            # One or more conversion rules. Gobble them up and return a hash ref
+            # One or more conversion rules. Remove them all; replace them
+            # with a single value: a hash ref
             my %conv;
             my $first = $i;
             while ((defined $_[$i]) and ($_[$i] =~ /^(txt|bin|xxx)=/)) {
-                if ($_[$i] =~ /^(\w+)=(raw|record|expand|dump)/) {
+                if ($_[$i] =~ /^(\w+)=(raw|record|expand|dump|compress|s19)/) {
                     $conv{$1} = $2;
                 }
                 else {
-                    print "Illegal conversion: $_[$i]\n";
+                    print "No such conversion: $_[$i]\n";
                     return;
                 }
                 $i = $i + 1;
@@ -860,6 +883,35 @@ sub check_arg {
                 print "ERROR could not open $_[$i]\n";
                 return;
             }
+        }
+        elsif ($f eq 'hw') {
+            # host wildcard; must match at least 1 file. Return a
+            # reference to a list of files.
+            if (not defined $_[$i]) {
+                print "ERROR missing argument - expected host file name\n";
+                return;
+            }
+            my ($name, $path, $suffix) = fileparse($_[$i], '\..*');
+
+            # turn the filename into a legal PERL regex: * -> [-\w]*
+            #                                            . -> \.
+            my $f = $name . $suffix;
+            $f =~ s|\*|\[-\\w\]\*|g;
+            $f =~ s|\.|\\\.|g;
+
+            opendir DIR, $path;
+            # $f is what we match for; final $ makes sure there's
+            # nothing more (so that fred.dsk doesn't match fred.dsk_x)
+            my @matches = grep /$f$/, readdir DIR;
+            close DIR;
+            if (not defined $matches[0]) {
+                print "ERROR no matching host files\n";
+                return;
+            }
+
+            $_[$i] = \@matches;
+            # need the path so add it to the END of the arg list.
+            push @_, $path;
         }
         elsif ($f eq 'nh') {
             if (not defined $_[$i]) {
@@ -991,6 +1043,7 @@ sub check_arg {
         }
         $i = $i + 1;
     }
+    # success!
     return @_;
 }
 
