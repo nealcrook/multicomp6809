@@ -13,36 +13,38 @@
 # foofoobedoo@gmail.com
 #
 
-# not yet implemented: import fix check repair
+# commands not yet implemented: fix check repair
 
 # FUTURE: it is NOT legal to have a null file name. It is legal to have a null extension?
+# BUG: import barfs on file with no extension. Should either skip it (illegal file name)
+# or handle it properly.
 # FUTURE: add optional y/n arg to delete.
-# FUTURE: DATE command, RENAME command
+# FUTURE: add DATE command, RENAME command
 # FUTURE: THEN (command separator)
-# FUTURE: EXTEND (add sectors)
+# FUTURE: EXTEND (add sectors) - pairs with TRUNCATE
 # FUTURE: allow target of copy to be unique fs rather than simply drive name (ie copy
 # file with different name)
 # FUTURE: record inode so that we cannot double-mount a drive.
+# FUTURE: for cmd_new use current date. Maybe create common routine for date stuff
+# FUTURE: review y2k fixups here: they are probably wrong.
+# FUTURE: use of "4" here - should usually be $DATA_OFFSET
 # TODO: verify assertion that bytes 2,3 on each sector are an incrementing sector
 # number starting at 1.
 # TODO: not sure if volume label should be restricted to 10 or 11 char. If 11, there
-# is a bug in flextract, which expects the label to be null-terminated.
+# is a bug in flextract, which expects the label to be null-terminated. Test both options
+# with real FLEX and/or look at source code for DIR.
 # BUG: pressing CTRL-D results in lots of PERL warnings
-# TODO: make check_arg return a hash ref rather than a list? Will require big rework but
-# might make check_arg less hacky.
 # TODO: when only 1 image is mounted, make drive number optional/implicit to save typing
 # TODO: allow delete to accept a list of file names
 # TODO: make mount tolerate bad formats - eg when SIR is inconsistent. Analyse one disk
 # from the 8" set which as this problem and find out what happened to the "missing"
 # sectors. Maybe mount such images as read-only? Maybe these are "bad" sectors?
-# TODO: for import, the following formats: raw, compress. May need a separate mechanism
-# to create a FLEX record-based binary file from a binary on the host: need to be able
-# to express the absolute address of the file and possibly the entry address. Maybe
-# provide a mechanism to import an S19 file (which contains all of that information)
-# and to export a FLEX binary file as an S19 file (which can encode all of the information
-# found in a FLEX binary file, and which can easily be converted to a binary using
-# host tools, if required).
-# TODO add s19 conversion type to 'export'
+# TODO: for export
+# - support S19 format
+# TODO: for import
+# - support different converters, including S19 format.
+# - check for existing file name (currently, end up with 2 versions of same name!)
+# S19 can represent a record-based format and can include the entry address.
 
 use strict;
 no strict 'refs'; # CLI makes subroutine from command name.
@@ -62,6 +64,12 @@ use File::Basename;
 # in order to do conversions beyond the first track.
 # Flex constants.
 my $BYTES_SECTOR = 256;
+# 4 bytes per sector are not available for payload. Bytes 0,1
+# hold a link to the next track/sector used by the file (or 0,0
+# for the last sector). Bytes 2,3 are reserved for random-access
+# hints.
+my $DATA_SECTOR = $BYTES_SECTOR - 4;
+my $DATA_OFFSET = 4;
 my @FLEX_SIR_TS = (0,3); # track/sector of SIR
 my @FLEX_LDR_TS = (0,1); # track/sector of boot loader
 my @FLEX_DIR_TS = (0,5); # track/sector of directory
@@ -196,6 +204,7 @@ sub cmd_clone {
             # read a block
             my $actual = read $dsk[$drive]->{handle}, $data, $bb_in;
             if ($actual == $bb_in) {
+                # write a block, doubling/halving on the way if needed
                 if ($bb_in == $bb_out) {
                     print $handle $data;
                 }
@@ -479,24 +488,147 @@ sub type_export_common {
 
 
 sub cmd_import {
-    my ($hf_ref, $drive, $conv_ref, $path) = check_arg('hw v oc', @_);
-    return unless defined($hf_ref);
+    my ($dst, $hf_ref, $conv_ref, $path) = check_arg('v hw oc', @_);
+    return unless defined($dst);
 
-    if (not $dsk[$drive]->{mounted}) {
-        print "ERROR drive $drive is not mounted\n";
+    if (not $dsk[$dst]->{mounted}) {
+        print "ERROR drive $dst is not mounted\n";
         return;
     }
 
     # defaults for 'import'
     $conv_ref->{xxx} = exists $conv_ref->{xxx} ? $conv_ref->{xxx} : "raw";
 
+    my $skip = 0;
+    foreach my $i (@$hf_ref) {
+        if (not legal_flex_name($i)) {
+            print "INFO skipped import of $i -- not a legal FLEX filename\n";
+            $skip = $skip + 1;
+            next;
+        }
+        if (dir_entries($dst) == 0) {
+            print "INFO skipped import of $i -- no free directory entry\n";
+            $skip = $skip + 1;
+            next;
+        }
+        if (open HFILE, "$path/$i") {
+            my $data;
+            my $bytes = read HFILE, $data, ($dsk[$dst]->{sir}->{FREE} * 254);
+            if (not eof HFILE) {
+                print "INFO skipped import of $i -- insufficient space\n";
+                $skip = $skip + 1;
+                close HFILE;
+                next;
+            }
+            my @data = unpack("C*", $data);
 
-    printf "In import. Files to import are:\n%s\ndrive: %d, path: %s\n",join( " ",@$hf_ref),$drive,$path;
+            # [NAC HACK 2016Oct28] TODO apply conversions. Currently just support RAW
 
+            # Pad data to a whole number of sectors
+            my $runt = scalar(@data) % $DATA_SECTOR;
+            if ($runt != 0) {
+                my @pad = (0) x ($DATA_SECTOR - $runt);
+                push @data, @pad;
+            }
+            close HFILE;
 
-## [NAC HACK 2016Oct22] have all the args. Now iterate over list of files, converting and importing them
-    print "ERROR import not yet implemented.\n";
+            my $TRK = 0;
+            my $SCT = 1;
+            my $SIZ = 2;
 
+            my @start_free_tsc = ($dsk[$dst]->{sir}->{FIRST_T},
+                                  $dsk[$dst]->{sir}->{FIRST_S},
+                                  $dsk[$dst]->{sir}->{FREE});
+
+            my $sectors = scalar(@data)/$DATA_SECTOR;
+
+            # Start with empty directory entry
+            my $dir_entry_data = empty_dir_entry();
+
+            # Populate file name and extension
+            my $findex = 0;
+            my $sindex = 0;
+            while (my $char = ord substr($i, $findex, 1)) {
+                if ($char == 0x2e) {
+                    $sindex = 8;
+                    $findex = $findex + 1;
+                    next;
+                }
+
+                $dir_entry_data->[$sindex] = $char;
+                $findex = $findex + 1;
+                $sindex = $sindex + 1;
+            }
+
+            # Populate file length
+            $dir_entry_data->[21+0-4] = int($sectors/256);
+            $dir_entry_data->[21+1-4] = $sectors % 256;
+
+            # Populate date
+            my ($x,$y,$z,$mday,$mon,$year) = localtime(time);
+            $dir_entry_data->[25+0-4] = $mon;
+            $dir_entry_data->[25+1-4] = $mday;
+            $dir_entry_data->[25+2-4] = $year % 100;
+
+            # [NAC HACK 2016Oct27] TODO make sure file to be imported does not already exist.
+            # If it does, need to delete it first, as per copy, and release its sectors.
+
+            # Populate first t/s - imported file starts at
+            # first sector of destination free-list.
+            $dir_entry_data->[17-4] = $start_free_tsc[$TRK];
+            $dir_entry_data->[18-4] = $start_free_tsc[$SCT];
+
+            for my $sector (1..$sectors) {
+                my $dst_data = rd_dts($dst,
+                                      $start_free_tsc[$TRK],
+                                      $start_free_tsc[$SCT]);
+                my @dst_data = unpack("C*", $dst_data);
+
+                # import 1 sector of data, leaving existing
+                # link (bytes 0,1) intact. Zero-out the reserved
+                # (random access) bytes
+                $dst_data[2] = 0;
+                $dst_data[3] = 0;
+                for my $byte ($DATA_OFFSET..($BYTES_SECTOR-1)) {
+                    $dst_data[$byte] = shift @data;
+                }
+
+                my $nxt_trk = $dst_data[0];
+                my $nxt_sct = $dst_data[1];
+
+                if ($sector == $sectors) {
+                    # final sector
+
+                    # Populate last t/s
+                    $dir_entry_data->[19-4] = $start_free_tsc[$TRK];
+                    $dir_entry_data->[20-4] = $start_free_tsc[$SCT];
+                    # break link
+                    $dst_data[0] = 0;
+                    $dst_data[1] = 0;
+                }
+
+                wr_dts($dst, $start_free_tsc[$TRK], $start_free_tsc[$SCT], pack("C*", @dst_data));
+
+                # update free list
+                $start_free_tsc[$TRK] = $nxt_trk;
+                $start_free_tsc[$SCT] = $nxt_sct;
+                $start_free_tsc[$SIZ] = $start_free_tsc[$SIZ] - 1;
+            }
+            my $index = allocate_dir_entry($dst);
+            wr_dir_entry($dst, $index, $dir_entry_data);
+
+            # Finally, update the SIR
+            wr_sir_start_free($dst, @start_free_tsc);
+            # and refresh the local data
+            rd_sir($dst);
+            rd_dir($dst);
+        }
+        else {
+            print "INFO skipped import of $i -- cannot open\n";
+            $skip = $skip + 1;
+        }
+    }
+    printf "INFO %d files imported (%d skipped)\n", scalar(@$hf_ref) - $skip, $skip;
 }
 
 
@@ -694,11 +826,11 @@ sub cmd_scrub {
 
     if ($dsk[$drive]->{mounted}) {
         # scrub each unused directory entry
-        my @empty_dir_entry = (0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0);
+        my $empty_dir_entry = empty_dir_entry();
         my $to_scrub = dir_entries($drive);
         for my $i (1..$to_scrub) {
             my $index = allocate_dir_entry($drive);
-            wr_dir_entry($drive, $index, \@empty_dir_entry);
+            wr_dir_entry($drive, $index, $empty_dir_entry);
         }
         rd_dir($drive);
 
@@ -1437,6 +1569,15 @@ sub page {
     return 0
 }
 
+# is this a legal FLEX name (8.3 format max). Return true if
+# it is, false otherwise
+sub legal_flex_name {
+    my ($name, $ext) = split /\./, $_[0];
+    my $lname = length $name;
+    my $lext = length $ext;
+    return (($lname > 0) && ($lname < 9) && ($lext > 0) && ($lext < 4));
+}
+
 # copy zero or more files
 # files specified by list of directory indices
 sub cp_files {
@@ -2054,6 +2195,14 @@ sub rm_dir_entry {
 }
 
 
+# Return a reference to an empty directory entry
+# data structure - to be filled in and then used by
+sub empty_dir_entry {
+    my @dir_entry = (0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0);
+    return \@dir_entry;
+}
+
+
 # Return an index to a directory entry that is unused.
 # If possible, an entry that has never been used will be
 # allocated. Otherwise, an entry that has been deleted will
@@ -2360,10 +2509,10 @@ EOF
     }
     elsif ($cmd eq 'import') {
         print <<EOF
-    import <file on host filesystem> <virtual drive number> [<conversions>]
+    import <virtual drive number> <file on host filesystem> [<conversions>]
 
-    Copy the specified file(s) from the host filesystem to the
-    specified virtual drive.
+    Copy the specified file(s) to the specified virtual drive from
+    the host filesystem.
 
     Every file is saved with the same name as its name in the host
     filesystem; any existing file of the same name will be
@@ -2634,11 +2783,11 @@ EOF
 
     expand - decompress text file and strip NULL bytes from the end.
 
-    record - parse a binary record and dump it in readable format
+    record - parse a binary record and dump it in readable format.
 
     dump - hex and ASCII dump.
 
-    s19 - parse a binary record and export it in S19 format TODO!
+    s19 - parse a binary record and export it in S19 format.
 
     .. and the following file converters for import:
 
@@ -2647,7 +2796,7 @@ EOF
     the final sector will be padded with NULL bytes.
 
     compress - compress a test file. Pad the final sector with NULL
-    bytes
+    bytes.
 
     s19 - parse an S19 file and convert it to FLEX binary record
     format.
