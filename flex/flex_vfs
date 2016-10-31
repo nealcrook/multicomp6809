@@ -32,18 +32,29 @@
 # number starting at 1.
 # TODO: not sure if volume label should be restricted to 10 or 11 char. If 11, there
 # is a bug in flextract, which expects the label to be null-terminated. Test both options
-# with real FLEX and/or look at source code for DIR.
+# with real FLEX and/or look at source code for DIR. The FLEX DIR and CAT commands only
+# seem to report 8 characters..
 # BUG: pressing CTRL-D results in lots of PERL warnings
+# BUG: if you copy a Random access file (R attribute set) the file sector map will be
+# wrong; need to rebuild it in the target using COPYR. The FLEX diagnostics manual
+# describes the format but it's not a common enough job to be worth bothering with in
+# this tool. Ought to report a warning though, when the situation arises.
+# BUG: I think a set of bugs will occur if the disk becomes full (zero free sectors).
+# Usually, expect to link new sectors to an existing sector and so the zero-free-sectors
+# case is a special case (identified by seeing the free count in the SIR equal to zero.
+# Can work around this by requiring at least 1 free sector. Look at the source code for
+# eg delete to see if it accommodates this special case.
 # TODO: when only 1 image is mounted, make drive number optional/implicit to save typing
 # TODO: allow delete to accept a list of file names
 # TODO: make mount tolerate bad formats - eg when SIR is inconsistent. Analyse one disk
 # from the 8" set which as this problem and find out what happened to the "missing"
 # sectors. Maybe mount such images as read-only? Maybe these are "bad" sectors?
+# BUG: import currently does not check for existing file name (can result in you having
+# 2 files of the same name; only the older will be accessible.
 # TODO: for export
 # - support S19 format
 # TODO: for import
 # - support different converters, including S19 format.
-# - check for existing file name (currently, end up with 2 versions of same name!)
 # S19 can represent a record-based format and can include the entry address.
 
 use strict;
@@ -2450,6 +2461,12 @@ EOF
     file to be changed as a side-effect of the copy. Therefore,
     it is not legal for the source drive to match the destination
     drive. This restriction may be removed in the future.
+
+    Copying a file that has the R (random) attribute set does
+    NOT regenerate the file sector map in the first two sectors
+    of the file. You must rebuild that under the control of FLEX,
+    using the COPYR utility.
+
 
     Examples:
     copy 2 3
