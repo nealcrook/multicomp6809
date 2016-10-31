@@ -237,6 +237,7 @@ sub cmd_info {
         if ($dsk[$drive]->{mounted}) {
             print "Host file:    $dsk[$drive]->{filename}\n";
             describe_sir($drive);
+            describe_link($drive);
         }
         else {
             print "not mounted\n";
@@ -2045,6 +2046,17 @@ sub describe_sir {
     printf "$i Range:        t00-t%02s, s01-s%02s\n",
     $dsk[$drive]->{sir}->{MAX_T}, $dsk[$drive]->{sir}->{MAX_S};
     printf "$i Trk0 sectors: $dsk[$drive]->{sir}->{T1_OFFSET}\n";
+}
+
+
+# Dump the link in the boot loader, in human-readable format
+sub describe_link {
+    my ($drive) = @_;
+    my $i = "        ";
+    my $data = rd_dts($drive, @FLEX_LDR_TS);
+    my @data = unpack("C*", $data);
+
+    printf "$i Link:         t%02d,s%02d\n", $data[5], $data[6];
 }
 
 
