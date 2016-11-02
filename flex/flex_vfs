@@ -17,7 +17,9 @@
 
 # FUTURE: it is NOT legal to have a null file name. It is legal to have a null extension?
 # BUG: import barfs on file with no extension. Should either skip it (illegal file name)
-# or handle it properly.
+# or handle it properly. Legal name starts with letter, contains a-zA-Z0-9_- only.
+# Extension is 1-3 characters. Not legal to have no extension (FLEX utilities will not allow
+# you to create or to see such a file. VED currently can create one but it is invisible)
 # FUTURE: add optional y/n arg to delete.
 # FUTURE: add DATE command, RENAME command
 # FUTURE: THEN (command separator)
@@ -31,9 +33,10 @@
 # TODO: verify assertion that bytes 2,3 on each sector are an incrementing sector
 # number starting at 1.
 # TODO: not sure if volume label should be restricted to 10 or 11 char. If 11, there
-# is a bug in flextract, which expects the label to be null-terminated. Test both options
-# with real FLEX and/or look at source code for DIR. The FLEX DIR and CAT commands only
-# seem to report 8 characters..
+# is a bug in flextract, which expects the label to be null-terminated. Downloaded dsk
+# images have names of upto 11 characters but I can see no utilities to set the name
+# (NEWDISK source just leaves it blank). From inspection of source code for TSC DIR, it
+# only prints 8 characters. So does TSC CAT.
 # BUG: pressing CTRL-D results in lots of PERL warnings
 # BUG: if you copy a Random access file (R attribute set) the file sector map will be
 # wrong; need to rebuild it in the target using COPYR. The FLEX diagnostics manual
