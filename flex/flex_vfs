@@ -51,6 +51,8 @@
 # sectors. Maybe mount such images as read-only? Maybe these are "bad" sectors?
 # BUG: import currently does not check for existing file name (can result in you having
 # 2 files of the same name; only the older will be accessible.
+# Note: import of txt file should use 0x0D line endings.. should remove others. Refer
+# to FLEX APG for description of text file format.
 # TODO: for export
 # - support S19 format
 # TODO: for import
@@ -836,13 +838,24 @@ sub cmd_scrub {
     my ($drive) = check_arg('v', @_);
     return unless defined($drive);
 
+    my $dir_entry_empty = empty_dir_entry();
     if ($dsk[$drive]->{mounted}) {
         # scrub each unused directory entry
-        my $empty_dir_entry = empty_dir_entry();
         my $to_scrub = dir_entries($drive);
         for my $i (1..$to_scrub) {
             my $index = allocate_dir_entry($drive);
-            wr_dir_entry($drive, $index, $empty_dir_entry);
+            # An unallocated directory entry takes 2 forms:
+            # - if it has *never* been used, the first byte of the filename is 0.
+            # - if it has ever been used, the first byte of the filename has bit7=1.
+            # FLEX will not search the directory beyond the first never-used directory
+            # entry (presumably a speed optimisation). Therefore, when scrubbing the
+            # disk, cannot set the first byte to 0 if it wasn't already 0, otherwise
+            # subsequent files in the directory will become invisible and inaccessible.
+            # Likewise, don't want to blindly set it to non-zero as this will defeat the
+            # optimisation. Therefore, scrub all but the first byte.
+            my $dir_entry_data = rd_dir_entry($drive,$index);
+            $dir_entry_empty->[0] = $dir_entry_data->[0];
+            wr_dir_entry($drive, $index, $dir_entry_empty);
         }
         rd_dir($drive);
 
