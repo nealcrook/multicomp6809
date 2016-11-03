@@ -1,12 +1,12 @@
 #!/usr/bin/perl
 #
-# Manipulator for FLEX disk images. Designed to act as a virtual file system
+# Manipulator for Flex disk images. Designed to act as a virtual file system
 # for disk analysis, extract, import, copy, creation, conversion.
 #
 # Mostly designed for interactive use but also allows limited non-interactive
 # use.
 #
-# Kudos for FLEX: 6809 source is about 2380 lines of assembler. This PERL
+# Kudos for Flex: 6809 source is about 2380 lines of assembler. This PERL
 # script is now longer than that..
 #
 # Neal Crook, July 2015.
@@ -18,17 +18,15 @@
 # FUTURE: it is NOT legal to have a null file name. It is legal to have a null extension?
 # BUG: import barfs on file with no extension. Should either skip it (illegal file name)
 # or handle it properly. Legal name starts with letter, contains a-zA-Z0-9_- only.
-# Extension is 1-3 characters. Not legal to have no extension (FLEX utilities will not allow
+# Extension is 1-3 characters. Not legal to have no extension (Flex utilities will not allow
 # you to create or to see such a file. VED currently can create one but it is invisible)
 # FUTURE: add optional y/n arg to delete.
-# FUTURE: add DATE command, RENAME command
+# FUTURE: add RENAME command
 # FUTURE: THEN (command separator)
 # FUTURE: EXTEND (add sectors) - pairs with TRUNCATE
 # FUTURE: allow target of copy to be unique fs rather than simply drive name (ie copy
 # file with different name)
 # FUTURE: record inode so that we cannot double-mount a drive.
-# FUTURE: for cmd_new use current date. Maybe create common routine for date stuff
-# FUTURE: review y2k fixups here: they are probably wrong.
 # FUTURE: use of "4" here - should usually be $DATA_OFFSET
 # TODO: verify assertion that bytes 2,3 on each sector are an incrementing sector
 # number starting at 1.
@@ -39,7 +37,7 @@
 # only prints 8 characters. So does TSC CAT.
 # BUG: pressing CTRL-D results in lots of PERL warnings
 # BUG: if you copy a Random access file (R attribute set) the file sector map will be
-# wrong; need to rebuild it in the target using COPYR. The FLEX diagnostics manual
+# wrong; need to rebuild it in the target using COPYR. The Flex diagnostics manual
 # describes the format but it's not a common enough job to be worth bothering with in
 # this tool. Ought to report a warning though, when the situation arises.
 # BUG: I think a set of bugs will occur if the disk becomes full (zero free sectors).
@@ -55,7 +53,7 @@
 # BUG: import currently does not check for existing file name (can result in you having
 # 2 files of the same name; only the older will be accessible.
 # Note: import of txt file should use 0x0D line endings.. should remove others. Refer
-# to FLEX APG for description of text file format.
+# to Flex APG for description of text file format.
 # TODO: for export
 # - support S19 format
 # TODO: for import
@@ -67,7 +65,7 @@ no strict 'refs'; # CLI makes subroutine from command name.
 use warnings;
 use File::Basename;
 
-# FLEX constants
+# Flex constants
 #
 # Tracks are numbered 0..n
 # Sectors are numbered 1..n
@@ -119,6 +117,15 @@ my @dsk;
 # Boot sector. Binary string. Undefined if not loaded.
 my $boot;
 
+# Default date
+my ($mday, $mon, $year);
+{
+    my ($x,$y,$z);
+    ($x,$y,$z,$mday,$mon,$year) = localtime(time);
+    # month is 0-based. Convert to 1-based
+    $mon = $mon + 1;
+    $year = $year % 100;
+}
 
 # Command-line interpreter
 while (1) {
@@ -352,10 +359,9 @@ sub cmd_new {
                 my $data_sectors = $sectors * ($tracks-1);
                 $sector[33] = $data_sectors >> 8;
                 $sector[34] = $data_sectors & 0xff;
-                # date TODO use system date and correct for Y2K
-                $sector[35] = 9;
-                $sector[36] = 27;
-                $sector[37] = 81;
+                $sector[35] = $mon;       # date
+                $sector[36] = $mday;
+                $sector[37] = $year;
                 $sector[38] = $tracks-1;  # highest track number
                 $sector[39] = $sectors;   # highest sector number
             }
@@ -435,21 +441,21 @@ sub cmd_copy {
 
 
 sub cmd_label {
-    my ($drive,$label,$vol,$mm, $dd, $yy) = check_arg('v l ovd',@_);
+    my ($drive,$label,$vol,$mm, $dd, $yy) = check_arg('v l ovy',@_);
     return unless defined($drive);
 
     if ($dsk[$drive]->{mounted}) {
         # label MUST be present otherwise we would not get this far
         wr_sir_label($drive, $label);
 
-        # volume number optional
+        # volume number optional - else leave it unchanged
         if (defined $vol) {
             wr_sir_vol($drive, $vol);
+        }
 
-            # date optional
-            if (defined $mm) {
-                wr_sir_date($drive, $mm, $dd, $yy);
-            }
+        # date optional - else leave it unchanged
+        if (defined $mm) {
+            wr_sir_date($drive, $mm, $dd, $yy);
         }
     }
     else {
@@ -519,7 +525,7 @@ sub cmd_import {
     my $skip = 0;
     foreach my $i (@$hf_ref) {
         if (not legal_flex_name($i)) {
-            print "INFO skipped import of $i -- not a legal FLEX filename\n";
+            print "INFO skipped import of $i -- not a legal Flex filename\n";
             $skip = $skip + 1;
             next;
         }
@@ -582,10 +588,9 @@ sub cmd_import {
             $dir_entry_data->[21+1-4] = $sectors % 256;
 
             # Populate date
-            my ($x,$y,$z,$mday,$mon,$year) = localtime(time);
             $dir_entry_data->[25+0-4] = $mon;
             $dir_entry_data->[25+1-4] = $mday;
-            $dir_entry_data->[25+2-4] = $year % 100;
+            $dir_entry_data->[25+2-4] = $year;
 
             # [NAC HACK 2016Oct27] TODO make sure file to be imported does not already exist.
             # If it does, need to delete it first, as per copy, and release its sectors.
@@ -646,6 +651,15 @@ sub cmd_import {
         }
     }
     printf "INFO %d files imported (%d skipped)\n", scalar(@$hf_ref) - $skip, $skip;
+}
+
+
+sub cmd_date {
+    my ($mm, $dd, $yy) = check_arg('y', @_);
+    return unless defined($mm);
+    $mon = $mm;
+    $mday = $dd;
+    $year = $yy;
 }
 
 
@@ -850,7 +864,7 @@ sub cmd_scrub {
             # An unallocated directory entry takes 2 forms:
             # - if it has *never* been used, the first byte of the filename is 0.
             # - if it has ever been used, the first byte of the filename has bit7=1.
-            # FLEX will not search the directory beyond the first never-used directory
+            # Flex will not search the directory beyond the first never-used directory
             # entry (presumably a speed optimisation). Therefore, when scrubbing the
             # disk, cannot set the first byte to 0 if it wasn't already 0, otherwise
             # subsequent files in the directory will become invisible and inaccessible.
@@ -961,9 +975,13 @@ sub cmd_uppercase {
 # l - disk label (truncated to 16 characters)
 # i - integer
 # oi - optional integer
-# ovd - optional 16-bit volume number optionally followed by date in
-#       the form mm/dd/yy - no sanity check is done and the
-#       date is returned as 3 separate entries: mm, dd, yy.
+# ovy - optional 16-bit volume number optionally followed by date in
+#       the form mm,dd,yy. The date is returned as 3 separate
+#       entries: mm, dd, yy.
+#       mm is verified 1-12. dd is verified 1-31. yy is verified 0-99.
+# y   - date in the form mm,dd,yy. The date is returned as 3 separate
+#       entries: mm, dd, yy.
+#       mm is verified 1-12. dd is verified 1-31. yy is verified 0-99.
 # ots - optional track/sector. If omitted, default values are returned.
 # oc  - optional converters. Returns hash reference
 sub check_arg {
@@ -1144,22 +1162,21 @@ sub check_arg {
             }
             $_[$i] = substr($_[$i], 0, 11);
         }
-        elsif ($f eq 'ovd') {
+        elsif ($f eq 'ovy') {
             # Optional Flex disk volume. If present, must be 16-bit value
             if (defined $_[$i]) {
                 if (($_[$i] =~ /^\d+$/) && ($_[$i] < 65536)) {
                     # Volume number is OK
 
-                    # Optional Flex date mm/dd/yy.
+                    # Optional Flex date mm,dd,yy.
                     if (defined $_[$i+1]) {
-                        $i = $i + 1;
-                        if ($_[$i] =~ /^(\d\d)\/(\d\d)\/(\d\d)$/) {
-                            # all is well. Replace $_[$i] with the month, day, year
-                            # which are the regex groups $1 $2 $3 respectively.
-                            splice @_, $i, 1, $1, $2, $3;
+                        my ($mm,$dd,$yy) = extract_date($_[$i+1]);
+                        if (defined $mm) {
+                            $i = $i + 1;
+                            splice @_, $i, 1, $mm, $dd, $yy;
                         }
                         else {
-                            print "ERROR illegal date format - expected mm/dd/yy\n";
+                            # error message already issued by extract_date
                             return;
                         }
                     }
@@ -1168,6 +1185,17 @@ sub check_arg {
                     print "ERROR illegal volume number - expected 16-bit decimal value\n";
                     return;
                 }
+            }
+        }
+        elsif ($f eq 'y') {
+            # Date in Flex format mm,dd,yy
+            my ($mm,$dd,$yy) = extract_date($_[$i]);
+            if (defined $mm) {
+                splice @_, $i, 1, $mm, $dd, $yy;
+            }
+            else {
+                # error message already issued by extract_date
+                return;
             }
         }
         elsif ($f eq 'ots') {
@@ -1207,6 +1235,21 @@ sub check_arg {
     return @_;
 }
 
+
+# extract date from input string of the form mm,dd,yy
+# do minimal validation. If valid, return list mm,dd,yy
+# if invalid, print error message and return nothing
+sub extract_date {
+    if (defined $_[0] and $_[0] =~ /^(\d{1,2}),(\d{1,2}),(\d{1,2})$/) {
+        # so far so good.
+        my ($mm,$dd,$yy) = ($1, $2, $3);
+        if (($mm > 0) and ($mm < 13) and ($dd > 0) and ($dd < 32)) {
+            return ($mm,$dd,$yy);
+        }
+    }
+    print "ERROR illegal date format or range - expected mm,dd,yy\n";
+    return;
+}
 
 # export/type zero or more files
 # files specified by list of directory indices
@@ -1323,7 +1366,7 @@ sub conv_raw {
 }
 
 
-# Text file format. Ref: FLEX APG page 46.
+# Text file format. Ref: Flex APG page 46.
 sub conv_expand {
     my ($f_ref) = @_;
     my $handle = $f_ref->{handle};
@@ -1372,7 +1415,7 @@ sub conv_expand {
 }
 
 
-# Binary file format. Ref: FLEX APG page 45.
+# Binary file format. Ref: Flex APG page 45.
 sub conv_record {
     my ($f_ref) = @_;
     my $handle = $f_ref->{handle};
@@ -1597,7 +1640,7 @@ sub page {
     return 0
 }
 
-# is this a legal FLEX name (8.3 format max). Return true if
+# is this a legal Flex name (8.3 format max). Return true if
 # it is, false otherwise
 sub legal_flex_name {
     my ($name, $ext) = split /\./, $_[0];
@@ -1969,7 +2012,7 @@ sub rd_sir {
     $dsk[$drive]->{sir}->{FREE}    = 256 * $sir->[33] + $sir->[34];
     $dsk[$drive]->{sir}->{DATE_M}  = $sir->[35];
     $dsk[$drive]->{sir}->{DATE_D}  = $sir->[36];
-    $dsk[$drive]->{sir}->{DATE_Y}  = $sir->[37] %100; # Y2K fixup
+    $dsk[$drive]->{sir}->{DATE_Y}  = $sir->[37];
     $dsk[$drive]->{sir}->{MAX_T}   = $sir->[38];
     $dsk[$drive]->{sir}->{MAX_S}   = $sir->[39];
 
@@ -2037,7 +2080,6 @@ sub wr_sir_vol {
 
 # Change the SIR disk date, commit to disk and refresh local copy.
 # mm dd yy are all values in the range 0-99. No range check has been done.
-# TODO may need Y2K fix here.
 sub wr_sir_date {
     my ($drive, $mm, $dd, $yy) = @_;
     $dsk[$drive]->{sir}->{DATE_M} = $mm;
@@ -2064,7 +2106,7 @@ sub describe_sir {
 
     printf "$i Disk name:    %-11s\n", $dsk[$drive]->{sir}->{NAME};
     printf "$i Disk number:  %d\n",  $dsk[$drive]->{sir}->{NUM};
-    printf "$i Disk date:    %02d/%02d/%02d (mm/dd/yy)\n", $dsk[$drive]->{sir}->{DATE_M},
+    printf "$i Disk date:    %02d,%02d,%02d (mm,dd,yy)\n", $dsk[$drive]->{sir}->{DATE_M},
     $dsk[$drive]->{sir}->{DATE_D}, $dsk[$drive]->{sir}->{DATE_Y};
     printf "$i Free sectors: %d. Free chain t%02d,s%02d - t%02d,s%02d\n",
     $dsk[$drive]->{sir}->{FREE},
@@ -2091,7 +2133,7 @@ sub describe_link {
 sub rd_dir {
     my ($drive) = @_;
 
-    # Directory format is described in FLEXAPG. This is the first sector.
+    # Directory format is described in Flex APG. This is the first sector.
     my ($trk, $sct) = @FLEX_DIR_TS;
 
     my @dir;
@@ -2152,7 +2194,7 @@ sub rd_dir {
             $d{FSM}     = $data[23-4+$nstart];
             $d{DATE_M}  = $data[25+0-4+$nstart];
             $d{DATE_D}  = $data[25+1-4+$nstart];
-            $d{DATE_Y}  = $data[25+2-4+$nstart] %100; # Y2K fixup
+            $d{DATE_Y}  = $data[25+2-4+$nstart];
 
             push @dir,\%d;
         }
@@ -2451,11 +2493,14 @@ EOF
     disk of X tracks (numbered 0..X-1) and Y sectors (numbered 1..Y).
 
     If the geometry is not specified it defaults to t=$DFLT_TRKS s=$DFLT_SCTS which
-    is correct for my Multicomp6809 FLEX port.
+    is correct for my Multicomp6809 Flex port.
 
     The disk image created is empty, with a valid SIR containing
-    nominal values for the volume name, number and creation date; the
-    'label' command can be used to modify these values.
+    nominal values for the volume name and number. The creation
+    date is the current date or as set by 'date'. Use 'label' to
+    modify these values.
+
+    See 'help label' and 'help date'
 
     Examples:
     new foo.bin img
@@ -2480,7 +2525,7 @@ EOF
 
     Copying a file that has the R (random) attribute set does
     NOT regenerate the file sector map in the first two sectors
-    of the file. You must rebuild that under the control of FLEX,
+    of the file. You must rebuild that under the control of Flex,
     using the COPYR utility.
 
 
@@ -2502,12 +2547,12 @@ EOF
     a 16-bit value expressed in decimal (ie, 0-65535).
 
     Optionally also change the date. The date is in the format
-    mm/dd/yy. The date is NOT checked to be legal!
+    mm,dd,yy used by Flex. The date is NOT checked to be legal!
 
     Example:
     label 1 mydisk
     label 0 flex_09 456
-    label 2 newdisk 124 03/24/97
+    label 2 newdisk 124 03,24,97
 EOF
     }
     elsif ($cmd eq 'type') {
@@ -2573,20 +2618,20 @@ EOF
     The default conversion is:
     xxx=raw
 
-    See 'help conversions' for more details.
+    See 'help conversions' for more details. See also 'help date'
 
     Because import does not attempt to guess the file type, it
     may be necessary to import files in groups, applying different
     conversions based on file extension and user knowledge.
 
     To copy files between virtual drives, it is best to mount
-    both virtual drives and use the copy command, rather than
-    using the export/import commands. Using copy ensures a
+    both virtual drives and use 'copy', rather than using an
+    'export'/'import' sequence. Using 'copy' ensures a
     byte-accurate copy, avoiding two problems:
 
-    * export/import is error-prone because you need to specify
-      conversions in each step
-    * export/import may not result in a byte-accurate copy;
+    * 'export'/'import' is error-prone because you need to
+      specify conversions in each step
+    * 'export'/'import' may not result in a byte-accurate copy;
       text-file compression may be more aggressive, binary files
       will omit redundant (eg overlapping) records.
 
@@ -2594,6 +2639,29 @@ EOF
     import ../*.* 0 xxx=raw
     import ../*.TXT 0 xxx=compress
     import ../*.CMD 0 xxx=s19
+EOF
+    }
+    elsif ($cmd eq 'date') {
+        print <<EOF
+    date mm,dd,yy
+
+    At the start of a flex_vfs session, the date is read from
+    the host system and used where required for the rest of
+    the session. Use 'date' to override that value; the value
+    set using 'date' persists until the end of the session or
+    until 'date' is used to set a new value.
+
+    The date is entered, Flex-style, in month,date,year format.
+    One or two-digit values are expected for each. The month
+    is verified to be in the range 1-12, the date in the range
+    1-31. There is no other check that the date is legal.
+
+    The date (however obtained) is used in these places:
+    - Disk creation date by 'new'
+    - File creation date by 'import'
+
+    Example:
+    date 11,26,16
 EOF
     }
     elsif ($cmd eq 'dir') {
@@ -2813,7 +2881,7 @@ EOF
     }
     elsif ($cmd eq 'conversions') {
         print <<EOF
-    The FLEX advanced programmers guide documents 3 file formats:
+    The Flex Advanced Programmers Guide documents 3 file formats:
 
     * A text format that may include a simple run-length compression
       of spaces
@@ -2843,7 +2911,7 @@ EOF
     compress - compress a test file. Pad the final sector with NULL
     bytes.
 
-    s19 - parse an S19 file and convert it to FLEX binary record
+    s19 - parse an S19 file and convert it to Flex binary record
     format.
 
     The 'type' and 'export' commands use a simple heuristic to
@@ -2854,9 +2922,9 @@ EOF
 
     txt=raw bin=dump xxx=dump
 
-    The 'import' command does not attempt to classify files but
-    considers every file to be of type 'xxx'. The default converter
-    can be overridden by specifying a name/value pair.
+    'import' does not attempt to classify files but considers
+    every file to be of type 'xxx'. The default converter can be
+    overridden by specifying a name/value pair.
     For example:
 
     xxx=compress
@@ -2885,9 +2953,9 @@ exit
 
 \$ flex_vfs < sys.scr
 
-    The script *must* end with an exit command; you can't
-    (for example) drop in to the command line (that's a pity
-    and I'd welcome suggestions that would make that work).
+    The script *must* end with an 'exit' - there is no way
+    (for example) to drop out of a script and continue interactively
+    (that's a pity and I'd welcome suggestions that would make that work).
 EOF
     } #'
     else {
@@ -2919,6 +2987,7 @@ Commands are:
     type       - view file from virtual drive (optional format conversion)
     export     - copy file from virtual drive to local file system (optional format conversion)
     import     - copy file from local file system to virtual drive (optional format conversion)
+    date       - set date
     dir        - directory of virtual drive
     hdir       - directory of local file system
     delete     - delete file(s) from virtual drive
