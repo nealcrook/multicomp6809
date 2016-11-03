@@ -131,6 +131,10 @@ my ($mday, $mon, $year);
 while (1) {
     print "flex_vfs: ";
     my $cmd = <>;
+    if (not -t STDIN) {
+        # non-interactive, so echo input to output
+        print $cmd;
+    }
     chomp $cmd;
     # remove comments
     $cmd =~ s/\(.*\)//g;
