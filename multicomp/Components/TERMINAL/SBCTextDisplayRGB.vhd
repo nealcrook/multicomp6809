@@ -102,21 +102,21 @@ constant CHARS_PER_SCREEN : integer := HORIZ_CHARS*VERT_CHARS;
 	signal	vActive   : std_logic := '0';
 	signal	hActive   : std_logic := '0';
 
-	signal	pixelClockCount: STD_LOGIC_VECTOR(3 DOWNTO 0);
-	signal	pixelCount: STD_LOGIC_VECTOR(2 DOWNTO 0);
+	signal	pixelClockCount: std_logic_vector(3 DOWNTO 0);
+	signal	pixelCount: std_logic_vector(2 DOWNTO 0);
 
-	signal	horizCount: STD_LOGIC_VECTOR(11 DOWNTO 0);
-	signal	vertLineCount: STD_LOGIC_VECTOR(9 DOWNTO 0);
+	signal	horizCount: std_logic_vector(11 DOWNTO 0);
+	signal	vertLineCount: std_logic_vector(9 DOWNTO 0);
 
 	signal	charVert: integer range 0 to VERT_CHAR_MAX; --unsigned(4 DOWNTO 0);
-	signal	charScanLine: STD_LOGIC_VECTOR(3 DOWNTO 0);
+	signal	charScanLine: std_logic_vector(3 DOWNTO 0);
 
 -- functionally this only needs to go to HORIZ_CHAR_MAX. However, at the end of a line
 -- it goes 1 beyond in the hblank time. It could be avoided but it's fiddly with no
 -- benefit. Without the +1 the design synthesises and works fine but gives a fatal
 -- error in RTL simulation when the signal goes out of range.
 	signal	charHoriz: integer range 0 to 1+HORIZ_CHAR_MAX; --unsigned(6 DOWNTO 0);
-	signal	charBit: STD_LOGIC_VECTOR(3 DOWNTO 0);
+	signal	charBit: std_logic_vector(3 DOWNTO 0);
 
 	-- top left-hand corner of the display is 0,0 aka "home".
 	signal	cursorVert: integer range 0 to VERT_CHAR_MAX :=0;
@@ -134,17 +134,17 @@ constant CHARS_PER_SCREEN : integer := HORIZ_CHARS*VERT_CHARS;
 	signal 	cursAddr : integer range 0 to CHARS_PER_SCREEN;
 
 	signal 	dispAddr : integer range 0 to CHARS_PER_SCREEN;
-	signal 	charAddr : std_LOGIC_VECTOR(10 downto 0);
+	signal 	charAddr : std_logic_vector(10 downto 0);
 
-	signal	dispCharData : std_LOGIC_VECTOR(7 downto 0);
-	signal	dispCharWRData : std_LOGIC_VECTOR(7 downto 0);
-	signal	dispCharRDData : std_LOGIC_VECTOR(7 downto 0);
+	signal	dispCharData : std_logic_vector(7 downto 0);
+	signal	dispCharWRData : std_logic_vector(7 downto 0);
+	signal	dispCharRDData : std_logic_vector(7 downto 0);
 
-	signal	dispAttData : std_LOGIC_VECTOR(7 downto 0);
-	signal	dispAttWRData : std_LOGIC_VECTOR(7 downto 0):=DEFAULT_ATT; -- iBGR(back) iBGR(text)
-	signal	dispAttRDData : std_LOGIC_VECTOR(7 downto 0);
+	signal	dispAttData : std_logic_vector(7 downto 0);
+	signal	dispAttWRData : std_logic_vector(7 downto 0):=DEFAULT_ATT; -- iBGR(back) iBGR(text)
+	signal	dispAttRDData : std_logic_vector(7 downto 0);
 
-	signal	charData : std_LOGIC_VECTOR(7 downto 0);
+	signal	charData : std_logic_vector(7 downto 0);
 
 	signal	cursorOn : std_logic := '1';
 	signal	dispWR : std_logic := '0';
@@ -156,7 +156,7 @@ constant CHARS_PER_SCREEN : integer := HORIZ_CHARS*VERT_CHARS;
 	signal	statusReg : std_logic_vector(7 downto 0) := (others => '0');
 	signal	controlReg : std_logic_vector(7 downto 0) := "00000000";
 
-	type		kbBuffArray is array (0 to 7) of std_logic_vector(6 downto 0);
+	type	kbBuffArray is array (0 to 7) of std_logic_vector(6 downto 0);
 	signal	kbBuffer : kbBuffArray;
 
 	signal	kbInPointer: integer range 0 to 15 :=0;   -- registered on clk
@@ -166,10 +166,10 @@ constant CHARS_PER_SCREEN : integer := HORIZ_CHARS*VERT_CHARS;
 	signal	dispByteSent : std_logic := '0';
 
 	signal	dispByteLatch: std_logic_vector(7 DOWNTO 0);
-	type		dispStateType is ( idle, dispWrite, dispNextLoc, clearLine, clearL2,
+	type	dispStateType is ( idle, dispWrite, dispNextLoc, clearLine, clearL2,
 						clearScreen, clearS2, clearChar, clearC2, insertLine, ins2, ins3, deleteLine, del2, del3);
 	signal	dispState : dispStateType :=idle;
-	type		escStateType is ( none, waitForLeftBracket, processingParams, processingAdditionalParams );
+	type	escStateType is ( none, waitForLeftBracket, processingParams, processingAdditionalParams );
 	signal	escState : escStateType :=none;
 
 	signal	param1: integer range 0 to 127 :=0;
@@ -206,10 +206,10 @@ constant CHARS_PER_SCREEN : integer := HORIZ_CHARS*VERT_CHARS;
 	-- "globally static" versions of signals for use within generate
         -- statements below. Without these intermediate signals the simulator
         -- reports an error (even though the design synthesises OK)
-	signal   cursAddr_xx: std_logic_vector(10 downto 0);
-	signal   dispAddr_xx: std_logic_vector(10 downto 0);
+	signal	cursAddr_xx: std_logic_vector(10 downto 0);
+	signal	dispAddr_xx: std_logic_vector(10 downto 0);
 
-	type		kbDataArray is array (0 to 131) of std_logic_vector(6 downto 0);
+	type	kbDataArray is array (0 to 131) of std_logic_vector(6 downto 0);
 
 	-- the ASCII codes are expressed in HEX and therefore are 8-bit.
 	-- However, the MSB is always 0 so we don't want to store the MSB. This
@@ -906,17 +906,25 @@ end generate GEN_NO_ATTRAM;
 					elsif paramCount =1 and dispByteLatch=x"4C" then-- ESC[L - insert line
 						cursorVertRestore <= cursorVert;
 						cursorHorizRestore <= cursorHoriz;
-						cursorHoriz <= HORIZ_CHAR_MAX;
-						cursorVert <= VERT_CHAR_MAX-1;
-						dispState <= insertLine;
+						cursorHoriz <= 0;
 						paramCount<=0;
+						if cursorVert < VERT_CHAR_MAX then
+							cursorVert <= VERT_CHAR_MAX-1;
+							dispState <= insertLine;
+						else
+							dispState <= clearLine;
+						end if;
 					elsif paramCount =1 and dispByteLatch=x"4D" then-- ESC[M - delete line
 						cursorVertRestore <= cursorVert;
 						cursorHorizRestore <= cursorHoriz;
-						cursorHoriz <= HORIZ_CHAR_MAX;
-						cursorVert <= cursorVert+1;
-						dispState <= deleteLine;
+						cursorHoriz <= 0;
 						paramCount<=0;
+						if cursorVert < VERT_CHAR_MAX then
+							cursorVert <= cursorVert + 1;
+							dispState <= deleteLine;
+						else
+							dispState <= clearLine;
+						end if;
 					elsif paramCount>0 and dispByteLatch=x"6D" then-- ESC[{param1}m or ESC[{param1};{param2}m- set graphics rendition
 						if param1 = 0 then
 							attInverse <= '0';
@@ -1159,15 +1167,19 @@ end generate GEN_NO_ATTRAM;
 				dispState <= ins3;
 			when ins3 =>
 				dispWR <= '0';
-				if cursorHoriz = 0 and cursorVert = cursorVertRestore+1 then
-					cursorVert <= cursorVertRestore;
-					dispState <= clearLine;
-				elsif cursorHoriz>0 then
-					cursorHoriz <= cursorHoriz-1;
+				if cursorHoriz < HORIZ_CHAR_MAX then
+					-- current line still in progress
+					cursorHoriz <= cursorHoriz+1;
 					cursorVert <= cursorVert-1;
 					dispState <= insertLine;
+				elsif cursorVert = cursorVertRestore+1 then
+					-- current line finished, no more lines to move
+					cursorHoriz <= 0;
+					cursorVert <= cursorVertRestore;
+					dispState <= clearLine;
 				else
-					cursorHoriz <= HORIZ_CHAR_MAX;
+					-- current line finished, do next one
+					cursorHoriz <= 0;
 					cursorVert <= cursorVert-2;
 					dispState <= insertLine;
 				end if;
@@ -1181,15 +1193,19 @@ end generate GEN_NO_ATTRAM;
 				dispState <= del3;
 			when del3 =>
 				dispWR <= '0';
-				if cursorHoriz = 0 and cursorVert = VERT_CHAR_MAX-1 then
-					cursorVert <= VERT_CHAR_MAX;
-					dispState <= clearLine;
-				elsif cursorHoriz>0 then
-					cursorHoriz <= cursorHoriz-1;
+				if cursorHoriz < HORIZ_CHAR_MAX then
+					-- current line still in progress
+					cursorHoriz <= cursorHoriz+1;
 					cursorVert <= cursorVert+1;
 					dispState <= deleteLine;
+				elsif cursorVert = VERT_CHAR_MAX-1 then
+					-- current line finished, no more lines to move
+					cursorHoriz <= 0;
+					cursorVert <= VERT_CHAR_MAX;
+					dispState <= clearLine;
 				else
-					cursorHoriz <= HORIZ_CHAR_MAX;
+					-- current line finished, do next one
+					cursorHoriz <= 0;
 					cursorVert <= cursorVert+2;
 					dispState <= deleteLine;
 				end if;
