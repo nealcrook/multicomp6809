@@ -1,12 +1,12 @@
 #!/usr/bin/perl
 #
-# Manipulator for Flex disk images. Designed to act as a virtual file system
+# Manipulator for FLEX disk images. Designed to act as a virtual file system
 # for disk analysis, extract, import, copy, creation, conversion.
 #
 # Mostly designed for interactive use but also allows limited non-interactive
 # use.
 #
-# Kudos for Flex: 6809 source is about 2380 lines of assembler. This PERL
+# Kudos for FLEX: 6809 source is about 2380 lines of assembler. This PERL
 # script is now longer than that..
 #
 # Neal Crook, July 2015.
@@ -18,7 +18,7 @@
 # FUTURE: it is NOT legal to have a null file name. It is legal to have a null extension?
 # BUG: import barfs on file with no extension. Should either skip it (illegal file name)
 # or handle it properly. Legal name starts with letter, contains a-zA-Z0-9_- only.
-# Extension is 1-3 characters. Not legal to have no extension (Flex utilities will not allow
+# Extension is 1-3 characters. Not legal to have no extension (FLEX utilities will not allow
 # you to create or to see such a file. VED currently can create one but it is invisible)
 # FUTURE: add optional y/n arg to delete.
 # FUTURE: add RENAME command
@@ -37,7 +37,7 @@
 # only prints 8 characters. So does TSC CAT.
 # BUG: pressing CTRL-D results in lots of PERL warnings
 # BUG: if you copy a Random access file (R attribute set) the file sector map will be
-# wrong; need to rebuild it in the target using COPYR. The Flex diagnostics manual
+# wrong; need to rebuild it in the target using COPYR. The FLEX diagnostics manual
 # describes the format but it's not a common enough job to be worth bothering with in
 # this tool. Ought to report a warning though, when the situation arises.
 # BUG: I think a set of bugs will occur if the disk becomes full (zero free sectors).
@@ -52,12 +52,8 @@
 # sectors. Maybe mount such images as read-only? Maybe these are "bad" sectors?
 # BUG: import currently does not check for existing file name (can result in you having
 # 2 files of the same name; only the older will be accessible.
-# Note: import of txt file should use 0x0D line endings.. should remove others. Refer
-# to Flex APG for description of text file format.
-# TODO: for export
-# - support S19 format
-# TODO: for import
-# - support different converters, including S19 format.
+# to FLEX APG for description of text file format.
+# TODO: support s19 format for export and import
 # S19 can represent a record-based format and can include the entry address.
 
 use strict;
@@ -65,7 +61,7 @@ no strict 'refs'; # CLI makes subroutine from command name.
 use warnings;
 use File::Basename;
 
-# Flex constants
+# FLEX constants
 #
 # Tracks are numbered 0..n
 # Sectors are numbered 1..n
@@ -76,7 +72,7 @@ use File::Basename;
 # block <-> track/sector conversion is easy for the first track
 # but requires knowledge of the system information record (SIR)
 # in order to do conversions beyond the first track.
-# Flex constants.
+# FLEX assumes a fixed sector size of 256 bytes/sector
 my $BYTES_SECTOR = 256;
 # 4 bytes per sector are not available for payload. Bytes 0,1
 # hold a link to the next track/sector used by the file (or 0,0
@@ -469,7 +465,7 @@ sub cmd_label {
 
 
 sub cmd_type {
-    my ($fs, $conv_ref, $lpp) = check_arg('fs oc oi', @_);
+    my ($fs, $conv_ref, $lpp) = check_arg('fs oec oi', @_);
     return unless defined($fs);
 
     $lpp = defined $lpp ? $lpp : $LINES_PER_PAGE;
@@ -483,7 +479,7 @@ sub cmd_type {
 
 
 sub cmd_export {
-    my ($fs, $conv_ref, $path) = check_arg('fs oc od', @_);
+    my ($fs, $conv_ref, $path) = check_arg('fs oec od', @_);
     return unless defined($fs);
 
     $path = defined $path ? $path . "/" : "";
@@ -515,7 +511,7 @@ sub type_export_common {
 
 
 sub cmd_import {
-    my ($dst, $hf_ref, $conv_ref, $path) = check_arg('v hw oc', @_);
+    my ($dst, $hf_ref, $path, $conv_ref) = check_arg('v hw oic', @_);
     return unless defined($dst);
 
     if (not $dsk[$dst]->{mounted}) {
@@ -529,7 +525,7 @@ sub cmd_import {
     my $skip = 0;
     foreach my $i (@$hf_ref) {
         if (not legal_flex_name($i)) {
-            print "INFO skipped import of $i -- not a legal Flex filename\n";
+            print "INFO skipped import of $i -- not a legal FLEX filename\n";
             $skip = $skip + 1;
             next;
         }
@@ -538,7 +534,7 @@ sub cmd_import {
             $skip = $skip + 1;
             next;
         }
-        if (open HFILE, "$path/$i") {
+        if (open HFILE, "$path$i") {
             my $data;
             my $bytes = read HFILE, $data, ($dsk[$dst]->{sir}->{FREE} * 254);
             if (not eof HFILE) {
@@ -548,14 +544,22 @@ sub cmd_import {
                 next;
             }
             my @data = unpack("C*", $data);
-
-            # [NAC HACK 2016Oct28] TODO apply conversions. Currently just support RAW
+            my $data_ref = \@data;
+            if ($conv_ref->{xxx} eq "compress") {
+                $data_ref = txt_compress($data_ref);
+            }
+            elsif ($conv_ref->{xxx} eq "s19") {
+                print "ERROR s19 import not yet supported. Doing raw import instead\n";
+            }
+            # [NAC HACK 2016Oct28] TODO apply other conversions. Currently just support: raw, compress
+            # [NAC HACK 2016Oct28] TODO the $conv_ref is supposed to make it easier to do all this stuff..
+            # [NAC HACK 2016Nov08] review how it's done for export and mimic here.
 
             # Pad data to a whole number of sectors
-            my $runt = scalar(@data) % $DATA_SECTOR;
+            my $runt = scalar(@$data_ref) % $DATA_SECTOR;
             if ($runt != 0) {
                 my @pad = (0) x ($DATA_SECTOR - $runt);
-                push @data, @pad;
+                push @$data_ref, @pad;
             }
             close HFILE;
 
@@ -567,7 +571,7 @@ sub cmd_import {
                                   $dsk[$dst]->{sir}->{FIRST_S},
                                   $dsk[$dst]->{sir}->{FREE});
 
-            my $sectors = scalar(@data)/$DATA_SECTOR;
+            my $sectors = scalar(@$data_ref)/$DATA_SECTOR;
 
             # Start with empty directory entry
             my $dir_entry_data = empty_dir_entry();
@@ -616,7 +620,7 @@ sub cmd_import {
                 $dst_data[2] = 0;
                 $dst_data[3] = 0;
                 for my $byte ($DATA_OFFSET..($BYTES_SECTOR-1)) {
-                    $dst_data[$byte] = shift @data;
+                    $dst_data[$byte] = shift @$data_ref;
                 }
 
                 my $nxt_trk = $dst_data[0];
@@ -868,7 +872,7 @@ sub cmd_scrub {
             # An unallocated directory entry takes 2 forms:
             # - if it has *never* been used, the first byte of the filename is 0.
             # - if it has ever been used, the first byte of the filename has bit7=1.
-            # Flex will not search the directory beyond the first never-used directory
+            # FLEX will not search the directory beyond the first never-used directory
             # entry (presumably a speed optimisation). Therefore, when scrubbing the
             # disk, cannot set the first byte to 0 if it wasn't already 0, otherwise
             # subsequent files in the directory will become invisible and inaccessible.
@@ -947,10 +951,10 @@ sub cmd_uppercase {
     }
 
     if ($UPCASE) {
-        print "Flex file specifiers will be forced to upper-case\n";
+        print "FLEX file specifiers will be forced to upper-case\n";
     }
     else {
-        print "Flex file specifiers will use mixed case\n";
+        print "FLEX file specifiers will use mixed case\n";
     }
 }
 
@@ -975,7 +979,7 @@ sub cmd_uppercase {
 # nh - file in host filesystem (may or may not exist)
 # od - optional directory in host filesystem (must exist) default to .
 # of - optional file format: dsk or img, also inferred from h
-# fs - flex file specifier: 1 or 1.foo.bar
+# fs - FLEX file specifier: 1 or 1.foo.bar
 # l - disk label (truncated to 16 characters)
 # i - integer
 # oi - optional integer
@@ -987,7 +991,8 @@ sub cmd_uppercase {
 #       entries: mm, dd, yy.
 #       mm is verified 1-12. dd is verified 1-31. yy is verified 0-99.
 # ots - optional track/sector. If omitted, default values are returned.
-# oc  - optional converters. Returns hash reference
+# oic - optional import converters. Returns hash reference
+# oec - optional export converters. Returns hash reference
 sub check_arg {
     my @expected = split " ",(shift @_);
     my $host_file;  # stored for use by subsequent 'of' argument
@@ -1022,13 +1027,31 @@ sub check_arg {
                 }
             }
         }
-        elsif ($f eq 'oc') {
-            # One or more conversion rules. Remove them all; replace them
-            # with a single value: a hash ref
+        elsif ($f eq 'oec') {
+            # Zero or more export conversion rules. Remove
+            # them all; replace them with a single value: a hash ref.
             my %conv;
             my $first = $i;
             while ((defined $_[$i]) and ($_[$i] =~ /^(txt|bin|xxx)=/)) {
-                if ($_[$i] =~ /^(\w+)=(raw|record|expand|dump|compress|s19)/) {
+                if ($_[$i] =~ /^(\w+)=(raw|record|expand|dump|s19)/) {
+                    $conv{$1} = $2;
+                }
+                else {
+                    print "No such conversion: $_[$i]\n";
+                    return;
+                }
+                $i = $i + 1;
+            }
+            splice @_, $first, $i-$first, \%conv;
+            $i = $first;
+        }
+        elsif ($f eq 'oic') {
+            # Zero or more import conversion rules. Remove
+            # them all; replace them with a single value: a hash ref.
+            my %conv;
+            my $first = $i;
+            while ((defined $_[$i]) and ($_[$i] =~ /^(xxx)=/)) {
+                if ($_[$i] =~ /^(\w+)=(raw|compress|s19)/) {
                     $conv{$1} = $2;
                 }
                 else {
@@ -1068,7 +1091,7 @@ sub check_arg {
         }
         elsif ($f eq 'hw') {
             # host wildcard; must match at least 1 file. Return a
-            # reference to a list of files.
+            # reference to a list of files AND a directory path
             if (not defined $_[$i]) {
                 print "ERROR missing argument - expected host file name\n";
                 return;
@@ -1092,8 +1115,9 @@ sub check_arg {
             }
 
             $_[$i] = \@matches;
-            # need the path so add it to the END of the arg list.
-            push @_, $path;
+            # need the path so insert it after the files ref and skip past it
+            splice @_, $i+1, 0, $path;
+            $i = $i + 1;
         }
         elsif ($f eq 'nh') {
             if (not defined $_[$i]) {
@@ -1135,9 +1159,9 @@ sub check_arg {
             }
         }
         elsif ($f eq 'fs') {
-            # Flex file specifier
+            # FLEX file specifier
             if (not defined $_[$i]) {
-                print "ERROR missing argument - expected flex file specifier\n";
+                print "ERROR missing argument - expected FLEX file specifier\n";
                 return;
             }
             if ($UPCASE) {
@@ -1148,7 +1172,7 @@ sub check_arg {
                 # make it more regular and we're done
                 $_[$i] = "$_[$i].*.*";
             }
-            # From Flex User Manual
+            # From FLEX User Manual
             # 0-3 for drive, 1-8 character name, 1-3 character extension
             # extension must start with a letter
             # otherwise both can contain 0-9 a-z A-Z _ -
@@ -1159,20 +1183,20 @@ sub check_arg {
             }
         }
         elsif ($f eq 'l') {
-            # Flex disk label - upto 11 characters
+            # FLEX disk label - upto 11 characters
             if (not defined $_[$i]) {
-                print "ERROR missing argument - expected flex disk label\n";
+                print "ERROR missing argument - expected FLEX disk label\n";
                 return;
             }
             $_[$i] = substr($_[$i], 0, 11);
         }
         elsif ($f eq 'ovy') {
-            # Optional Flex disk volume. If present, must be 16-bit value
+            # Optional FLEX disk volume. If present, must be 16-bit value
             if (defined $_[$i]) {
                 if (($_[$i] =~ /^\d+$/) && ($_[$i] < 65536)) {
                     # Volume number is OK
 
-                    # Optional Flex date mm,dd,yy.
+                    # Optional FLEX date mm,dd,yy.
                     if (defined $_[$i+1]) {
                         my ($mm,$dd,$yy) = extract_date($_[$i+1]);
                         if (defined $mm) {
@@ -1192,7 +1216,7 @@ sub check_arg {
             }
         }
         elsif ($f eq 'y') {
-            # Date in Flex format mm,dd,yy
+            # Date in FLEX format mm,dd,yy
             my ($mm,$dd,$yy) = extract_date($_[$i]);
             if (defined $mm) {
                 splice @_, $i, 1, $mm, $dd, $yy;
@@ -1235,7 +1259,13 @@ sub check_arg {
         }
         $i = $i + 1;
     }
-    # success!
+    # Final check is that all the arguments have been used up
+    if (exists $_[$i]) {
+        print "ERROR unexpected argument: $_[$i]\n";
+        return;
+    }
+
+    # Phew! Success!
     return @_;
 }
 
@@ -1305,6 +1335,95 @@ sub export_files {
     }
 }
 
+# compress a byte array using FLEX text compression rules
+sub txt_compress {
+    my ($data_ref) = @_;
+    my $PASS = 0;
+    my $EOL = 1;
+    my $SPC = 2;
+    my $eol_type;
+    my $spc_cnt;
+    my $state = $PASS;
+    my @cdata;
+    foreach my $i (@$data_ref) {
+        if ($state == $PASS) {
+            if ($i == 0x20) {
+                $spc_cnt = 1;
+                $state = $SPC;
+            }
+            elsif (($i == 0x0D) or ($i == 0x0A)) {
+                $eol_type = $i;
+                $state = $EOL;
+                push @cdata, 0x0D;
+            }
+            elsif ($i == 0x00) {
+                # ignore NULL
+            }
+            else {
+                push @cdata, $i;
+            }
+        }
+        elsif ($state == $EOL) {
+            if ($i == 0x20) {
+                $spc_cnt = 1;
+                $state = $SPC;
+            }
+            elsif (($i == 0x0D) or ($i == 0x0A)) {
+                if ($i != $eol_type) {
+                    # CR/LF or LF/CR pair - gobble this character
+                    $state = $PASS;
+                }
+                else {
+                    # Multiple CR or of LF - echo each one as CR
+                    push @cdata, 0x0D;
+                }
+            }
+            elsif ($i == 0x00) {
+                # ignore NULL
+                $state = $PASS;
+            }
+            else {
+                $state = $PASS;
+                push @cdata, $i;
+            }
+        }
+        else { # $state == $SPC
+            if (($i == 0x20) and ($spc_cnt < 127)) {
+                $spc_cnt = $spc_cnt + 1;
+            }
+            else {
+                # handle spaces
+                if ($spc_cnt == 1) {
+                    push @cdata, 0x20;
+                }
+                else {
+                    push @cdata, 0x09;
+                    push @cdata, $spc_cnt;
+                }
+                # handle new character (which may be a space) - same logic as $PASS
+                if ($i == 0x20) {
+                    $spc_cnt = 1;
+                    $state = $SPC;
+                }
+                elsif (($i == 0x0D) or ($i == 0x0A)) {
+                    $eol_type = $i;
+                    $state = $EOL;
+                    push @cdata, 0x0D;
+                }
+                elsif ($i == 0x00) {
+                    # ignore NULL
+                    $state = $PASS;
+                }
+                else {
+                    push @cdata, $i;
+                    $state = $PASS;
+                }
+            }
+        }
+    }
+    return \@cdata;
+}
+
 
 # analyse file contents based on first few bytes. Determine
 # what conversion to use and fill in {converter}.
@@ -1319,12 +1438,12 @@ sub set_converter {
 
     if ($f_ref->{data}->[4] == 0x02) {
         # start of record indicator. Probably a Binary file
-        $f_ref->{converter} = 'conv_' . $f_ref->{converters}->{bin};
+        $f_ref->{converter} = 'export_' . $f_ref->{converters}->{bin};
     }
     else {
         # Text file by default; skip run-length bytes
         # which could legitimately have msb set.
-        $f_ref->{converter} = 'conv_' . $f_ref->{converters}->{txt};
+        $f_ref->{converter} = 'export_' . $f_ref->{converters}->{txt};
         for my $i (4..255) {
             if ($skip == 1) {
                 $skip = 0;
@@ -1343,10 +1462,10 @@ sub set_converter {
 }
 
 
-# file converters. Each use an %f and update fields of %f:
+# file export converters. Each use an %f and update fields of %f:
 # {index} {data} {trk} {sct} {line}.
 # Returns at end of file. Honours $export $lpp.
-sub conv_raw {
+sub export_raw {
     my ($f_ref) = @_;
     my $handle = $f_ref->{handle};
 
@@ -1370,8 +1489,8 @@ sub conv_raw {
 }
 
 
-# Text file format. Ref: Flex APG page 46.
-sub conv_expand {
+# Text file format. Ref: FLEX APG page 46.
+sub export_expand {
     my ($f_ref) = @_;
     my $handle = $f_ref->{handle};
     my $expand = 0;
@@ -1419,8 +1538,8 @@ sub conv_expand {
 }
 
 
-# Binary file format. Ref: Flex APG page 45.
-sub conv_record {
+# Binary file format. Ref: FLEX APG page 45.
+sub export_record {
     my ($f_ref) = @_;
     my $handle = $f_ref->{handle};
     my $num_str;
@@ -1581,7 +1700,7 @@ sub conv_record {
 
 
 # Unknown format. Express as hex and ASCII dump
-sub conv_dump {
+sub export_dump {
     my ($f_ref) = @_;
     my $handle = $f_ref->{handle};
     my $num_str = '';
@@ -1625,6 +1744,11 @@ sub conv_dump {
     }
 }
 
+
+sub export_s19 {
+    print "ERROR s19 export not yet supported\n";
+}
+
 # Used by file converters. Takes a %f. Called after each output line
 # to do paging when stdout is in use. Return true of output should be
 # aborted.
@@ -1644,7 +1768,7 @@ sub page {
     return 0
 }
 
-# is this a legal Flex name (8.3 format max). Return true if
+# is this a legal FLEX name (8.3 format max). Return true if
 # it is, false otherwise
 sub legal_flex_name {
     my ($name, $ext) = split /\./, $_[0];
@@ -2137,7 +2261,7 @@ sub describe_link {
 sub rd_dir {
     my ($drive) = @_;
 
-    # Directory format is described in Flex APG. This is the first sector.
+    # Directory format is described in FLEX APG. This is the first sector.
     my ($trk, $sct) = @FLEX_DIR_TS;
 
     my @dir;
@@ -2166,12 +2290,12 @@ sub rd_dir {
             my $nstart = $offset+($entry*24);
             my $first = ord substr($data, $nstart, 1);
             if ($first == 0) {
-                # illegal Flex name so will never match directory listing
+                # illegal FLEX name so will never match directory listing
                 $d{NAME} = "%UNUSED";
                 $d{EXT} = "%";
             }
             elsif ($first & 0x80) {
-                # illegal Flex name so will never match directory listing
+                # illegal FLEX name so will never match directory listing
                 $d{NAME} = "%DELETED";
                 $d{EXT} = "%";
             }
@@ -2497,7 +2621,7 @@ EOF
     disk of X tracks (numbered 0..X-1) and Y sectors (numbered 1..Y).
 
     If the geometry is not specified it defaults to t=$DFLT_TRKS s=$DFLT_SCTS which
-    is correct for my Multicomp6809 Flex port.
+    is correct for my Multicomp6809 FLEX port.
 
     The disk image created is empty, with a valid SIR containing
     nominal values for the volume name and number. The creation
@@ -2529,7 +2653,7 @@ EOF
 
     Copying a file that has the R (random) attribute set does
     NOT regenerate the file sector map in the first two sectors
-    of the file. You must rebuild that under the control of Flex,
+    of the file. You must rebuild that under the control of FLEX,
     using the COPYR utility.
 
 
@@ -2551,7 +2675,7 @@ EOF
     a 16-bit value expressed in decimal (ie, 0-65535).
 
     Optionally also change the date. The date is in the format
-    mm,dd,yy used by Flex. The date is NOT checked to be legal!
+    mm,dd,yy used by FLEX. The date is NOT checked to be legal!
 
     Example:
     label 1 mydisk
@@ -2655,7 +2779,7 @@ EOF
     set using 'date' persists until the end of the session or
     until 'date' is used to set a new value.
 
-    The date is entered, Flex-style, in month,date,year format.
+    The date is entered, FLEX-style, in month,date,year format.
     One or two-digit values are expected for each. The month
     is verified to be in the range 1-12, the date in the range
     1-31. There is no other check that the date is legal.
@@ -2750,7 +2874,7 @@ EOF
     than one file.
 
     Background:
-    use "help wrboot" for background on the Flex boot sector.
+    use "help wrboot" for background on the FLEX boot sector.
 EOF
     }
     elsif ($cmd eq 'fix') {
@@ -2781,17 +2905,17 @@ EOF
     link 1.FLEX.SYS
 
     Background:
-    Track 0 sector 1 of a Flex disk is designated as the Flex boot
-    sector, and usually holds the Flex boot loader -- this is
+    Track 0 sector 1 of a FLEX disk is designated as the FLEX boot
+    sector, and usually holds the FLEX boot loader -- this is
     target system dependent as some systems boot straight from ROM
     with no need for this intermediate bootstrap. Other systems may
-    have a loader that extends beyond this one sector. A Flex boot
+    have a loader that extends beyond this one sector. A FLEX boot
     loader is designed to load at address \$C100 and to be executed
     from that address. The bytes at address \$C105, \$C106 specify
-    the track and sector at which the Flex image (usually named
+    the track and sector at which the FLEX image (usually named
     FLEX.SYS) is stored on the disk.
 
-    The Flex LINK command (and the flex_vfs link command) locate
+    The FLEX LINK command (and the flex_vfs link command) locate
     a named file (eg FLEX.SYS) and patch the boot sector with the
     start track/sector of that image. This makes the function of
     the boot loader simpler.
@@ -2828,11 +2952,11 @@ EOF
     elsif ($cmd eq 'uppercase') {
         print <<EOF
     uppercase [0|1]
-    Flex can use mixed-case file names and flex_vfs allows this by
-    default. However, many old Flex disks have upper-case only file
+    FLEX can use mixed-case file names and flex_vfs allows this by
+    default. However, many old FLEX disks have upper-case only file
     names and it can be tedious using the shift key continually.
 
-    flex_vfs can force all Flex file specifiers to upper case (note
+    flex_vfs can force all FLEX file specifiers to upper case (note
     that wildcard '*' will still match both upper-case and lower-case
     if they exist on the disk).
 
@@ -2843,23 +2967,23 @@ EOF
     }
     elsif ($cmd eq 'formats') {
         print <<EOF
-    Flex disks use a fixed sector size of 256 bytes, but varying
+    FLEX disks use a fixed sector size of 256 bytes, but varying
     geometries (the sector count and head count). Since the geometry
     is described within the SIR on the 3rd sector of the disk, it's
     possible to write a disk driver that can read the geometry from
     the SIR and then access any track/sector correctly. Thanks to
-    this far-sight on behalf of the Flex designers, a Flex disk
+    this far-sight on behalf of the FLEX designers, a FLEX disk
     image can simply be represented as a sequence of 256-byte
     blocks and is "self-describing" thanks to its SIR. The normal
-    file extension used for a Flex disk in this format is .dsk.
+    file extension used for a FLEX disk in this format is .dsk.
 
     In order to use an SDcard as a virtual floppy disk, it's
     necessary to translate between the track/sector number (which
-    the Flex disk routines understand) and a linear block number
+    the FLEX disk routines understand) and a linear block number
     (which the SDcard addressing understands). Also, the block
     size on an SDcard is 512 bytes.
 
-    It would be possible to store 2 Flex sectors in each SDcard
+    It would be possible to store 2 FLEX sectors in each SDcard
     block but it is simpler (though inefficient) to store each
     sector in the first half of a 512 byte block. This has the
     effect of generating an image that is exactly twice the size
@@ -2870,7 +2994,7 @@ EOF
     one to the other using the clone command.
 
     For no particularly good reason (but maybe for integrity
-    checking later) flex_vfs stores 2 copies of a Flex sector in
+    checking later) flex_vfs stores 2 copies of a FLEX sector in
     each SDcard block. On reads, the first copy is used.
 EOF
     }
@@ -2885,7 +3009,7 @@ EOF
     }
     elsif ($cmd eq 'conversions') {
         print <<EOF
-    The Flex Advanced Programmers Guide documents 3 file formats:
+    The FLEX Advanced Programmers Guide documents 3 file formats:
 
     * A text format that may include a simple run-length compression
       of spaces
@@ -2915,7 +3039,7 @@ EOF
     compress - compress a test file. Pad the final sector with NULL
     bytes.
 
-    s19 - parse an S19 file and convert it to Flex binary record
+    s19 - parse an S19 file and convert it to FLEX binary record
     format.
 
     The 'type' and 'export' commands use a simple heuristic to
@@ -3004,7 +3128,7 @@ Commands are:
     check      - check integrity of virtual drive
     scrub      - null out deleted file names and unused sectors
     repair     - repair virtual drive
-    uppercase  - treat all Flex file specifiers as upper-case
+    uppercase  - treat all FLEX file specifiers as upper-case
     exit       - unmount all mounted drives and leave flex_vfs
     quit       - synonym for exit
     help       - this is it.
