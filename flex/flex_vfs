@@ -15,15 +15,10 @@
 
 # commands not yet implemented: fix check repair
 
-# FUTURE: it is NOT legal to have a null file name. It is legal to have a null extension?
-# BUG: import barfs on file with no extension. Should either skip it (illegal file name)
-# or handle it properly. Legal name starts with letter, contains a-zA-Z0-9_- only.
-# Extension is 1-3 characters. Not legal to have no extension (FLEX utilities will not allow
-# you to create or to see such a file. VED currently can create one but it is invisible)
 # FUTURE: add optional y/n arg to delete.
 # FUTURE: add RENAME command
 # FUTURE: THEN (command separator)
-# FUTURE: EXTEND (add sectors) - pairs with TRUNCATE
+# FUTURE: EXTEND (add sectors) BEHEAD (remove sectors from start) - both pair with TRUNCATE
 # FUTURE: allow target of copy to be unique fs rather than simply drive name (ie copy
 # file with different name)
 # FUTURE: record inode so that we cannot double-mount a drive.
@@ -1774,13 +1769,17 @@ sub page {
     return 0
 }
 
-# is this a legal FLEX name (8.3 format max). Return true if
-# it is, false otherwise
+# is this a legal FLEX name? Return true if it is, false otherwise.
+# Must be in the form "file dot extension" where
+# file starts with letter, contains a-zA-Z0-9_- only and is 1-8 char
+# extension contains a-zA-Z0-9_- only and is 1-3 char.
+# It is not legal to have no extension (FLEX utilities will not allow
+# you to create or to see such a file)
+# TODO: don't know if there is any requirement for the first char
+# of the extension to be a letter. Currently assume NOT.
 sub legal_flex_name {
-    my ($name, $ext) = split /\./, $_[0];
-    my $lname = length $name;
-    my $lext = length $ext;
-    return (($lname > 0) && ($lname < 9) && ($lext > 0) && ($lext < 4));
+    my ($name) = @_;
+    return $name =~ /^[a-zA-Z][a-zA-Z\d\-\_]{0,7}\.[a-zA-Z\d\-\_]{1,3}$/;
 }
 
 # copy zero or more files
