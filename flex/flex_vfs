@@ -421,6 +421,8 @@ sub cmd_copy {
     # which of those names already in use at the destination?
     my $rm_match = exact_match_dir($src,$cp_match,$dst);
 
+    print "INFO 0 files match $src.$file.$ext\n" if scalar @$cp_match == 0;
+
     # is there enough space for the copy?
     my $dst_free = $dsk[$dst]->{sir}->{FREE} + sectors($dst, $rm_match);
     if ($dst_free < sectors($src, $cp_match)) {
