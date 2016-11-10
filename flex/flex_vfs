@@ -1198,10 +1198,14 @@ sub check_arg {
 
                     # Optional FLEX date mm,dd,yy.
                     if (defined $_[$i+1]) {
-                        my ($mm,$dd,$yy) = extract_date($_[$i+1]);
+                        # point to date
+                        $i = $i + 1;
+                        my ($mm,$dd,$yy) = extract_date($_[$i]);
                         if (defined $mm) {
-                            $i = $i + 1;
+                            # replace one item with three: mm,dd,yy -> mm dd yy
                             splice @_, $i, 1, $mm, $dd, $yy;
+                            # point past 2 extra values inserted
+                            $i = $i + 2;
                         }
                         else {
                             # error message already issued by extract_date
