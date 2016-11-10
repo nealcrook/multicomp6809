@@ -1455,7 +1455,7 @@ sub set_converter {
             }
             elsif ($f_ref->{data}->[$i] & 0x80) {
                 # Unknown type
-                $f_ref->{converter} = 'conv_' . $f_ref->{converters}->{xxx};
+                $f_ref->{converter} = 'export_' . $f_ref->{converters}->{xxx};
             }
         }
     }
