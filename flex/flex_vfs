@@ -15,15 +15,10 @@
 
 # commands not yet implemented: fix check repair
 
-# FUTURE: it is NOT legal to have a null file name. It is legal to have a null extension?
-# BUG: import barfs on file with no extension. Should either skip it (illegal file name)
-# or handle it properly. Legal name starts with letter, contains a-zA-Z0-9_- only.
-# Extension is 1-3 characters. Not legal to have no extension (FLEX utilities will not allow
-# you to create or to see such a file. VED currently can create one but it is invisible)
 # FUTURE: add optional y/n arg to delete.
 # FUTURE: add RENAME command
 # FUTURE: THEN (command separator)
-# FUTURE: EXTEND (add sectors) - pairs with TRUNCATE
+# FUTURE: EXTEND (add sectors) BEHEAD (remove sectors from start) - both pair with TRUNCATE
 # FUTURE: allow target of copy to be unique fs rather than simply drive name (ie copy
 # file with different name)
 # FUTURE: record inode so that we cannot double-mount a drive.
@@ -50,9 +45,6 @@
 # TODO: make mount tolerate bad formats - eg when SIR is inconsistent. Analyse one disk
 # from the 8" set which as this problem and find out what happened to the "missing"
 # sectors. Maybe mount such images as read-only? Maybe these are "bad" sectors?
-# BUG: import currently does not check for existing file name (can result in you having
-# 2 files of the same name; only the older will be accessible.
-# to FLEX APG for description of text file format.
 # TODO: support s19 format for export and import
 # S19 can represent a record-based format and can include the entry address.
 
@@ -419,7 +411,9 @@ sub cmd_copy {
 
     my $cp_match = filter_dir($src,$file,$ext);
     # which of those names already in use at the destination?
-    my $rm_match = exact_match_dir($src,$cp_match,$dst);
+    my $rm_match = index_match_dir($src,$cp_match,$dst);
+
+    print "INFO 0 files match $src.$file.$ext\n" if scalar @$cp_match == 0;
 
     # is there enough space for the copy?
     my $dst_free = $dsk[$dst]->{sir}->{FREE} + sectors($dst, $rm_match);
@@ -511,7 +505,7 @@ sub type_export_common {
 
 
 sub cmd_import {
-    my ($dst, $hf_ref, $path, $conv_ref) = check_arg('v hw oic', @_);
+    my ($dst, $hf_names, $path, $conv_ref) = check_arg('v hfw oic', @_);
     return unless defined($dst);
 
     if (not $dsk[$dst]->{mounted}) {
@@ -522,23 +516,38 @@ sub cmd_import {
     # defaults for 'import'
     $conv_ref->{xxx} = exists $conv_ref->{xxx} ? $conv_ref->{xxx} : "raw";
 
+    # which (if any) files already exist?
+    my $rm_match = name_match_dir($dst,$hf_names);
+
+    # is there enough space for the import?
+    my $dst_free = $dsk[$dst]->{sir}->{FREE} + sectors($dst, $rm_match);
+    my $sectors = 0;
+    foreach my $file (@$hf_names) {
+        my $bytes = -s "$path$file";
+        $sectors = $sectors + int(($bytes+$DATA_SECTOR-1)/$DATA_SECTOR);
+    }
+    if ($dst_free < $sectors) {
+        print "ERROR insufficient space for import\n";
+        return;
+    }
+
+    # are there enough directory entries for the import?
+    my $dst_dir_entries = dir_entries($dst) + scalar(@$rm_match);
+    if (scalar(@$hf_names) > $dst_dir_entries) {
+        print "ERROR insufficient directory entries for import\n";
+        return;
+    }
+
+    rm_files($dst, $rm_match);
+
     my $skip = 0;
-    foreach my $i (@$hf_ref) {
-        if (not legal_flex_name($i)) {
-            print "INFO skipped import of $i -- not a legal FLEX filename\n";
-            $skip = $skip + 1;
-            next;
-        }
-        if (dir_entries($dst) == 0) {
-            print "INFO skipped import of $i -- no free directory entry\n";
-            $skip = $skip + 1;
-            next;
-        }
+    foreach my $i (@$hf_names) {
         if (open HFILE, "$path$i") {
             my $data;
+            # this size check should be redundant
             my $bytes = read HFILE, $data, ($dsk[$dst]->{sir}->{FREE} * 254);
             if (not eof HFILE) {
-                print "INFO skipped import of $i -- insufficient space\n";
+                print "ERROR skipped import of $i -- insufficient space\n";
                 $skip = $skip + 1;
                 close HFILE;
                 next;
@@ -654,11 +663,11 @@ sub cmd_import {
             rd_dir($dst);
         }
         else {
-            print "INFO skipped import of $i -- cannot open\n";
+            print "ERROR skipped import of $i -- cannot open\n";
             $skip = $skip + 1;
         }
     }
-    printf "INFO %d files imported (%d skipped)\n", scalar(@$hf_ref) - $skip, $skip;
+    printf "INFO %d files imported (%d skipped)\n", scalar(@$hf_names) - $skip, $skip;
 }
 
 
@@ -975,7 +984,9 @@ sub cmd_uppercase {
 # argument formats:
 # v - virtual drive number
 # h - existing file in host filesystem
-# hw - wildcard in host filesystem (matches at least 1 file)
+# hfw - wildcard in host filesystem. Only recognise files that are
+#      valid FLEX file names and non-zero in size. Must match at
+#      least 1 file.
 # nh - file in host filesystem (may or may not exist)
 # od - optional directory in host filesystem (must exist) default to .
 # of - optional file format: dsk or img, also inferred from h
@@ -1089,9 +1100,10 @@ sub check_arg {
                 return;
             }
         }
-        elsif ($f eq 'hw') {
-            # host wildcard; must match at least 1 file. Return a
-            # reference to a list of files AND a directory path
+        elsif ($f eq 'hfw') {
+            # host wildcard; only recognise files that are valid FLEX
+            # names and non-zero in size. Must match at least 1 file.
+            # Return a reference to a list of files AND a directory path
             if (not defined $_[$i]) {
                 print "ERROR missing argument - expected host file name\n";
                 return;
@@ -1109,8 +1121,11 @@ sub check_arg {
             # nothing more (so that fred.dsk doesn't match fred.dsk_x)
             my @matches = grep /$f$/, readdir DIR;
             close DIR;
+            @matches = grep { legal_flex_name($_) } @matches;
+            @matches = grep { -s "$path$_" != 0 } @matches;
+
             if (not defined $matches[0]) {
-                print "ERROR no matching host files\n";
+                print "ERROR no matching host files - candidates must be non-zero size with legal FLEX names\n";
                 return;
             }
 
@@ -1198,10 +1213,14 @@ sub check_arg {
 
                     # Optional FLEX date mm,dd,yy.
                     if (defined $_[$i+1]) {
-                        my ($mm,$dd,$yy) = extract_date($_[$i+1]);
+                        # point to date
+                        $i = $i + 1;
+                        my ($mm,$dd,$yy) = extract_date($_[$i]);
                         if (defined $mm) {
-                            $i = $i + 1;
+                            # replace one item with three: mm,dd,yy -> mm dd yy
                             splice @_, $i, 1, $mm, $dd, $yy;
+                            # point past 2 extra values inserted
+                            $i = $i + 2;
                         }
                         else {
                             # error message already issued by extract_date
@@ -1768,13 +1787,25 @@ sub page {
     return 0
 }
 
-# is this a legal FLEX name (8.3 format max). Return true if
-# it is, false otherwise
+# is this a legal FLEX name? Return true if it is, false otherwise.
+# Must be in the form "file dot extension" where
+# file starts with letter, contains a-zA-Z0-9_- only and is 1-8 char
+# extension starts with letter, contains a-zA-Z0-9_- only and is 1-3 char.
+# It is not legal to have no extension (FLEX utilities will not allow
+# you to create or to see such a file).
+# FLEX documentation doesn't state the requirement for the extension
+# to start with a letter but by experiment it seems to require it.
+# In FLEX 9.1 there is a bug where you can do this:
+# +++COPY SAVE.LOW TEST.1   -- apparently successful
+# +++COPY SAVE.LOW TEST.1   -- gives "FILE EXISTS" warning
+# +++DELETE TEST.1          -- gives "EXTENSION REQUIRED" error
+# +++DIR                    -- TEST.1 does not appear
+#
+# ie there is an inconsistency in that COPY will create the
+# file but nothing else can see it
 sub legal_flex_name {
-    my ($name, $ext) = split /\./, $_[0];
-    my $lname = length $name;
-    my $lext = length $ext;
-    return (($lname > 0) && ($lname < 9) && ($lext > 0) && ($lext < 4));
+    my ($name) = @_;
+    return $name =~ /^[a-zA-Z][a-zA-Z\d\-\_]{0,7}\.[a-zA-Z][a-zA-Z\d\-\_]{1,2}$/;
 }
 
 # copy zero or more files
@@ -2018,7 +2049,7 @@ sub rd_dts {
         }
     }
     else {
-        die "Could not reach offset $seek on drive $drive";
+        die "Could not reach offset $seek on drive $drive track $trk sector $sct";
     }
 }
 
@@ -2308,7 +2339,7 @@ sub rd_dir {
 
                 # likewise the extension
                 my $ext = substr($data, $nstart+8, 3);
-                $ext =~ /(^[a-zA-Z]+)/;
+                $ext =~ /(^[a-zA-Z0-9\-\_]+)/;
                 $d{EXT} = $1;
             }
 
@@ -2354,17 +2385,17 @@ sub filter_dir {
 }
 
 
-# $files1 is a list of indices to files on $drive1. Look for
-# filename matches on $drive2 and return a reference to a
-# list of the directory entries that match - that list
-# corresponds to indices in drive2, NOT drive1.
-sub exact_match_dir {
-    my ($drive1, $files1, $drive2) = @_;
+# $files is a ref to a list of indices to files on $drive1.
+# Look for filename matches on $drive2 and return a ref
+# to a list of the directory entries that match - that list
+# corresponds to indices in $drive2, NOT $drive1.
+sub index_match_dir {
+    my ($drive1, $files, $drive2) = @_;
     my @matches;
     my %drive1_names;
 
     # build a hash of the names we're looking for
-    foreach my $i (@{$files1}) {
+    foreach my $i (@{$files}) {
         my $name = "$dsk[$drive1]->{dir}->[$i]->{NAME}.$dsk[$drive1]->{dir}->[$i]->{EXT}";
         $drive1_names{$name} = 1;
     }
@@ -2372,6 +2403,31 @@ sub exact_match_dir {
     for my $i (0.. $#{$dsk[$drive2]->{dir}}) {
         my $name = "$dsk[$drive2]->{dir}->[$i]->{NAME}.$dsk[$drive2]->{dir}->[$i]->{EXT}";
         if (exists $drive1_names{$name}) {
+            push @matches, $i;
+        }
+    }
+
+    return \@matches;
+}
+
+
+# $names is a ref to a list of file names.
+# Look for filename matches on $drive and return a ref
+# to a list of the directory entries that match - that list
+# corresponds to indices in $drive.
+sub name_match_dir {
+    my ($drive, $names) = @_;
+    my @matches;
+    my %names;
+
+    # build a hash of the names we're looking for
+    foreach my $i (@{$names}) {
+        $names{$i} = 1;
+    }
+
+    for my $i (0.. $#{$dsk[$drive]->{dir}}) {
+        my $name = "$dsk[$drive]->{dir}->[$i]->{NAME}.$dsk[$drive]->{dir}->[$i]->{EXT}";
+        if (exists $names{$name}) {
             push @matches, $i;
         }
     }
