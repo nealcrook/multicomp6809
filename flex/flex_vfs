@@ -2921,9 +2921,9 @@ EOF
       will omit redundant (eg overlapping) records.
 
     Example:
-    import ../*.* 0 xxx=raw
-    import ../*.TXT 0 xxx=compress
-    import ../*.CMD 0 xxx=s19
+    import 0 ../*.* xxx=raw
+    import 0 ../*.TXT xxx=compress
+    import 0 ../*.CMD xxx=s19
 EOF
     }
     elsif ($cmd eq 'date') {
