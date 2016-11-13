@@ -460,7 +460,7 @@ sub check_dsk {
     }
 
     # walk list of free sectors
-    my ($last_t, $last_s, $count) = walk_chain($dsk_ref->{FIRST_T}, $dsk_ref->{FIRST_S});
+    my ($last_t, $last_s, $count) = walk_chain($dsk_ref->{FIRST_T}, $dsk_ref->{FIRST_S}, "Free List");
 
     if ($count != $dsk_ref->{FREE}) {
         print "ERROR sector count of free sector chain does not match value in SIR\n";
@@ -472,7 +472,7 @@ sub check_dsk {
 
 
     # walk list of sectors making up the directory
-    ($last_t, $last_s, $count) = walk_chain(0, 5);
+    ($last_t, $last_s, $count) = walk_chain(0, 5, "Directory");
     print "Directory:    $count sectors\n";
 
     # TODO walk chain of sectors associated with each non-deleted file
@@ -492,6 +492,7 @@ sub check_dsk {
 sub walk_chain {
     my $track = $_[0];
     my $sector = $_[1];
+    my $description = $_[2];
 
     my $length = 0;
     my $next_t = $track;
@@ -508,7 +509,7 @@ sub walk_chain {
         }
         else {
             $blk_hdr[$blk]->[4] = $blk_hdr[$blk]->[4] + 1;
-            print "ERROR multiple reference to block $blk\n";
+            print "ERROR multiple reference to sector t=$track,s=$sector (block $blk) in $description chain\n";
             $errors = $errors + 1;
             if ($errors > 50) {
                 print "ERROR too many errors. Chain loop? Giving up\n";

@@ -919,8 +919,64 @@ sub cmd_scrub {
 }
 
 
+# Walk the linked lists associated with:
+# - the directory, marking them with the pseudo file-name "%DIR.DIR"
+# - each file, marking them with their file name
+# - the free list, marking them with the pseudo file name "%FRE.FRE"
+# Then mark the sectors of track 0 associated with system files.
+# On the way, ensure that each sector in only used once
+# Detect loops and un-referenced sectors
+# Break loops, create dummy files for dangling segments.
+# The "check" command could call this but with an additional argument to prevent disk changes??
 sub cmd_repair {
-    print "repair TODO - not yet implemented\n";
+    my ($drive) = check_arg('v', @_);
+    return unless defined($drive);
+
+    my @map;
+    my $status;
+    my %f;
+
+    # Reserved sectors
+    $map[$FLEX_SIR_TS[0]][$FLEX_SIR_TS[1]]   = "%SIR.SIR";
+    $map[$FLEX_SIR_TS[0]][$FLEX_SIR_TS[1]+1] = "%SIR.SIR";
+    $map[$FLEX_LDR_TS[0]][$FLEX_LDR_TS[1]]   = "%LDR.LDR";
+    $map[$FLEX_LDR_TS[0]][$FLEX_LDR_TS[1]+1] = "%LDR.LDR";
+
+    # Walk the directory chain
+    $f{drive} = $drive;
+    $f{name} = "%DIR.DIR";
+    $f{trk} = $FLEX_DIR_TS[0];
+    $f{sct} = $FLEX_DIR_TS[1];
+    $status = walk_chain(\@map, \%f);
+
+    # Walk to free list chain
+    # TODO status is #sectors?? For free list make sure it matches the value in the SIR
+    $f{name} = "%FRE.FRE";
+    $f{trk} = $dsk[$drive]->{sir}->{FIRST_T};
+    $f{sct} = $dsk[$drive]->{sir}->{FIRST_S};
+    $status = walk_chain(\@map, \%f);
+
+    # Walk the chain for each file
+    my $files = filter_dir($drive,"*","*");
+    foreach my $i (@$files) {
+        my $count;
+        my $j = $dsk[$drive]->{dir}->[$i];
+        $f{name} = "$j->{NAME}.$j->{EXT}";
+        ($f{trk}, $f{sct}, $count) = rd_file_start_tsc($drive, $i);
+        $status = walk_chain(\@map, \%f);
+    }
+
+    # Now look through @map and see what's missing
+    my $missing = 0;
+    for my $trk (0..$dsk[$drive]->{sir}->{MAX_T}) {
+        for my $sct (1..$dsk[$drive]->{sir}->{MAX_S}) {
+            if (not defined $map[$trk][$sct]) {
+                $missing = $missing + 1;
+                print "Unused trk=$trk, sct=$sct\n";
+            }
+        }
+    }
+    print "Total unassigned sectors = $missing\n";
 }
 
 
@@ -1786,6 +1842,51 @@ sub page {
     }
     return 0
 }
+
+
+# Walk a chain, filling in the $map with the file name, checking for
+# loops and double-allocations and fixing them(?!)
+# return +ve number for number of sectors in the chain
+# return -1 if error in chain
+sub walk_chain {
+    my ($map_ref, $f_ref) = @_;
+    my $count = 0;
+
+    print "In walk_chain drive=$f_ref->{drive} track=$f_ref->{trk} sector=$f_ref->{sct}, $f_ref->{name} ";
+
+    while (($f_ref->{trk} != 0) or ($f_ref->{sct} !=0)) {
+        $count = $count + 1;
+        if (defined $map_ref->[$f_ref->{trk}][$f_ref->{sct}]) {
+            print "ERROR Attempt to allocate t=$f_ref->{trk}, s=$f_ref->{sct} from $map_ref->[$f_ref->{trk}][$f_ref->{sct}] to $f_ref->{name}\n";
+            print "ERROR Abandon walk_chain after $count sectors.\n";
+            return -1;
+
+            # Approach here should be to modify the parent sector (which we will
+            # need to track) to be the end-of-chain. That will break a loop or
+            # any other form of double-allocation - though we will lose sight of
+            # who the two owners are, so we ought to print that for diagnostic
+            # purposes.
+            # At the end, we are going to look for dangling chainlets.
+            # At that point, we can be dumb or smart. The smart thing will be to
+            # try to accumulate the biggest set of chains that we can. For instance..
+            # - working on the pool of unassigned sectors
+            # - treat each as the head of a chain and see how long a chain they
+            #   grow to before hitting a double allocation or end
+            # - turn a double-allocation into an end
+            # - work from the longest chain to the shortest, creating new files
+            #   zzz1.rec zzz2.rec etc.
+
+
+        }
+        else {
+            $map_ref->[$f_ref->{trk}][$f_ref->{sct}] = $f_ref->{name};
+            rd_nxt_sct($f_ref);
+        }
+    }
+    print "Found $count sectors\n";
+    return $count;
+}
+
 
 # is this a legal FLEX name? Return true if it is, false otherwise.
 # Must be in the form "file dot extension" where
@@ -3183,7 +3284,7 @@ Commands are:
     rdbootfile - read boot sector from file on local file system
     check      - check integrity of virtual drive
     scrub      - null out deleted file names and unused sectors
-    repair     - repair virtual drive
+    repair     - check and repair virtual drive
     uppercase  - treat all FLEX file specifiers as upper-case
     exit       - unmount all mounted drives and leave flex_vfs
     quit       - synonym for exit
