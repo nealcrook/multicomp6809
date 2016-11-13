@@ -36,6 +36,8 @@
 use strict;
 use warnings;
 
+# Give up after 50 errors 
+my $errors = 0;
 
 # What to do
 my %action;
@@ -507,6 +509,11 @@ sub walk_chain {
         else {
             $blk_hdr[$blk]->[4] = $blk_hdr[$blk]->[4] + 1;
             print "ERROR multiple reference to block $blk\n";
+            $errors = $errors + 1;
+            if ($errors > 50) {
+                print "ERROR too many errors. Chain loop? Giving up\n";
+                exit 1;
+            }
         }
         ##printf "Go from t%02d s%02d to block %d (free $length)\n", $track, $sector, $blk;
         ##printf "Get t%02d s%02d from header\n", $blk_hdr[$blk]->[0],$blk_hdr[$blk]->[1];
