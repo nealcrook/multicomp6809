@@ -1411,6 +1411,8 @@ sub export_files {
 }
 
 # compress a byte array using FLEX text compression rules
+# text compression uses 09 (TAB) characters as codes, so
+# must eliminate those from the incoming text.
 sub txt_compress {
     my ($data_ref) = @_;
     my $PASS = 0;
@@ -1422,7 +1424,12 @@ sub txt_compress {
     my @cdata;
     foreach my $i (@$data_ref) {
         if ($state == $PASS) {
-            if ($i == 0x20) {
+            if ($i == 0x09) {
+                # mimic 4-space tabs
+                $spc_cnt = 4;
+                $state = $SPC;
+            }
+            elsif ($i == 0x20) {
                 $spc_cnt = 1;
                 $state = $SPC;
             }
@@ -1439,7 +1446,12 @@ sub txt_compress {
             }
         }
         elsif ($state == $EOL) {
-            if ($i == 0x20) {
+            if ($i == 0x09) {
+                # mimic 4-space tabs
+                $spc_cnt = 4;
+                $state = $SPC;
+            }
+            elsif ($i == 0x20) {
                 $spc_cnt = 1;
                 $state = $SPC;
             }
@@ -1463,24 +1475,29 @@ sub txt_compress {
             }
         }
         else { # $state == $SPC
-            if (($i == 0x20) and ($spc_cnt < 127)) {
+            if ($i == 0x09) {
+                $spc_cnt = $spc_cnt + 4;
+            }
+            elsif ($i == 0x20) {
                 $spc_cnt = $spc_cnt + 1;
             }
             else {
-                # handle spaces
+                # transition to non-space;
+                while ($spc_cnt > 127) {
+                    push @cdata, (0x09, 127);
+                    $spc_cnt = $spc_cnt - 127;
+                }
                 if ($spc_cnt == 1) {
                     push @cdata, 0x20;
+                    $spc_cnt = 0;
                 }
-                else {
-                    push @cdata, 0x09;
-                    push @cdata, $spc_cnt;
+                if ($spc_cnt != 0) {
+                    push @cdata, (0x09, $spc_cnt);
+                    $spc_cnt = 0;
                 }
-                # handle new character (which may be a space) - same logic as $PASS
-                if ($i == 0x20) {
-                    $spc_cnt = 1;
-                    $state = $SPC;
-                }
-                elsif (($i == 0x0D) or ($i == 0x0A)) {
+
+                # process non-space char
+                if (($i == 0x0D) or ($i == 0x0A)) {
                     $eol_type = $i;
                     $state = $EOL;
                     push @cdata, 0x0D;
@@ -1494,6 +1511,20 @@ sub txt_compress {
                     $state = $PASS;
                 }
             }
+        }
+    }
+    # flush any trailing spaces
+    if ($state = $SPC) {
+        while ($spc_cnt > 127) {
+            push @cdata, (0x09, 127);
+            $spc_cnt = $spc_cnt - 127;
+        }
+        if ($spc_cnt == 1) {
+            push @cdata, 0x20;
+            $spc_cnt = 0;
+        }
+        if ($spc_cnt != 0) {
+            push @cdata, (0x09, $spc_cnt);
         }
     }
     return \@cdata;
