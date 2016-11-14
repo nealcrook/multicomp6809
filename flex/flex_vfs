@@ -1906,7 +1906,7 @@ sub walk_chain {
 # file but nothing else can see it
 sub legal_flex_name {
     my ($name) = @_;
-    return $name =~ /^[a-zA-Z][a-zA-Z\d\-\_]{0,7}\.[a-zA-Z][a-zA-Z\d\-\_]{1,2}$/;
+    return $name =~ /^[a-zA-Z][a-zA-Z\d\-\_]{0,7}\.[a-zA-Z][a-zA-Z\d\-\_]{0,2}$/;
 }
 
 # copy zero or more files
