@@ -516,8 +516,9 @@ sub cmd_import {
     # defaults for 'import'
     $conv_ref->{xxx} = exists $conv_ref->{xxx} ? $conv_ref->{xxx} : "raw";
 
-    # which (if any) files already exist?
-    my $rm_match = name_match_dir($dst,$hf_names);
+    # which (if any) files already exist? Need to take into account the
+    # file name that will be used - which means taking $UPCASE into account
+    my $rm_match = name_match_dir($dst,$hf_names, $UPCASE);
 
     # is there enough space for the import?
     my $dst_free = $dsk[$dst]->{sir}->{FREE} + sectors($dst, $rm_match);
@@ -544,6 +545,12 @@ sub cmd_import {
     foreach my $i (@$hf_names) {
         if (open HFILE, "$path$i") {
             my $data;
+            my $flex_name;
+
+            if ($UPCASE) {
+                $flex_name = uc $i;
+            }
+
             # this size check should be redundant
             my $bytes = read HFILE, $data, ($dsk[$dst]->{sir}->{FREE} * 254);
             if (not eof HFILE) {
@@ -588,7 +595,7 @@ sub cmd_import {
             # Populate file name and extension
             my $findex = 0;
             my $sindex = 0;
-            while (my $char = ord substr($i, $findex, 1)) {
+            while (my $char = ord substr($flex_name, $findex, 1)) {
                 if ($char == 0x2e) {
                     $sindex = 8;
                     $findex = $findex + 1;
@@ -608,9 +615,6 @@ sub cmd_import {
             $dir_entry_data->[25+0-4] = $mon;
             $dir_entry_data->[25+1-4] = $mday;
             $dir_entry_data->[25+2-4] = $year;
-
-            # [NAC HACK 2016Oct27] TODO make sure file to be imported does not already exist.
-            # If it does, need to delete it first, as per copy, and release its sectors.
 
             # Populate first t/s - imported file starts at
             # first sector of destination free-list.
@@ -663,7 +667,7 @@ sub cmd_import {
             rd_dir($dst);
         }
         else {
-            print "ERROR skipped import of $i -- cannot open\n";
+            print "ERROR skipped import of $path$i -- cannot open\n";
             $skip = $skip + 1;
         }
     }
@@ -2547,14 +2551,21 @@ sub index_match_dir {
 # Look for filename matches on $drive and return a ref
 # to a list of the directory entries that match - that list
 # corresponds to indices in $drive.
+# If $toupper is true, entries in $names will be forced to
+# upper case before attempting a match.
 sub name_match_dir {
-    my ($drive, $names) = @_;
+    my ($drive, $names, $toupper) = @_;
     my @matches;
     my %names;
 
     # build a hash of the names we're looking for
     foreach my $i (@{$names}) {
-        $names{$i} = 1;
+        if ($toupper) {
+            $names{uc $i} = 1;
+        }
+        else {
+            $names{$i} = 1;
+        }
     }
 
     for my $i (0.. $#{$dsk[$drive]->{dir}}) {
@@ -2918,23 +2929,32 @@ EOF
     import <virtual drive number> <file on host filesystem> [<conversions>]
 
     Copy the specified file(s) to the specified virtual drive from
-    the host filesystem.
+    the host filesystem. Files can be specified using wildcarding
+    (see examples below).
 
-    Every file is saved with the same name as its name in the host
-    filesystem; any existing file of the same name will be
+    A file on the host filesystem that might otherwise be selected
+    is silently ignored if it is zero bytes in size or if it does not
+    have a legal FLEX file name.
+
+    The 'uppercase' command does not affect the wildcard matching of
+    files in the host filesystem but does affect the name used for
+    the imported file created on the virtual drive.
+
+    Any existing file of the same name on the virtual drive is
     overwritten.
 
-    If the file name on the host filesystem is too long (base more
-    than 8 or extension more than 3 characters) an error is
-    reported and the import of that file is skipped.
+    An ambiguous situation arises if files with distinct names on the
+    host filesystem end up with the same name (because of case conversion)
+    on the virtual drive; multiple files of the same name will be created.
 
     If there are insufficient free directory entries or free blocks
-    on the virtual drive, the import of that file is skipped.
+    on the virtual drive, the import will not proceed.
 
     The default conversion is:
     xxx=raw
 
     See 'help conversions' for more details. See also 'help date'
+    and 'help uppercase'.
 
     Because import does not attempt to guess the file type, it
     may be necessary to import files in groups, applying different
@@ -2952,9 +2972,19 @@ EOF
       will omit redundant (eg overlapping) records.
 
     Example:
-    import 0 ../*.* xxx=raw
-    import 0 ../*.TXT xxx=compress
-    import 0 ../*.CMD xxx=s19
+    hdir ../
+    fred.txt Fred.TXT fred.CMD
+    import 0 ../*.* xxx=raw         # uppercase=0: import 3 files
+    import 0 ../*.* xxx=raw         # uppercase=1: either fred.txt
+                                    # or Fred.TXT will be overwritten
+    import 0 ../*.TXT xxx=compress  # uppercase=0: import Fred.TXT
+                                    # as Fred.TXT
+    import 0 ../*.TXT xxx=compress  # uppercase=1: import Fred.TXT
+                                    # as FRED.TXT
+    import 0 ../*.CMD xxx=s19       # uppercase=0: import fred.CMD
+                                    # as fred.CMD
+    import 0 ../*.CMD xxx=s19       # uppercase=1: import fred.CMD
+                                    # as FRED.CMD
 EOF
     }
     elsif ($cmd eq 'date') {
@@ -3147,6 +3177,9 @@ EOF
     flex_vfs can force all FLEX file specifiers to upper case (note
     that wildcard '*' will still match both upper-case and lower-case
     if they exist on the disk).
+
+    when upper-case forcing is enabled, filenames that are arguments
+    to 'import' are forced to upper case.
 
     uppercase toggles the state of upper-case forcing. With an
     argument of 0 or 1 it forces the state. In both cases, the new
