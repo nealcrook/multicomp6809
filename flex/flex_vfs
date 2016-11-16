@@ -545,10 +545,10 @@ sub cmd_import {
     foreach my $i (@$hf_names) {
         if (open HFILE, "$path$i") {
             my $data;
-            my $flex_name;
+            my $flex_name = $i;
 
             if ($UPCASE) {
-                $flex_name = uc $i;
+                $flex_name = uc $flex_name;
             }
 
             # this size check should be redundant
