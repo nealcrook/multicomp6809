@@ -30,6 +30,11 @@
 -- with disable/enable of interrupts. It's probably safest simply to never
 -- access GPIO within an ISR.
 --
+-- When you have written a value to GPIOADR (either with an 8-bit or 16-bit
+-- store) you can perform multiple GPIODAT reads and writes to the selected
+-- register; there is no need to re-write GPIOADR until you wish to select
+-- a different register. Beware of interrupts though; see note above.
+--
 -- For each group of physical pins there are 2 registers in GPIO.
 -- The odd register is the data direction register
 -- The even register is the data register.

@@ -44,7 +44,7 @@
 --
 -- Each physical block can be write-protected so that it acts like ROM.
 --
--- Logical block 7 ($D000-FFFF) acts differently in three ways:
+-- Logical block 7 ($E000-FFFF) acts differently in three ways:
 -- 1. The boot ROM sits in this block, overlaying any RAM that is mapped
 --    there. The ROM is enabled after reset but can be disabled by a
 --    register write.
@@ -62,8 +62,8 @@
 --    locations in physical RAM block 7, regardless of what RAM block
 --    is mapped into logical block 7.
 --
--- At reset, the MMU is disabled (giving a 1-1 mapping) but the
--- mapping registers themselves are NOT reset.
+-- At reset, the MMU is disabled (giving a 1-1 mapping) and the ROM
+-- is (re-)enabled, but the mapping registers themselves are NOT reset.
 --
 -- MMU PROGRAMMING INTERFACE
 -- =========================
@@ -113,7 +113,7 @@
 -- If you select a physical block that is outside the actual size
 -- of your RAM, the behaviour is undefined (it will probably alias).
 --
--- When MMUEN=0, logical block 0-7 selects physical block 0-7.
+-- When MMUEN=0, logical blocks 0-7 are mapped to physical blocks 0-7.
 --
 -- You can write MMUDAT, MMUADR as separate 8-bit stores or as a 16-bit
 -- store.
