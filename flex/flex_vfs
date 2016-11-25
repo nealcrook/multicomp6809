@@ -16,7 +16,6 @@
 # commands not yet implemented: fix check repair
 
 # FUTURE: add optional y/n arg to delete.
-# FUTURE: add RENAME command
 # FUTURE: THEN (command separator)
 # FUTURE: EXTEND (add sectors) BEHEAD (remove sectors from start) - both pair with TRUNCATE
 # FUTURE: allow target of copy to be unique fs rather than simply drive name (ie copy
@@ -434,6 +433,66 @@ sub cmd_copy {
 }
 
 
+sub cmd_rename {
+    my ($old, $new) = check_arg('fs fs', @_);
+    return unless defined($old);
+
+    my ($drive, $ofile,$oext) = split /\./, $old;
+    my ($ndrive,$nfile,$next) = split /\./, $new;
+
+    if (not $dsk[$drive]->{mounted}) {
+        print "ERROR drive $drive is not mounted\n";
+        return;
+    }
+    if ($drive != $ndrive) {
+        print "ERROR cannot rename across drives. Use copy instead\n";
+        return;
+    }
+
+    my $old_match = filter_dir($drive, $ofile,$oext);
+    my $new_match = filter_dir($ndrive,$nfile,$next);
+
+    if (scalar @$old_match != 1) {
+        printf "ERROR source must match exactly 1 file. Matched %d files\n", scalar @$old_match;
+        return;
+    }
+    if (scalar @$new_match > 1) {
+        printf "ERROR new name must match no more than 1 file. Matched %d files\n", scalar @$new_match;
+        return;
+    }
+    if ((scalar @$new_match == 1) && ($old_match->[0] == $new_match->[0])) {
+        print "ERROR cannot rename a file to itself.\n";
+        return;
+    }
+
+    my $dir_entry_data = rd_dir_entry($drive, $old_match->[0]);
+
+    if (scalar @$new_match == 1) {
+        # copy exact name (8+3 characters) from matching entry. Need to do this
+        # because $nfile, $next may be wildcarded.
+        my $tmp_dir_entry_data = rd_dir_entry($drive, $new_match->[0]);
+        for my $i (0..10) {
+            $dir_entry_data->[$i] = $tmp_dir_entry_data->[$i];
+        }
+        rm_files($ndrive, $new_match);
+    }
+    else {
+        my $flex_name = "$nfile.$next";
+        # make sure there's no wildcarding
+        if (legal_flex_name($flex_name)) {
+            name_dir_entry($flex_name, $dir_entry_data);
+        }
+        else {
+            print "ERROR cannot resolve $flex_name to a unique name.\n";
+            return;
+        }
+    }
+
+    wr_dir_entry($drive, $old_match->[0], $dir_entry_data);
+    rd_dir($drive);
+}
+
+
 sub cmd_label {
     my ($drive,$label,$vol,$mm, $dd, $yy) = check_arg('v l ovy',@_);
     return unless defined($drive);
@@ -593,19 +652,7 @@ sub cmd_import {
             my $dir_entry_data = empty_dir_entry();
 
             # Populate file name and extension
-            my $findex = 0;
-            my $sindex = 0;
-            while (my $char = ord substr($flex_name, $findex, 1)) {
-                if ($char == 0x2e) {
-                    $sindex = 8;
-                    $findex = $findex + 1;
-                    next;
-                }
-
-                $dir_entry_data->[$sindex] = $char;
-                $findex = $findex + 1;
-                $sindex = $sindex + 1;
-            }
+            name_dir_entry($flex_name, $dir_entry_data);
 
             # Populate file length
             $dir_entry_data->[21+0-4] = int($sectors/256);
@@ -2605,9 +2652,33 @@ sub rm_dir_entry {
 
 # Return a reference to an empty directory entry
 # data structure - to be filled in and then used by
+# allocate_dir_entry(), wr_dir_entry() etc.
 sub empty_dir_entry {
     my @dir_entry = (0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0, 0,0,0,0);
     return \@dir_entry;
+}
+
+
+# Insert a file name into a directory entry.
+# $flex_name is file name and extension, separated by "."
+# $dir_entry_data is a reference to an array eg created
+# by empty_dir_entry() or rd_dir_entry()
+sub name_dir_entry {
+    my ($flex_name, $dir_entry_data) = @_;
+
+    my $findex = 0;
+    my $sindex = 0;
+    while (my $char = ord substr($flex_name, $findex, 1)) {
+        if ($char == 0x2e) {
+            $sindex = 8;
+            $findex = $findex + 1;
+            next;
+        }
+
+        $dir_entry_data->[$sindex] = $char;
+        $findex = $findex + 1;
+        $sindex = $sindex + 1;
+    }
 }
 
 
@@ -2747,7 +2818,7 @@ sub help_for {
 
     Virtual drive number is 0,1,2 or 3.
 
-    Legal formats are dsk and img (use "help formats" for
+    Legal formats are dsk and img (use 'help formats' for
     more information).
 
     If the file extension is .dsk or .img (in upper, lower or mixed
@@ -2783,7 +2854,7 @@ EOF
     Make a copy of a virtual drive as a file on the host filesystem
 
     Virtual drive number is 0,1,2 or 3.
-    Legal formats are "dsk" (256 bytes per sector) and "img" (256
+    Legal formats are 'dsk' (256 bytes per sector) and 'img' (256
     bytes per sector but doubled, on a 512-byte boundary)
 
     If the file extension is .dsk or .img the format is inferred and
@@ -2861,6 +2932,24 @@ EOF
     copy 2.*.* 3
     copy 2.*.CMD 3
     copy 1.FLEX.SYS 2
+EOF
+    }
+    elsif ($cmd eq 'rename') {
+        print <<EOF
+    rename <file specifier> <new file specifier>
+
+    Rename the file that matches the file specifier (source)
+    to the new name. Any existing file of the same name on
+    the virtual drive is deleted.
+
+    The new file specifier must be on the same virtual drive. The
+    files can be specified using wildcard, but must each resolve
+    to exactly one file.
+
+    Examples:
+    rename 1.FLEX.SYS 1.FLEX.OLD
+    rename 1.*.COR 1.FLEX.BAK
+    rename 1.FRED.TXT 1.FR*.BAK
 EOF
     }
     elsif ($cmd eq 'label') {
@@ -3332,6 +3421,7 @@ Commands are:
     clone      - make copy of virtual drive (optional format conversion)
     new        - create new empty disk image (optional geometry specification)
     copy       - copy file(s) from one virtual drive to another
+    rename     - change name of file on virtual drive
     label      - change disk label/volume number/creation date
     type       - view file from virtual drive (optional format conversion)
     export     - copy file from virtual drive to local file system (optional format conversion)
