@@ -22,6 +22,9 @@
 # file with different name)
 # FUTURE: record inode so that we cannot double-mount a drive.
 # FUTURE: use of "4" here - should usually be $DATA_OFFSET
+# TODO: fs in check_arg can return a wildcard. May want a variant xfs that returns
+# exactly one file - avoid over-use of legal_flex_name. Only affects commands that create
+# new files; currently import, rename, create.
 # TODO: verify assertion that bytes 2,3 on each sector are an incrementing sector
 # number starting at 1.
 # TODO: not sure if volume label should be restricted to 10 or 11 char. If 11, there
@@ -815,6 +818,99 @@ sub cmd_truncate {
 
     truncate_files($drive, $match, $num);
     # file sizes in directory copy are out-of-date now so revise it
+    rd_dir($drive);
+}
+
+
+sub cmd_create {
+    my ($fs, $sectors) = check_arg('fs i', @_);
+    return unless defined($fs);
+
+    my ($drive,$file,$ext) = split /\./, $fs;
+
+    if (not $dsk[$drive]->{mounted}) {
+        print "ERROR drive $drive is not mounted\n";
+        return;
+    }
+
+    my $match = filter_dir($drive,$file,$ext);
+    # if we needed to delete a file first, the free chain would get messed up. We could cope, but better
+    # not to get into the bother of it.
+    if (scalar @$match != 0) {
+        printf "ERROR file specifier must not match existing file. Matched %d files\n", scalar @$match;
+        return;
+    }
+
+    if (dir_entries($drive) == 0) {
+        print "ERROR insufficient directory entries for create\n";
+        return;
+    }
+
+    my $flex_name = "$file.$ext";
+    if (not legal_flex_name($flex_name)) {
+        print "ERROR cannot resolve $flex_name to a unique name.\n";
+        return;
+    }
+
+    if ($sectors > $dsk[$drive]->{sir}->{FREE}) {
+        print "ERROR insufficient sectors on the free list.\n";
+        return;
+    }
+
+    # Start with empty directory entry
+    my $dir_entry_data = empty_dir_entry();
+
+    # Populate file name and extension
+    name_dir_entry($flex_name, $dir_entry_data);
+
+    # Populate file length
+    $dir_entry_data->[21+0-4] = int($sectors/256);
+    $dir_entry_data->[21+1-4] = $sectors % 256;
+
+    # Populate date
+    $dir_entry_data->[25+0-4] = $mon;
+    $dir_entry_data->[25+1-4] = $mday;
+    $dir_entry_data->[25+2-4] = $year;
+
+    # Walk the free list to the sector we want
+    my ($status, $trk, $sct, $data_ref) = walk_chain_n($drive, $dsk[$drive]->{sir}->{FIRST_T},
+                                                       $dsk[$drive]->{sir}->{FIRST_S},
+                                                       $dsk[$drive]->{sir}->{FREE} - $sectors);
+
+    if ($status == -1) {
+        print "ERROR consistency error in free chain. Check/repair disk image.\n";
+        return;
+    }
+
+    # Sanity check the chain that will make up the new file
+    my ($status2, $trk2, $sct2, $data_ref2) = walk_chain_n($drive, $data_ref->[0],
+                                                           $data_ref->[1], $sectors);
+
+    if ($status2 == -1) {
+        print "ERROR consistency error in end part of free chain. Check/repair disk image.\n";
+        return;
+    }
+
+    # This ought to be the current end of the free chain and so should be a 0,0 link
+    if (($data_ref2->[0] != 0) or ($data_ref2->[1] != 0)) {
+        print "ERROR missing 0,0 link at end of free chain. Check/repair disk image.\n";
+        return;
+    }
+
+    # Everything seems to be in good order.
+
+    # Fix up the free chain link and (in the SIR) the end t/s and count
+    $data_ref->[0] = 0;
+    $data_ref->[1] = 0;
+    wr_dts($drive, $trk, $sct, pack("C*", @$data_ref));
+    wr_sir_end_free($drive, $trk, $sct, $dsk[$drive]->{sir}->{FREE} - $sectors);
+    rd_sir($drive);
+
+    # Populate first t/s for the new file then write it to the directory
+    $dir_entry_data->[17-4] = $data_ref->[0];
+    $dir_entry_data->[18-4] = $data_ref->[1];
+    my $index = allocate_dir_entry($drive);
+    wr_dir_entry($drive, $index, $dir_entry_data);
     rd_dir($drive);
 }
 
@@ -1926,8 +2022,8 @@ sub page {
 }
 
 
-# Walk a chain, filling in the $map with the file name, checking for
-# loops and double-allocations and fixing them(?!)
+# Walk a chain to the end 0,0 sector, filling in the $map with the sectors
+# walked, checking for loops and double-allocations and fixing them(?!)
 # return +ve number for number of sectors in the chain
 # return -1 if error in chain
 sub walk_chain {
@@ -1967,6 +2063,33 @@ sub walk_chain {
     }
     print "Found $count sectors\n";
     return $count;
+}
+
+
+# Given an initial drive/track/sector and a sector count, walk through the chain
+# for count sectors. Return (status, final_trk, final_sct, data_ref)
+# where data_ref is reference to array containing data of the final sector read
+# and status is -1 (error) if a link of 0,0 was encountered before the final
+# sector was reached, 1 (success) otherwise.
+sub walk_chain_n {
+    my ($drive, $trk, $sct, $count) = @_;
+
+    while (1) {
+        my $data = rd_dts($drive, $trk, $sct);
+        my @data = unpack("C*", $data);
+
+        if ($count == 1) {
+            return (1, $trk, $sct, \@data);
+        }
+
+        $count = $count - 1;
+
+        if (($data[0] == 0) and ($data[1] == 0)) {
+            return (1, $trk, $sct, \@data);
+        }
+        $trk = $data[0];
+        $sct = $data[1];
+    }
 }
 
 
@@ -2133,7 +2256,7 @@ sub truncate_files {
         my $new_size = $start_file_tsc[$SIZ] - $num;
 
         if ($new_size < 1) {
-            printf "ERROR cannot truncate %s.%s\n",
+            printf "ERROR cannot truncate %s.%s that much\n",
             $dsk[$drive]->{dir}->[$i]->{NAME},
             $dsk[$drive]->{dir}->[$i]->{EXT};
         }
@@ -2365,7 +2488,7 @@ sub rd_sir {
 
 
 # Update the end of the free list and the free sector count in the SIR
-# commit to disk and refresh local copy
+# and commit to disk.
 sub wr_sir_end_free {
     my ($drive, $trk, $sct, $count) = @_;
     $dsk[$drive]->{sir}->{data}->[31] = $trk;
@@ -2377,7 +2500,7 @@ sub wr_sir_end_free {
 
 
 # Update the start of the free list and the free sector count in the SIR
-# commit to disk and refresh local copy
+# and commit to disk.
 sub wr_sir_start_free {
     my ($drive, $trk, $sct, $count) = @_;
     $dsk[$drive]->{sir}->{data}->[29] = $trk;
@@ -3137,6 +3260,9 @@ EOF
     all of the files that match the file specifier. The file
     specifier can include * used as a wildcard.
 
+    The sectors that are released are added to the end of the free
+    chain. See 'create'.
+
     BE CAREFUL BECAUSE NO CONFIRMATION IS ASKED FOR!
 
     Examples:
@@ -3149,11 +3275,14 @@ EOF
     }
     elsif ($cmd eq 'truncate') {
         print <<EOF
-    truncate <virtual drive number> | <file specifier> <number of sectors>
+    truncate <file specifier> <number of sectors>
 
     Remove <number of sectors> from the end of every file on the
     specified virtual drive, or all of the files that match the
     file specifier. The file specifier can include * used as a wildcard.
+
+    The sectors that are removed are added to the end of the free
+    chain. See 'create'.
 
     Experts only! You need a really good reason before you use this
     command!
@@ -3165,6 +3294,25 @@ EOF
     truncate 1.*A*.* 4
 EOF
     }
+    elsif ($cmd eq 'create') {
+        print <<EOF
+    create <file specifier> <number of sectors>
+
+    Create a file by taking a number of sectors from the end
+    of the free list. Can be used in conjunction with 'truncate'
+    to break a file into pieces (eg, to reverse the process
+    performed by the FLEX utility 'APPEND').
+
+    The file specifier must not match an existing file name.
+
+    Example:
+    copy 1.FLEX.SYS 1.FLEX.TMP
+    truncate 1.FLEX.TMP 3
+    create 1.FLEX.PT1 3
+    truncate 1.FLEX.TMP 4
+    create 1.FLEX.PT2 4
+EOF
+    }
     elsif ($cmd eq 'link') {
         print <<EOF
     link <file specifier>
@@ -3173,15 +3321,14 @@ EOF
     file (usually FLEX.SYS) so that a subsequent boot of the
     system will load and start the specified file.
 
+    See 'help wrboot' for background on the FLEX boot sector.
+
     Example:
     link 1.FLEX.SYS
     link 1.F*
 
     Wildcarding will generate an error if it resolves to more
     than one file.
-
-    Background:
-    use "help wrboot" for background on the FLEX boot sector.
 EOF
     }
     elsif ($cmd eq 'fix') {
@@ -3431,6 +3578,7 @@ Commands are:
     hdir       - directory of local file system
     delete     - delete file(s) from virtual drive
     truncate   - delete sector(s) from file(s) from virtual drive
+    create     - create file from sector(s) on the free list
     link       - patch boot sector on virtual drive
     fix        - perform low-level edit on virtual drive
     rdboot     - copy boot sector from virtual drive
