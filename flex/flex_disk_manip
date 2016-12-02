@@ -453,7 +453,7 @@ sub check_dsk {
     my $data_sectors = $dsk_ref->{MAX_S} * $dsk_ref->{MAX_T};
     my $track0_sectors = $dsk_ref->{BLKS} - $data_sectors;
     if ($track0_sectors != $dsk_ref->{MAX_S}) {
-        print "INFO: Track 0 has different sector count: %d instead of %d\n", $track0_sectors,$dsk_ref->{MAX_S};
+        printf "INFO: Track 0 has different sector count: %d instead of %d\n", $track0_sectors,$dsk_ref->{MAX_S};
         print "INFO: This means that the directory sectors after track 0 will have been parsed wrongly\n";
         print "INFO: If this ever occurs, add a parameter that allows the T1_OFFSET to be forced at the\n";
         print "INFO: command line.\n";

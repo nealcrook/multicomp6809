@@ -122,8 +122,21 @@ nitros9_disk_manip -insd tmp.img -out nitros9_3.dsk_extracted
 ###############################################################
 ###############################################################
 echo
-echo "Extract FUZIX disk image"
+echo "Extract FUZIX boot-loader, kernel and root file system"
 
+# FUZIX boot loader: load and execute at 0xd000
+# 96MByte   is block offset 1048576/2 * 192/512 = 196608 (0x3.0000)
+# image is and will always be 512 bytes (1 block with obs=512)
+dd if=$SDFILE of=fuzix_boot.bin_extracted ibs=512 obs=512 skip=196608 count=1
+
+# FUZIX Kernel: loaded by the boot loader
+# 96.5MByte is block offset 1048576/2 * 193/512 = 197632 (0x3.0400)
+# image can vary in size: we should be pessimistic and extract too
+# much rather than too little. It's currently around 35kbyte, so
+# extract 48kbyte
+dd if=$SDFILE of=fuzix.bin_extracted ibs=512 obs=512 skip=197632 count=96
+
+# FUZIX Root file system
 # 32Mbyte at offset 98MByte
 # 98MByte is block offset 1048576 * 98/512 = 200704 (0x3.1000)
 # 32Mbyte is count 32*1024*1024/512 = 65536
