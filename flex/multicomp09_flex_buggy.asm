@@ -340,6 +340,8 @@ blockmove       lda ,x+
 * Initialize serial communications port, buffers, interrupts.
 initacia        ldb #$03        ;Functional reset
                 stb aciactl
+                ldb #$16        ;Ignored by multicomp09
+                stb aciactl     ;Operating mode
                 rts
 
 ***************************************************************
