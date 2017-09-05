@@ -38,18 +38,26 @@ while (my $line = <INFILE>) {
     my $typ=hex($4);
     my $dat=$5; # data and checksum
 
-    # support Extended Linear Address (type 4) provided that the 16-bit data field is 0
-    if ($typ == 4) {
-        die "Unsupported type 4 record at line $. - unexpected length:\n$line" if ($len != 2);
-        die "Unsupported type 4 record at line $. - unsupported value:\n$line" if ($dat ne "0000FA");
-        # it's a nop
-        next;
-    }
-
     # support Extended Segment Address (type 2) provided that the 16-bit data field is 0
     if ($typ == 2) {
         die "Unsupported type 2 record at line $. - unexpected length:\n$line" if ($len != 2);
         die "Unsupported type 2 record at line $. - unsupported value:\n$line" if ($dat ne "0000FC");
+        # it's a nop
+        next;
+    }
+
+    # support Start Segment Address (type 3) provided that the length is 0
+    if ($typ == 3) {
+        die "Unsupported type 3 record at line $. - unexpected length:\n$line" if ($len != 0);
+        die "Unsupported type 3 record at line $. - unsupported value:\n$line" if ($dat ne "FD");
+        # it's a nop
+        next;
+    }
+
+    # support Extended Linear Address (type 4) provided that the 16-bit data field is 0
+    if ($typ == 4) {
+        die "Unsupported type 4 record at line $. - unexpected length:\n$line" if ($len != 2);
+        die "Unsupported type 4 record at line $. - unsupported value:\n$line" if ($dat ne "0000FA");
         # it's a nop
         next;
     }
@@ -61,7 +69,7 @@ while (my $line = <INFILE>) {
 
     # of the remainder, only support data records and end-of-file records
     if (($typ != 0) && ($typ != 1)) {
-        die "       ^^Unsupported record: type $typ at line $. :\n$line";
+        die "Unsupported record: type $typ at line $. :\n$line";
     }
 
     # pad if data is not contiguous
@@ -82,3 +90,4 @@ while (my $line = <INFILE>) {
     $nxt_adr = $adr + $len;
 }
 close INFILE;
+
