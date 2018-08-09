@@ -26,3 +26,5 @@ Approximate WIKI Change Log:
 05Feb2016 Rework CUBIX stuff to describe new single-step boot. Remove references to obsolete SDINIT.
 
 12Feb2016 New BUGGY source code - single step now works. Expanded WIKI pages on CamelForth to add some links on tutorials. New versions of TERMINAL and UART VHDL to add functional reset of input FIFOs to avoid some start-up problems.
+
+09Aug2018 Tidy-up pass - adding a few misisng files and scripts and generally tidying things up. In particular, clean up the build process for the 6809 ROM BASIC and add some images for simulation debug.
