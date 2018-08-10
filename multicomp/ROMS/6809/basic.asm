@@ -4,7 +4,7 @@ RECEV     EQU  UART+1
 TRANS     EQU  UART+1
 USTAT     EQU  UART
 UCTRL     EQU  UART
-RTS_LOW   EQU  $95
+RTS_LOW   EQU  $15
 
 BS        EQU  8              BACKSPACE
 CR        EQU  $D             ENTER KEY
