@@ -18,14 +18,20 @@ hg pull
 hg update
 make dsk
 
+(other build options:
+$ make clean PORTS=...
+$ make dskclean PORTS=...
+)
 
-BUILD TARGET
-============
+
+BUILD A PARTICULAR TARGET
+=========================
 
 Stay in the top folder and specify a "port" (coco2, coco3, coco3_6309, etc):
 
 make dsk PORTS=coco1
 make dsk PORTS=mc09
+make dsk PORTS=mc09l2
 
 mkdir nac_listings
 make dsk PORTS=mc09 LISTDIR=/home/crook/_neal/mc6809_stuff/nitros9/l1_lst
@@ -1256,10 +1262,6 @@ $ cd ../..   # root of repository
 $ mkdir ../l2_lst
 $ make dsk PORTS=mc09l2 LISTDIR=/home/crook/_neal/mc6809_stuff/nitros9/l2_lst
 
-(other build options:
-$ make clean PORTS=...
-$ make dskclean PORTS=...
-)
 
 You might also want to make a golden reference thus:
 
@@ -1295,7 +1297,7 @@ The question remains: how does S.SysIRQ work correctly when it is straddling
 the $0F00 boundary?
 
 BUG: In fdebug.asm (used by krn2) there's a use of $FF91 and other addresses
-directly - should be using symbolic names (DAT.TASK etc.)
+directly - should be using symbolic names (DAT.TASK etc.) -> Fixed.
 
 ===============================================================================
 01Dec2016
@@ -1676,7 +1678,7 @@ $ ./m6809-run -s multicomp09 -b ../6809M.bin  -d
 Reading symbols from '../6809M.map'...
 02:0x1F7E 8606                  LDA   #$06
 (dbg) b 01:0x7f7fe
-Breakpoint 0 at 01:0x7F7FE                   
+Breakpoint 0 at 01:0x7F7FE
 (dbg) c
 6809 CamelForth v1.1  20 Mar 16
 NITROS9 NITROS9 BOOTKREL Boot Krn tb0Breakpoint 0 reached.
@@ -1728,7 +1730,7 @@ A=01 F19E: CMPA  ,X                       cmpa    ,x              did it ghost t
 A=01 F1A0: PULS  A                        puls    a
 A=00 F1A2: BNE   $F191                    bne     L0111           No, keep going till ghost is found
 A=00 F191: ASLB                           (loop)
-A=00 F192: ROLA 
+A=00 F192: ROLA
 A=00 F193: STB   $FFA5
 A=00 F196: PSHS  A
 A=00 F198: LDA   #$01
@@ -1847,11 +1849,11 @@ cc3go, aka SysGo) then he gets the sign-on messages from SysGo/Init.
 
 Clocks: the bootfile/makefile has:
 
-CLOCK50HZMC09	= $(MD)/mc09clock_50hz $(MD)/clock2_soft
+CLOCK50HZMC09   = $(MD)/mc09clock_50hz $(MD)/clock2_soft
 
 The modules/makefile has:
 
-CLOCKS		= clock_50hz clock2_soft clock2_dw mc09clock_50hz
+CLOCKS          = clock_50hz clock2_soft clock2_dw mc09clock_50hz
 
 .. mc09clock_50hz is built from mc09clock.asm which is a literal copy
 of clock.asm.
@@ -2034,17 +2036,17 @@ The recipe to trace the "invalid opcode" on timer interrupt was really simple,
 and the code failed very quickly after the interrupt occurred:
 
 
-$ ./mc09-run-int 
+$ ./mc09-run-int
 Reading symbols from '../6809M.map'...
 02:0x1F7E 8606                  LDA   #$06
 (dbg) b 1:0x42dc
-Breakpoint 0 at 01:0x42DC                    
+Breakpoint 0 at 01:0x42DC
 (dbg) c
 6809 CamelForth v1.1  20 Mar 16
 NITROS9 NITROS9 BOOTREL Boot Krn 0.............................................................................................bKrnP2 IOMan Init RBF mc09sd DD D0 D1 D2 D3 SCF mc6850 Term T0 T1 PipeMan Piper Pipe Clock Clock2 SysGo Shell Date DeIniz Echo Iniz Link Load Save Unlink 2xoBreakpoint 0 reached.
 01:0x42DC ED04                  STD   4,X
 (dbg) awa 0xfff8
-Watchpoint(RW) 1 at 05:0x0078                    
+Watchpoint(RW) 1 at 05:0x0078
 (dbg) c
 [uart0 stat wr: PC=0xc39d, addr=0x0000, wdata=0x82]
 CNitrOS-9/6809 Level 2 V3.3.0
@@ -2064,7 +2066,7 @@ Instruction dump is on
 01:0x7FE8B 8E00F8                LDX   #$00F8              * D.IRQ get DP offset of vector
 01:0x7FE8E 86A0                  LDA   #$A0
 01:0x7FE90 B7FFDE                STA   $FFDE               * force to system state (Task 0)
-01:0x7FE93 4F                    CLRA  
+01:0x7FE93 4F                    CLRA
 01:0x7FE94 1F8B                  TFR   A,DP                * Assume: A=0 from earlier
 01:0x7FE96 9691                  LDA   <$0091  <SS.Palet>
 01:0x7FE98 84BF                  ANDA  #$BF                * force TR=0 in mc09 MMU shadow
@@ -2086,10 +2088,10 @@ Instruction dump is on
 01:0x7FD04 DDE4                  STD   <$00E4  <E$PrcAbt>
 01:0x7FD06 DCC4                  LDD   <$00C4  <E$WUndef>  * set system IRQ routine to current
 01:0x7FD08 DDE8                  STD   <$00E8  <E$BMCRC>
-01:0x7FD0A AD9F00CE              JSR   [$00CE  <E$DirFul>] * execute irq service 
+01:0x7FD0A AD9F00CE              JSR   [$00CE  <E$DirFul>] * execute irq service
 01:0x00F8 CB00      E$Full      ADDB  #$00                 * what? Suddenly executing code in the zero page
 01:0x00FA F037F0    E$DevBsy    SUBB  $37F0
-01:0x00FD 3700      E$Share     PULU 
+01:0x00FD 3700      E$Share     PULU
 01:0x00FF 0001                  NEG   <$0001  <V.PORT>
 01:0x0101 01                    ???   ???
 m6809-run: (at PC=0101) invalid opcode '01'
@@ -2224,7 +2226,7 @@ getting level2/modules/mc09clock.asm
 
 $ hg incoming
 
---snip snip-- 
+--snip snip--
 
 $hg pull
 pulling from http://hg.code.sf.net/p/nitros9/code
@@ -2827,7 +2829,6 @@ $ hg merge
 [NAC HACK 2017Apr02] next steps:
 
 - support 512Kbyte and 1024KByte systems.
-- debug boot problem with minimal bootfile
 - get an editor that works
   - scred? DONE
   - minted adaption to ANSI (now I have emulation)
@@ -2844,10 +2845,23 @@ $ hg merge
   - single help file, hard-wired to /DD/SYS/helpmsg
   - concat of all .hp file (done by makefile)
   - .hp file is plain text. Help topic @NAME starting in column 1
-  - check all cmds/ have help
+  - check that all cmds/ have help
 - documentation for "edit"
 
 ===============================================================================
+[NAC HACK 2019Mar03] Serial drivers
+
+Boisy Pitre explained to me that all SCF drivers should start with the letters
+"sc". He created an sc6850.asm and suggested that I migrate to it and retire
+the mc6850.asm and term_mc6850.asm
+
+Switching to this driver makes it necessary to specify the hw address for
+the term_ version of the driver, which means that it needs its own line in
+the makefile in the same was as the corsham port has; the current mc09
+port buildsfrom default rules because it has the HWaddr baked in.
+
+Also I should change the name of my .dt files to match the names used elsewhere
+
 ===============================================================================
 
 TODO
@@ -2861,8 +2875,10 @@ DONE (not by me)     change coco3 top-level makefile to reference port.mak
                      in a constant within them. Use the approach that I used
                      to build terminal descriptors to remove this duplication.
                      Specifically:
-                     t2_sc6551.asm  t3_sc6551.asm should be sc6551desc.asm
-                     t2_sc6552.asm  t3_sc6552.asm should be sc6552desc.asm
+                     term_sc6551.asm t2_sc6551.asm  t3_sc6551.asm should be term_sc6551.asm
+                     -
+                     t2_sc6552.asm  t3_sc6552.asm should be term_sc6552.asm
+                     -- they have no driver. Surely they are unused
 [NAC HACK 2016Dec01] in level2/modules there are file that differ only
                      in a constant within them. Use the approach that I used
                      to build terminal descriptors to remove this duplication.
@@ -2890,9 +2906,9 @@ DONE: commit 3111:   in boot_* need carry clear on return from HWRead;
                      becker, dwdsk targets explicitly? should all
                      be taken care of as part of the lower-level
                      makefiles.
-[NAC HACK 2016Dec04] search for instances of CC3Go in the comments
+DONE                 search for instances of CC3Go in the comments
                      and change to SysGo
-[NAC HACK 2016Dec05] in rel.asm change FFA0 to DAT.Regs
+DONE                 in rel.asm change FFA0 to DAT.Regs
 [NAC HACK 2016Dec07] multiple places encode "$8C" as a way of skipping
                      over 2 bytes (does a cmpx). Make the comments
                      clearer in all cases.
@@ -2907,17 +2923,30 @@ DONE                 Change asm build options to suit defaults on
                      new release of lwtools
 [NAC HACK 2017Jan25] after make clean, there are undeleted files in
                      level1/dalpha/modules/ eg: d0_40d.dd
-[NAC HACK 2017Jan27] krnp2 "(usually '/term')" should read "(usually '/Term')"
-[NAC HACK 2017Jan27] krnp2 add debug: comment to debug output
-[NAC HACK 2017Jan27] krnp2 "tried to to CC3Go" should read "tried to fork SysGo"
+DONE                 krnp2 "(usually '/term')" should read "(usually '/Term')"
+DONE                 krnp2 add debug: comment to debug output
+DONE                 krnp2 "tried to to CC3Go" should read "tried to fork SysGo"
                      ..and change other references CC3Go to SysGo
 [NAC HACK 2017Jan28] remove tabs from sysgo
 [NAC HACK 2017Jan29] remove unused clock/clock build options
                      from l1/mc09/modules/makefile and from
                      l2/mc09l2/modules/makefile
-[NAC HACK 2017Jan31] in rbf string match "Check for a match of 2 names"
+DONE                 in rbf string match "Check for a match of 2 names"
                      should say "Check for a match of 2 names, ignoring
                      case"
 [NAC HACK 2017Apr08] I committed makefile changes to the trunk and then
                      also to the branch (for the 91hx clock module) but those
                      have not been sent to Tormod yet.
+[NAC HACK 2019Mar03] Change serial drivers per input from Boisey (See "serial
+                     drivers" above
+[NAC HACK 2019Mar03] L2 boot problem with minimal bootfile is a Known Bug.
+                     Change the makefile to remove the broken image and
+                     add comments to cross-reference the bug report.
+[NAC HACK 2019Mar03] When I rebuild from source and generate disk images
+                     here, it would be good to generate both L1 and L2
+                     images and also to generate a manifest to provide
+                     traceability on what source tree they were built
+                     from
+[NAC HACK 2019Mar03] Create a readme.md in this area, with links to the
+                     proper source and an index to the other material
+                     in this directory.
