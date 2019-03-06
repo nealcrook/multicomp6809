@@ -28,3 +28,5 @@ Approximate WIKI Change Log:
 12Feb2016 New BUGGY source code - single step now works. Expanded WIKI pages on CamelForth to add some links on tutorials. New versions of TERMINAL and UART VHDL to add functional reset of input FIFOs to avoid some start-up problems.
 
 09Aug2018 Tidy-up pass - adding a few misisng files and scripts and generally tidying things up. In particular, clean up the build process for the 6809 ROM BASIC and add some images for simulation debug.
+
+06Mar2019 Reorganisation to try to provided consistent descriptions for each operating environment: the original material  evolved over time as I ported siccessive bits of code and it shows (too much) in places.
