@@ -8,7 +8,7 @@ When I saw this http://searle.hostei.com/grant/Multicomp/index.html I realised I
 
 I decided that I would run Brad Rodriguez's Camelforth on it. Before I did that I resussitated a 6809 emulator and added crude support first for Brad's "scroungmaster" machine and then for the 6809 multicomp machine. That emulator is https://github.com/nealcrook/exec09.
 
-Camelforth is currently running on real hardware. Using a hardware bank-switching unit on multicomp Camelforth can also act as boot loader for Grant's port of Microsoft ROM BASIC and for the N8VEM port of Dave Dunfield's CUBIX and for my port of FLEX. All of this also runs on exec09.
+Camelforth is currently running on real hardware. Using a hardware bank-switching unit on multicomp Camelforth can also act as boot loader for Grant's port of Microsoft ROM BASIC and for the N8VEM port of Dave Dunfield's CUBIX and for my ports of FLEX, NitrOS-9, BUGGY and FUZIX. All of this also runs on exec09.
 
 This repository is a venue for sharing the hardware and software that I have used on my multicomp.
 
