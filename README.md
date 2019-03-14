@@ -8,7 +8,7 @@ When I saw this http://searle.hostei.com/grant/Multicomp/index.html I realised I
 
 I decided that I would run Brad Rodriguez's Camelforth on it. Before I did that I resussitated a 6809 emulator and added crude support first for Brad's "scroungmaster" machine and then for the 6809 multicomp machine. That emulator is https://github.com/nealcrook/exec09.
 
-Camelforth is currently running on real hardware. Using a hardware bank-switching unit on multicomp Camelforth can also act as boot loader for Grant's port of Microsoft ROM BASIC and for the N8VEM port of Dave Dunfield's CUBIX and for my port of FLEX. All of this also runs on exec09.
+Camelforth is currently running on real hardware. Using a hardware bank-switching unit on multicomp Camelforth can also act as boot loader for Grant's port of Microsoft ROM BASIC and for the N8VEM port of Dave Dunfield's CUBIX and for my ports of FLEX, NitrOS-9, BUGGY and FUZIX. All of this also runs on exec09.
 
 This repository is a venue for sharing the hardware and software that I have used on my multicomp.
 
@@ -28,3 +28,5 @@ Approximate WIKI Change Log:
 12Feb2016 New BUGGY source code - single step now works. Expanded WIKI pages on CamelForth to add some links on tutorials. New versions of TERMINAL and UART VHDL to add functional reset of input FIFOs to avoid some start-up problems.
 
 09Aug2018 Tidy-up pass - adding a few misisng files and scripts and generally tidying things up. In particular, clean up the build process for the 6809 ROM BASIC and add some images for simulation debug.
+
+06Mar2019 Reorganisation to try to provided consistent descriptions for each operating environment: the original material  evolved over time as I ported siccessive bits of code and it shows (too much) in places.
