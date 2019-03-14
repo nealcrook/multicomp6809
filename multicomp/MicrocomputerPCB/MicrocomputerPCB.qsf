@@ -194,8 +194,14 @@ set_global_assignment -name VHDL_FILE ../Components/GPIO/gpio.vhd
 set_global_assignment -name VHDL_FILE ../Components/TERMINAL/SBCTextDisplayRGB.vhd
 set_global_assignment -name QIP_FILE ../Components/TERMINAL/DisplayRam1K.qip
 set_global_assignment -name QIP_FILE ../Components/TERMINAL/DisplayRam2K.qip
+set_global_assignment -name QIP_FILE ../Components/TERMINAL/CGABoldRom.qip
 set_global_assignment -name QIP_FILE ../Components/TERMINAL/CGABoldRomReduced.qip
+set_global_assignment -name QIP_FILE ../Components/TERMINAL/SansBoldRom.qip
+set_global_assignment -name QIP_FILE ../Components/TERMINAL/SansBoldRomReduced.qip
 set_global_assignment -name VHDL_FILE ../Components/TERMINAL/CGABoldRom.vhd
+set_global_assignment -name VHDL_FILE ../Components/TERMINAL/CGABoldRomReduced.vhd
+set_global_assignment -name VHDL_FILE ../Components/TERMINAL/SansBoldRom.vhd
+set_global_assignment -name VHDL_FILE ../Components/TERMINAL/SansBoldRomReduced.vhd
 set_global_assignment -name VHDL_FILE ../Components/M6809p/cpu09p.vhd
 set_global_assignment -name VHDL_FILE ../Components/SDCARD/sd_controller.vhd
 set_global_assignment -name VHDL_FILE ../Components/UART/bufferedUART.vhd
