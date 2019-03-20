@@ -246,7 +246,7 @@ begin
     sRamAddress_i(12 downto 0) <= cpuAddress(12 downto 0);
     sRamData <= cpuDataOut when n_WR='0' else (others => 'Z');
 
-    
+
     -- Internal 2K
     --wren_internalRam1 <= not(n_WR or n_internalRam1CS);
 
@@ -373,6 +373,10 @@ begin
             clk => clk
     );
 
+-- In order to squeeze into the 16-byte address space, mem_mapper
+-- shares address space with the SDcard; it is write-only and decodes
+-- addresses 5, 6, 7 internally.
+-- mem_mapper is write-only and shares address space with the SDcard
 --  mm1 : entity work.mem_mapper
 --  port map(
 --          n_reset => n_reset,
@@ -391,11 +395,19 @@ begin
 --          n_tint => n_tint
     --);
 
+-- In order to squeeze into the 16-byte address space, mem_mapper
+-- shares address space with the SDcard. For writes it uses the
+-- SDcard write enable and decodes addresses 5, 6, 7 internally.
+-- Only address 5 (timer status) reads back; mem_mapper2 can only
+-- drive a non-zero value on the data bus when the address is 5,
+-- and it is ORed with the SDcard read data, which is similarly
+-- well-behaved.
 mm1 : entity work.mem_mapper2
     port map(
             n_reset => n_reset,
             clk => clk,
             hold => hold,
+
             n_wr => n_WR_sd,
 
             dataIn => cpuDataOut,

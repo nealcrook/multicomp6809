@@ -37,7 +37,8 @@ entity SBCTextDisplayRGB is
 		constant V_SYNC_ACTIVE : std_logic := '0';
 
 		constant DEFAULT_ATT : std_logic_vector(7 downto 0) := "00001111"; -- background iBGR | foreground iBGR (i=intensity)
-		constant ANSI_DEFAULT_ATT : std_logic_vector(7 downto 0) := "00000111" -- background iBGR | foreground iBGR (i=intensity)
+		constant ANSI_DEFAULT_ATT : std_logic_vector(7 downto 0) := "00000111"; -- background iBGR | foreground iBGR (i=intensity)
+		constant SANS_SERIF_FONT : integer := 1 -- 0 => use conventional CGA font, 1 => use san serif font
 	);
 	port (
 		n_reset	: in std_logic;
@@ -278,18 +279,28 @@ begin
 	dispAddr_xx <= std_logic_vector(to_unsigned(dispAddr,11));
 	cursAddr_xx <= std_logic_vector(to_unsigned(cursAddr,11));
 
--- DISPLAY ROM AND RAM
-GEN_EXT_CHARS: if (EXTENDED_CHARSET=1) generate
+-- DISPLAY ROM (CHARACTER GENERATOR)
+GEN_EXT_CHARS: if (EXTENDED_CHARSET=1) and (SANS_SERIF_FONT=0)  generate
 begin
 	fontRom : entity work.CGABoldRom -- 256 chars (2K)
-	port map(
+        port map(
 		address => charAddr,
 		clock => clk,
 		q => charData
 	);
 end generate GEN_EXT_CHARS;
 
-GEN_REDUCED_CHARS: if (EXTENDED_CHARSET=0) generate
+GEN_EXT_SCHARS: if (EXTENDED_CHARSET=1) and (SANS_SERIF_FONT=1)  generate
+begin
+	fontRom : entity work.SansBoldRom -- 256 chars (2K)
+        port map(
+		address => charAddr,
+		clock => clk,
+		q => charData
+	);
+end generate GEN_EXT_SCHARS;
+
+GEN_REDUCED_CHARS: if (EXTENDED_CHARSET=0) and (SANS_SERIF_FONT=0) generate
 begin
 	fontRom : entity work.CGABoldRomReduced -- 128 chars (1K)
 	port map(
@@ -299,6 +310,17 @@ begin
 	);
 end generate GEN_REDUCED_CHARS;
 
+GEN_REDUCED_SCHARS: if (EXTENDED_CHARSET=0) and (SANS_SERIF_FONT=1) generate
+begin
+	fontRom : entity work.SansBoldRomReduced -- 128 chars (1K)
+	port map(
+		address => charAddr(9 downto 0),
+		clock => clk,
+		q => charData
+	);
+end generate GEN_REDUCED_SCHARS;
+
+-- DISPLAY RAM
 GEN_2KRAM: if (CHARS_PER_SCREEN >1024) generate
 begin
  	dispCharRam: entity work.DisplayRam2K -- For 80x25 display character storage
