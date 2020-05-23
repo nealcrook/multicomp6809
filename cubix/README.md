@@ -2,9 +2,9 @@
 
 This originated as 3 .zip files:
 
-CUBIXfpga.zip  - fpga/ directory with source, including for r09sase ROM
-fpgacubix.zip  - fpga/ directory and fpgacubix.img for writing to SDcard
-GrantCubix.zip - FPGA project files. Contains 2k rom, serial port only
+* CUBIXfpga.zip  - fpga/ directory with source, including for r09sase ROM
+* fpgacubix.zip  - fpga/ directory and fpgacubix.img for writing to SDcard
+* GrantCubix.zip - FPGA project files. Contains 2k rom, serial port only
 
 The stuff here includes the "r09sase ROM" source and "fpgacubix.img" which is a
 set of disk images.
@@ -14,6 +14,9 @@ multicomp6809 camelforth to CUBIX.
 
 The original .zip files came with a "README-FPGACUBIX.TXT which is included
 below.
+
+For more, go to the WIKI: https://github.com/nealcrook/multicomp6809/wiki/CUBIX
+
 
 ````
 This is an adaptation of the Standalone CUBIX for the N8VEM 6x0x stack.
