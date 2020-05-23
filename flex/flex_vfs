@@ -9,6 +9,7 @@
 # Kudos for FLEX: 6809 source is about 2380 lines of assembler. This PERL
 # script is now longer than that..
 #
+# https://github.com/nealcrook/multicomp6809
 # Neal Crook, July 2015.
 # foofoobedoo@gmail.com
 #
@@ -116,6 +117,20 @@ my ($mday, $mon, $year);
     $mon = $mon + 1;
     $year = $year % 100;
 }
+
+if (defined $ARGV[0]) {
+    while (my $file = shift @ARGV) {
+        cmd_mount(0,$file);
+        cmd_info("");
+        cmd_check(0);
+        my $drive = "0"; # gets modified by arg processing
+        cmd_dir($drive);
+        cmd_umount(0);
+        print "\n";
+    }
+    exit;
+}
+
 
 # Command-line interpreter
 while (1) {
@@ -1010,8 +1025,8 @@ sub cmd_rdbootfile {
 }
 
 
-sub cmd_check {
-    print "check TODO - not yet implemented\n";
+sub cmd_repair {
+    print "repair TODO - not yet implemented\n";
 }
 
 
@@ -1066,21 +1081,33 @@ sub cmd_scrub {
 }
 
 
-# Walk the linked lists associated with:
-# - the directory, marking them with the pseudo file-name "%DIR.DIR"
-# - each file, marking them with their file name
+# Perform the following integrity checks:
+# - each sector in only used once (and therefore,
+#   no loops in the linked-lists)
+# - no un-referenced sectors
+#
+# FUTURE: make this a common routine for a 'check'
+# and a 'repair' command, where repair breaks
+# loops, creates dummy files from dangling sectors etc.
+# Requires walk_chain to be enhanced (eg, to break loops
+# instead of abandoning the walk on error)
+#
+# Start by creating a sector map of the whole disk. Then walk
+# the linked lists associated with:
+# - the directory, marking allocated sectors with the pseudo
+#   file-name "%DIR.DIR"
+# - each file, marking allocated sectors with their file name
 # - the free list, marking them with the pseudo file name "%FRE.FRE"
 # Then mark the sectors of track 0 associated with system files.
-# On the way, ensure that each sector in only used once
-# Detect loops and un-referenced sectors
-# Break loops, create dummy files for dangling segments.
-# The "check" command could call this but with an additional argument to prevent disk changes??
-sub cmd_repair {
+# On the way, report an error for any sector that is double-assigned.
+# Finally, go through the map and report any unused sectors.
+sub cmd_check {
     my ($drive) = check_arg('v', @_);
     return unless defined($drive);
 
     my @map;
     my $status;
+    my $bad_files = 0;
     my %f;
 
     # Reserved sectors
@@ -1094,14 +1121,23 @@ sub cmd_repair {
     $f{name} = "%DIR.DIR";
     $f{trk} = $FLEX_DIR_TS[0];
     $f{sct} = $FLEX_DIR_TS[1];
-    $status = walk_chain(\@map, \%f);
+    if (walk_chain(\@map, \%f) == -1) {
+        print "ERROR directory chain had double-assigned sector(s)\n";
+        $bad_files++;
+    }
 
-    # Walk to free list chain
-    # TODO status is #sectors?? For free list make sure it matches the value in the SIR
+    # Walk the free list chain
     $f{name} = "%FRE.FRE";
     $f{trk} = $dsk[$drive]->{sir}->{FIRST_T};
     $f{sct} = $dsk[$drive]->{sir}->{FIRST_S};
     $status = walk_chain(\@map, \%f);
+    if ( $status == -1) {
+        print "ERROR free-list chain had double-assigned sector(s)\n";
+        $bad_files++;
+    }
+    elsif ($status != $dsk[$drive]->{sir}->{FREE}) {
+        print "ERROR free-list chain had $status sector(s) but SIR claims $dsk[$drive]->{sir}->{FREE}\n";
+    }
 
     # Walk the chain for each file
     my $files = filter_dir($drive,"*","*");
@@ -1110,7 +1146,10 @@ sub cmd_repair {
         my $j = $dsk[$drive]->{dir}->[$i];
         $f{name} = "$j->{NAME}.$j->{EXT}";
         ($f{trk}, $f{sct}, $count) = rd_file_start_tsc($drive, $i);
-        $status = walk_chain(\@map, \%f);
+        if (walk_chain(\@map, \%f) == -1) {
+            print "ERROR $f{name} chain had double-assigned sector(s)\n";
+            $bad_files++;
+        }
     }
 
     # Now look through @map and see what's missing
@@ -1123,7 +1162,10 @@ sub cmd_repair {
             }
         }
     }
-    print "Total unassigned sectors = $missing\n";
+
+    if ($missing != 0) {
+        print "ERROR found $missing unassigned sectors\n";
+    }
 }
 
 
@@ -2030,7 +2072,7 @@ sub walk_chain {
     my ($map_ref, $f_ref) = @_;
     my $count = 0;
 
-    print "In walk_chain drive=$f_ref->{drive} track=$f_ref->{trk} sector=$f_ref->{sct}, $f_ref->{name} ";
+    ##print "In walk_chain drive=$f_ref->{drive} track=$f_ref->{trk} sector=$f_ref->{sct}, $f_ref->{name} ";
 
     while (($f_ref->{trk} != 0) or ($f_ref->{sct} !=0)) {
         $count = $count + 1;
@@ -2053,15 +2095,13 @@ sub walk_chain {
             # - turn a double-allocation into an end
             # - work from the longest chain to the shortest, creating new files
             #   zzz1.rec zzz2.rec etc.
-
-
         }
         else {
             $map_ref->[$f_ref->{trk}][$f_ref->{sct}] = $f_ref->{name};
             rd_nxt_sct($f_ref);
         }
     }
-    print "Found $count sectors\n";
+    ##print "Found $count sectors\n";
     return $count;
 }
 
@@ -3333,7 +3373,7 @@ EOF
     }
     elsif ($cmd eq 'fix') {
         print <<EOF
-TODO
+TODO see 'check'
 EOF
     }
     elsif ($cmd eq 'rdboot') {
@@ -3385,7 +3425,17 @@ EOF
     }
     elsif ($cmd eq 'check') {
         print <<EOF
-TODO
+    check <virtual drive number>
+
+    Perform integrity check on the specified virtual drive: walk the
+    directory chain, the free chain and the chain for each file. Verify that:
+
+    - the free chain is the same size as described in the SIR
+    - no sector is double-assigned
+    - no sector is unassigned
+
+    Currently there is no command to repair a corrupt disk. If you have
+    a corrupt image contact me and I will enhance this tool to handle it.
 EOF
     }
     elsif ($cmd eq 'scrub') {
@@ -3400,7 +3450,7 @@ EOF
     }
     elsif ($cmd eq 'repair') {
         print <<EOF
-TODO
+TODO - see 'check'
 EOF
     }
     elsif ($cmd eq 'uppercase') {
@@ -3559,6 +3609,19 @@ flex_vfs allows manipulation of up to 4 virtual drives, numbered 0 through 3.
 Each drive can be associated with a file on the host filesystem. Files
 can be copied between virtual drives or transferred between virtual drives
 and the host filesystem. Virtual drives can be inspected and manipulated.
+
+Usage:
+
+    flex_vfs
+    flex_vfs < script
+    flex_vfs foo.bin
+    flex_vfs *.bin
+
+The first form starts an interactive session.
+The second form runs a sequence of commands from a file (See 'help scripts').
+The third form treats foo.bin as a disk image and does a mount/info/check/dir/exit.
+The fourth form treats *.bin as a set of disk images and does a
+mount/info/check/dir/exit on each image in turn.
 
 Commands are:
 
