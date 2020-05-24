@@ -8,70 +8,128 @@
 #
 #
 
+# root of multicomp6809 repository
+export REPO=../
+# location for flex_disk_manip nitros9_disk_manip
+export BIN=$REPO/bin
+
+###############################################################
+###############################################################
+# CUBIX
+#
+# I don't have the source for this stuff, so the filesystem
+# has to go at offset 0 on the SDcard as expected by the
+# (not-built-by-me) code.
 
 # CUBIX file system
+#
 # ~35MByte, at offset 0.
-dd if=fpgacubix.img of=multicomp09_sd.img
-
+dd if=$REPO/cubix/fpgacubix.img of=multicomp09_sd.img
 
 # CUBIX boot ROM
+# You may need to rebuild this from source (cubix_autoboot.asm)
+#
 # 2Kbytes at offset 64Mbyte
 # 64MByte is block offset 1048576 * 64/512 = 0x2.0000
-dd if=cubix_autoboot.bin of=multicomp09_sd.img obs=1M seek=64
+dd if=$REPO/cubix/cubix_autoboot.bin of=multicomp09_sd.img obs=1M seek=64
 
 
+###############################################################
+###############################################################
 # FORTH block files (optional)
 # 4 files each of up to 256Kbytes, starting at offset 65MByte
+
+# This contains CamelForth extensions like coloured/paged
+# version of WORDS and a block editor.
+#
 # Block offset 256*1024 * 260/512 = 0x2.0800 (260 = 4*65)
-dd if=forthblk0.blk of=multicomp09_sd.img obs=256K seek=260
+dd if=$REPO/camelforth/forthblk0.blk of=multicomp09_sd.img obs=256K seek=260
+
+# This is empty, use it for anything you like
+#
 # Block offset 256*1024 * 261/512 = 0x2.0A00
-dd if=forthblk1.blk of=multicomp09_sd.img obs=256K seek=261
+dd if=$REPO/camelforth/forthblk1.blk of=multicomp09_sd.img obs=256K seek=261
+
+# This is a version of camelforth built to run at 2000. The binary
+# is at offset 2k in the 2nd half of the 256K image, so load and execute it
+# like this: HEX 2 SDLBA2 0D90 2000 10 SDRDn 2000 EXECUTE
+#
 # Block offset 256*1024 * 262/512 = 0x2.0C00
-dd if=forthblk2.blk of=multicomp09_sd.img obs=256K seek=262
-# Copy of CamelForth Chromium source (just to give some text to look at!)
+dd if=$REPO/camelforth/chromium_2000.scr of=multicomp09_sd.img obs=256K seek=262 conv=notrunc
+
+# This is the CamelForth Chromium source.
+# The compiled CamelForth image within this file can be invoked from the
+# ROM CamelForth using the word SDFORTH
+#
 # Block offset 256*1024 * 263/512 = 0x2.0E00
-dd if=chromium.scr  of=multicomp09_sd.img obs=256K seek=263
+dd if=$REPO/camelforth/chromium.scr  of=multicomp09_sd.img obs=256K seek=263
 
 
+###############################################################
+###############################################################
 # BASIC ROM
+# You can rebuild this from source (basic.asm) but no need
+# to because the pre-built binary is also checked in.
+#
 # 8KBytes at offset 66MByte
 # 66MByte is block offset 1048576 * 66/512 = 0x2.1000
-dd if=EXT_BASIC_NO_USING.bin of=multicomp09_sd.img obs=1M seek=66
+dd if=$REPO/multicomp/ROMS/6809/EXT_BASIC_NO_USING.bin of=multicomp09_sd.img obs=1M seek=66
 
 
+###############################################################
+###############################################################
 # Binaries for FLEX bootstrap
+# You need to rebuild these from source (multicomp09_flex_qload.asm
+# multicomp09_flex_io.asm, multicomp09_flex_sd.asm)
+# You only need these if you want to recreate FLEX from scratch
+# or modify the port.
+
 # 3 blocks-worth at offset 67MByte
 # Block offset 256*1024 * 268/512 = 0x2.1800
-dd if=../flex/multicomp09_flex_qload.bin of=multicomp09_sd.img obs=256K seek=268
+dd if=$REPO/flex/multicomp09_flex_qload.bin of=multicomp09_sd.img obs=256K seek=268
 # Block offset 256*1024 * 269/512 = 0x2.1a00
-dd if=../flex/multicomp09_flex_io.bin    of=multicomp09_sd.img obs=256K seek=269
+dd if=$REPO/flex/multicomp09_flex_io.bin    of=multicomp09_sd.img obs=256K seek=269
 # Block offset 256*1024 * 270/512 = 0x2.1c00
-dd if=../flex/multicomp09_flex_sd.bin    of=multicomp09_sd.img obs=256K seek=270
+dd if=$REPO/flex/multicomp09_flex_sd.bin    of=multicomp09_sd.img obs=256K seek=270
 
-# Binary for bootstrap of debug monitor (14 blocks)
+
+###############################################################
+###############################################################
+# "BUGGY" debug monitor
+# You need to rebuild this from source (multicomp09_flex_buggy.asm)
+
+# 14 blocks-worth at offset 67MByte and a bit
 # Block offset 256*1024 * 271/512 = 0x2.1e00
-dd if=../flex/multicomp09_flex_buggy.bin of=multicomp09_sd.img obs=256K seek=271
+dd if=$REPO/flex/multicomp09_flex_buggy.bin of=multicomp09_sd.img obs=256K seek=271
 
 
-
-
+###############################################################
+###############################################################
+# FLEX
+# All of these disk images are prebuilt.
+#
+# A standard FLEX disk image uses 256 bytes per sector;
+# an SDcard uses 512 bytes per block. To avoid the need
+# for read/modify/write operations on an SDcard block, each
+# disk image on the SDcard is padded so that each 256-byte
+# sector is aligned to a 512-byte block (this exactly doubles
+# the size of the disk image, but so what!) That operation is
+# performed by "flex_disk_manip". The doubled image is deleted
+# after being added to the SDcard image.
 
 # Drive 0: FLEX system disk
 # (Allow) 3MBytes at offset 68MByte
 # 68MByte is block offset 1048576 * 68/512 = 0x2.2000
-# This is being developed in the flex directory
-# there is a multicomp09_flex.dsk which needs to be expanded to
-# 512byte sectors.
-flex_disk_manip ../flex/multicomp09_flex.dsk -outsd flex_drive0.img
+$BIN/flex_disk_manip $REPO/flex/multicomp09_flex.dsk -outsd flex_drive0.img
 dd if=flex_drive0.img of=multicomp09_sd.img obs=1M seek=68
-
+rm -f flex_drive0.img
 
 ###############################################################
 ## Drive 0 (above) is all that you need to boot FLEX. The lines
 ## below add additional disk images for Drive 1, Drive 2 and
 ## Drive 3. If you don't have any other .dsk files then just
 ## use copies of Drive 0 like this:
-## flex_disk_manip multicomp09_flex.dsk -outsd flex_drive1.img
+## $BIN/flex_disk_manip multicomp09_flex.dsk -outsd flex_drive1.img
 ## ..
 ## ..
 ##
@@ -89,32 +147,53 @@ dd if=flex_drive0.img of=multicomp09_sd.img obs=1M seek=68
 # (Allow) 3MBytes at offset 71MByte
 # 71MByte is block offset 1048576 * 71/512 = 0x2.3800
 # The .dsk file needs to be expanded to 512byte sectors.
-flex_disk_manip ../flex/adventure.dsk -outsd flex_drive1.img
+$BIN/flex_disk_manip $REPO/flex/adventure.dsk -outsd flex_drive1.img
 dd if=flex_drive1.img of=multicomp09_sd.img obs=1M seek=71
+rm -f flex_drive1.img
 
 # Drive 2
 # (Allow) 3MBytes at offset 74MByte
 # 74MByte is block offset 1048576 * 74/512 = 0x2.5000
 # The .dsk file needs to be expanded to 512byte sectors.
-flex_disk_manip ../flex/multicomp09_flexsrc.dsk -outsd flex_drive2.img
+$BIN/flex_disk_manip $REPO/flex/multicomp09_flexsrc.dsk -outsd flex_drive2.img
 dd if=flex_drive2.img of=multicomp09_sd.img obs=1M seek=74
+rm -f flex_drive2.img
 
 # Drive 3
 # (Allow) 3MBytes at offset 77MByte
 # 77MByte is block offset 1048576 * 77/512 = 0x2.6800
 # The .dsk file needs to be expanded to 512byte sectors.
-flex_disk_manip ../../FLEX/flex09_dsk_files/SBUG.DSK -outsd flex_drive3.img
+$BIN/flex_disk_manip ../../FLEX/flex09_dsk_files/SBUG.DSK -outsd flex_drive3.img
 dd if=flex_drive3.img of=multicomp09_sd.img obs=1M seek=77
+rm -f flex_drive3.img
 
+
+###############################################################
+###############################################################
+# NITROS9
+# For the boot disk you can choose to use L1 or L2.
+# These disks can be built from source by checking out the
+# NITROS9 repository on sourceforge. Alternatively, pre-built
+# disk images are provided in my repository.
+#
+# A standard NITROS9 disk image uses 256 bytes per sector;
+# an SDcard uses 512 bytes per block. To avoid the need
+# for read/modify/write operations on an SDcard block, each
+# disk image on the SDcard is padded so that each 256-byte
+# sector is aligned to a 512-byte block (this exactly doubles
+# the size of the disk image, but so what!) That operation is
+# performed by "nitros_disk_manip". The doubled image is deleted
+# after being added to the SDcard image.
 
 
 ###############################################################
 # NITROS9 boot disk
 # (Allow) 2MBytes at offset 80MByte
 # 80MByte is block offset 1048576 * 80/512 = 0x2.8000
-# The .dsk file needs to be expanded to 512byte sectors.
-nitros9_disk_manip NOS9_6809_L1_v030300_mc09_80d.dsk -outsd nitros9_0.img
+##$BIN/nitros9_disk_manip NOS9_6809_L1_v030300_mc09_80d.dsk -outsd nitros9_0.img
+$BIN/nitros9_disk_manip NOS9_6809_L2_80dxl_plus.dsk -outsd nitros9_0.img
 dd if=nitros9_0.img of=multicomp09_sd.img obs=1M seek=80
+rm -f nitros9_0.img
 
 ###############################################################
 # NITROS extras disk 1
@@ -124,29 +203,38 @@ dd if=nitros9_0.img of=multicomp09_sd.img obs=1M seek=80
 # (Allow) 2MBytes at offset 82MByte
 # 82MByte is block offset 1048576 * 82/512 = 0x2.9000
 # The .dsk file needs to be expanded to 512byte sectors.
-nitros9_disk_manip nitros9_1.dsk -outsd nitros9_1.img
+$BIN/nitros9_disk_manip nitros9_1.dsk -outsd nitros9_1.img
 dd if=nitros9_1.img of=multicomp09_sd.img obs=1M seek=82
+rm -f nitros9_1.img
 
 ###############################################################
 # NITROS extras disk 2
 # (Allow) 2MBytes at offset 84MByte
 # 84MByte is block offset 1048576 * 84/512 = 0x2.A000
 # The .dsk file needs to be expanded to 512byte sectors.
-nitros9_disk_manip nitros9_2.dsk -outsd nitros9_2.img
+$BIN/nitros9_disk_manip nitros9_2.dsk -outsd nitros9_2.img
 dd if=nitros9_2.img of=multicomp09_sd.img obs=1M seek=84
+rm -f nitros9_2.img
 
 ###############################################################
 # NITROS extras disk 3
 # (Allow) 2MBytes at offset 86MByte
 # 86MByte is block offset 1048576 * 86/512 = 0x2.B000
 # The .dsk file needs to be expanded to 512byte sectors.
-nitros9_disk_manip nitros9_3.dsk -outsd nitros9_3.img
+$BIN/nitros9_disk_manip nitros9_3.dsk -outsd nitros9_3.img
 dd if=nitros9_3.img of=multicomp09_sd.img obs=1M seek=86
+rm -f nitros9_3.img
 
 ##this is a much bigger image, but it runs from the same start
 ##point and so the driver should be able to cope without modification
-##nitros9_disk_manip VCCEmuDisk.vhd -outsd nitros9_3.img
+##$BIN/nitros9_disk_manip VCCEmuDisk.vhd -outsd nitros9_3.img
 ##dd if=nitros9_3.img of=multicomp09_sd.img obs=1M seek=86
+##rm -f nitros9_3.img
+
+###############################################################
+###############################################################
+# FUZIX
+
 
 ###############################################################
 # FUZIX Kernel
@@ -154,7 +242,7 @@ dd if=nitros9_3.img of=multicomp09_sd.img obs=1M seek=86
 # boot loader: load and execute at 0xd000
 # 96MByte   is block offset 1048576/2 * 192/512 = 0x3.0000
 dd if=fuzix_boot.bin of=multicomp09_sd.img obs=512K seek=192
-# Kernel: loaded by the boot loaded
+# Kernel: loaded by the boot loader
 # 96.5MByte is block offset 1048576/2 * 193/512 = 0x3.0400
 dd if=fuzix.bin      of=multicomp09_sd.img obs=512K seek=193
 
