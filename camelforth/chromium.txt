@@ -66,14 +66,14 @@ Note that these are specific to the host Forth (F83).
 NEST ( - a )  is the code field of an F83 ITC colon definition.
 :NONAME ( - cfa )  is the ANS word to begin a headerless colon
     definition.  It returns the cfa of the new definition.
-;NONAME ( - )  ends a headerless colon definition.  Not ANSI;
+;NONAME ( - )  ends a headerless colon definition.  Not ANS;
     required because of F83's peculiar HIDE/REVEAL mechanism.
 COMPILE, ( xt - )  is the ANS word to append an execution token
     to a colon definition.  (In F83, xt = cfa.)
 
 These are the vocabularies which hold the metacompiler.
 META ( - )  holds all of the metacompiler words.  This is an
-    esthetic measure; all metacompiler words have been renamed
+    aesthetic measure; all metacompiler words have been renamed
     to avoid redefinition of host Forth (F83) words.
 ASSEMBLER ( - )  holds the cross-assembler.  Note the
     distinction between META ASSEMBLER and FORTH ASSEMBLER.
@@ -103,7 +103,7 @@ word-addressed machine), the address translation is done here.
 These words also embody the target's byte order (big-endian vs.
 little-endian).
 
-BASE-SCREEN ( - n )  is the staring disk BLOCK number where the
+BASE-SCREEN ( - n )  is the starting disk BLOCK number where the
     target image is stored.  64 consecutive blocks are reserved
     for a 64 Kbyte image.
 ><  ( n - n )  swaps the high and low bytes of a 16-bit cell.
@@ -137,13 +137,13 @@ T> ( - n )  moves one cell from target stack to host stack.
 screen #4
 =========
 These words further define the target memory size.  The parallel
-to the ANSI words CHARS CELLS etc. is deliberate.
+to the ANS words CHARS CELLS etc. is deliberate.
 
 TCELL ( - n )  target cell size, in target address units.
 TCELLS ( n1 - n2 )  number of address units for n1 target cells.
 TCELL+ ( a1 - a2 )  add one cell to the given target address.
 TCHAR ( - n )  target char size, in target address units.
-    Note: do not confuse this with the ANSI word CHAR, which has
+    Note: do not confuse this with the ANS word CHAR, which has
     a totally different meaning!
 TCHARS ( n1 - n2 )  number of address units for n1 target chars.
 TCHAR+ ( a1 - a2 )  add one char to the given target address.
@@ -285,6 +285,12 @@ HOST-COMP  what the host should do to compile this word into a
     a forward reference) this will invoke the forward-ref logic.
 HOST-EXEC  what the host should do if this word is encountered
     _outside_ a target colon definition.  (An execution vector.)
+FWD-LIST  if this target word is forward-referenced, this will
+    point to the latest element in the reference list.  Note
+    that the reference list is kept in the _host_.
+MIRR-LINK  all of the mirror words in the host are linked
+    together in a list.  This allows (for example) all of the
+    unresolved forward references to be located.
 PUT-CODE  defines how the host should store this word's address
     in the target image.  Usually this is ,!XT to store the word
     into a target colon definition.  Storing other actions for
@@ -293,12 +299,6 @@ PUT-CODE  defines how the host should store this word's address
 IMM-FLAG  if nonzero, indicates the target word is "immediate",
     and causes the HOST-EXEC action to be done even when this
     word is encountered _inside_ a colon definition.
-FWD-LIST  if this target word is forward-referenced, this will
-    point to the latest element in the reference list.  Note
-    that the reference list is kept in the _host_.
-MIRR-LINK  all of the mirror words in the host are linked
-    together in a list.  This allows (for example) all of the
-    unresolved forward references to be located.
 
 Mirror words are also created for target words which have not
 yet been defined.  These "forward-reference" mirror words can be
@@ -519,7 +519,7 @@ LIT  is a mirror word in the TARGET vocabulary.  It is pre-
     patched with its address.
 TLITERAL ( n - )  stores 'n' as a literal in the target Forth
     code.  It does the compile action of LIT, to lay a reference
-    to LIT (normal or forward).  It then appneds a cell
+    to LIT (normal or forward).  It then appends a cell
     containing the literal value.  Note that only single-
     precision literals are supported.
 T['] name ( - )  stores the target cfa of 'name' as a literal in
@@ -676,41 +676,75 @@ case, any of the following actions can be specified:
 3. the host's CREATE action (how the host defines the children)
 4. the host's DOES> action  (host action of the children)
 
-A simple example is
+A simple example (see screen #85) is:
     : CONSTANT  CREATE , DOES> @ ;
-    3 CONSTANT THREE 9 CONSTANT NINE
 
-In a DTC target this will create the following code:
+It creates the following code in a DTC target:
 
            <------- create part -------->|<--- action part --->
-+---------+-----------+------+---+-------+<1>-------+---+------+
++++++++++++-----------+------+---+-------+<1>-------+---+------+
 | CONSTANT|JSR DOCOLON|CREATE| , |(DOES>)|JSR DODOES| @ | EXIT |
-+---------+-----------+------+---+-------+----------+---+------+
-        +------+-----+-----+------+------+-----+-----+------+
-        | THREE| JSR <1>   |   3  | NINE | JSR <1>   |   9  |
-        +------+-----------+------+------+-----------+------+
++++++++++++-----------+------+---+-------+----------+---+------+
 
-In the host system this will create the following code:
+And, simultaneously, the following code in the host:
 
-                    value  h-comp  h-exec
-+---------+--------+------+-------+------+--+--+--+--+
-| CONSTANT|DOMIRROR| tcfa | M,REF | <2>  | ...       |
-+---------+--------+------+-------+------+--+--+--+--+
+                    TARG-VALUE HOST-COMP HOST-EXEC ...
++++++++++++--------+----------+---------+---------+--+--+--+--+
+| CONSTANT|DOMIRROR| tcfa     | M,REF   | .UNDEF  | ...       |
++++++++++++--------+----------+---------+---------+--+--+--+--+
+
+Next:
+    EMULATE:  TCREATE T, MDOES> T@ ;EMULATE
+
+This defines the host CREATE and DOES> actions for the most
+recently-defined mirror word. It creates a headerless
+definition in the host <2> and modifies HOST-EXEC in the mirror
+word to point to it:
+
+                    TARG-VALUE HOST-COMP HOST-EXEC ...
++++++++++++--------+----------+---------+---------+--+--+--+--+
+| CONSTANT|DOMIRROR| tcfa     | M,REF   | <2>     | ...       |
++++++++++++--------+----------+---------+---------+--+--+--+--+
 +<2>--+-------+----+---+-----+--------+<3>--+----+----+------+
 |NEST |TCREATE| T, |LIT| <1> |(MDOES>)|NEST |TPFA| T@ |UNNEST|
 +-----+-------+----+---+-----+--------+-----+----+----+------+
-+---------+--------+------+-------+------+--+--+--+--+
-|  THREE  |DOMIRROR| tcfa | M,REF | <3>  | ...       |
-+---------+--------+------+-------+------+--+--+--+--+
-+---------+--------+------+-------+------+--+--+--+--+
-|  NINE   |DOMIRROR| tcfa | M,REF | <3>  | ...       |
-+---------+--------+------+-------+------+--+--+--+--+
 
-where <1> is the address of the target's DOES> code, <2> is the
-address of the host's CREATE code, and <3> is the address of the
-host's DOES> code.  <2> and <3> are headerless colon definitions
-in the host machine. Notice how <3> extracts the constant's
-values (3, 9) from the target address space, using T@.
+(With DUAL true, all of this should be accomplished without
+the use of the EMULATE: .. ;EMULATE code)
+
+NEST..UNNEST is the F83 (non-ANS) code for generating a headerless
+definition.
+
+Finally:
+    3 CONSTANT THREE 9 CONSTANT NINE
+
+When this executes (on the host) the DOMIRROR code for CONSTANT
+executes <2>  to create the following code in a DTC target:
+
+++++++++-----+-----+------++++++++-----+-----+------+
+| THREE| JSR <1>   |   3  | NINE | JSR <1>   |   9  |
+++++++++-----------+------++++++++-----------+------+
+
+And, simultaneously, the following code in the host:
+
+                    TARG-VALUE HOST-COMP HOST-EXEC ...
++++++++++++--------+----------+---------+---------+--+--+--+--+
+| THREE   |DOMIRROR| tcfa     | M,REF   | <3>     | ...       |
++++++++++++--------+----------+---------+---------+--+--+--+--+
++++++++++++--------+----------+---------+---------+--+--+--+--+
+| NINE    |DOMIRROR| tcfa     | M,REF   | <3>     | ...       |
++++++++++++--------+----------+---------+---------+--+--+--+--+
+
+The "JSR <1>" codes in the target start out as "JSR DOCREATE"
+and are overwritten by (DOES>) or by (MDOES>).
+
+<1> is the address of the target's DOES> code,
+<2> is the address of the host's CREATE code,
+<3> is the address of the host's DOES> code. Notice how it uses
+    T@ to extract the CONSTANT's values (3, 9) from the target
+    address space.
+
+<2> and <3> are headerless colon definitions in the host.
 
 (DOES>)  is a mirror word in the TARGET vocabulary, allowing the
     compiler to compile forward-references to the target's
@@ -742,7 +776,8 @@ MDOES> ( - )  a) compiles the latest specified TARG-DOES address
     DOES> address with this host code (after all, TARG-DOES
     may change before we use this defining word).  Step (d)
     ensures that the host's DOES> phrase will be entered with
-    the pfa of the corresponding target "child" on the stack.
+    the target pfa (the pfa of the corresponding target "child")
+    on the stack.
 
 MDOES> ("mirror-does") may be used explicitly in the EMULATE:
 code for a defining word, e.g.
