@@ -29,4 +29,6 @@ Approximate WIKI Change Log:
 
 09Aug2018 Tidy-up pass - adding a few misisng files and scripts and generally tidying things up. In particular, clean up the build process for the 6809 ROM BASIC and add some images for simulation debug.
 
-06Mar2019 Reorganisation to try to provided consistent descriptions for each operating environment: the original material  evolved over time as I ported siccessive bits of code and it shows (too much) in places.
+06Mar2019 Reorganisation to try to provided consistent descriptions for each operating environment: the original material  evolved over time as I ported successive bits of code and it shows (too much) in places.
+
+24May2020 WIKI was a mix of creole and markdown. I am gradually migrating all the pages to markdown, making various small updates on the way. Expand the pages on camelforth to describe how to build it at a different start address.
