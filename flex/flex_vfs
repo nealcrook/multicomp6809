@@ -92,6 +92,11 @@ my $UPCASE = 0;
 # Data structure
 # $dsk[0..3]
 # $dsk[n]->{mounted} boolean
+# $dsk[n]->{fix} boolean - when true, allows editing of SIR
+# $dsk[n]->{omin_t} Observed min/max track/sector, to
+# $dsk[n]->{omax_t}   contrast (maybe!!) with the values
+# $dsk[n]->{omin_s}   recorded in the SIR - filled in by
+# $dsk[n]->{omax_s}   'check', reported by 'check' and 'info'.
 # $dsk[n]->{handle} file handle
 # $dsk[n]->{bytes_blk} 256 for dsk file, 512 for img file
 # $dsk[n]->{blks} number of blocks
@@ -121,12 +126,14 @@ my ($mday, $mon, $year);
 if (defined $ARGV[0]) {
     while (my $file = shift @ARGV) {
         cmd_mount(0,$file);
-        cmd_info("");
-        cmd_check(0);
-        my $drive = "0"; # gets modified by arg processing
-        cmd_dir($drive);
-        cmd_umount(0);
-        print "\n";
+        if ($dsk[0]->{mounted}) {
+            cmd_info("");
+            cmd_check(0);
+            my $drive = "0"; # gets modified by arg processing
+            cmd_dir($drive);
+            cmd_umount(0);
+            print "\n";
+        }
     }
     exit;
 }
@@ -160,14 +167,39 @@ while (1) {
 #################################################################
 ## Commands
 
+
+sub cmd_fix {
+    my ($drive, $file, $format) = check_arg('v h of', @_);
+    return unless defined($drive);
+
+    helper_fix_mount($drive, $file, $format, 0);
+}
+
 sub cmd_mount {
     my ($drive, $file, $format) = check_arg('v h of', @_);
     return unless defined($drive);
+
+    helper_fix_mount($drive, $file, $format, 1);
+}
+
+
+# used for cmd_mount: $mount = 1 -> errors are fatal; set the "mounted" flag.
+# used for cmd_fix:   $mount = 0 -> errors are non-fatal; set the "mounted" and "fix" flags.
+sub helper_fix_mount {
+    my ($drive, $file, $format, $mount) = @_;
+    return unless defined($drive);
+    my $abort = 0;
 
     if ($dsk[$drive]->{mounted}) {
         print "ERROR virtual drive $drive is already mounted.\n";
         return;
     }
+
+    # clear out. These are populated by 'check' and reported by 'check and 'info'
+    $dsk[$drive]->{omin_t} = 999;
+    $dsk[$drive]->{omax_t} = 0;
+    $dsk[$drive]->{omin_s} = 999;
+    $dsk[$drive]->{omax_s} = 0;
 
     if (open $dsk[$drive]->{handle}, '+<', $file) {
         # so far so good
@@ -176,7 +208,8 @@ sub cmd_mount {
 
         rd_sir($drive);
 
-        # size the disk image
+        # size the disk image: find how many sectors and make sure it is a multiple of the
+        # sector size.
         my $tmp;
         $dsk[$drive]->{blks} = 0;
         seek $dsk[$drive]->{handle}, 0, 0;
@@ -185,29 +218,37 @@ sub cmd_mount {
                 $dsk[$drive]->{blks} = $dsk[$drive]->{blks} + 1;
             }
             else {
-                print "ERROR image is not a multiple of $dsk[$drive]->{bytes_blk}. Mount aborted.\n";
-                return;
+                print "ERROR image is not a multiple of the sector size ($dsk[$drive]->{bytes_blk} bytes) - final sector has $actual bytes.\n";
+                $abort = 1;
             }
         }
 
-        # is the sir believable?
+        # is the SIR believable?
         if (($dsk[$drive]->{sir}->{data}->[0] != 0) or ($dsk[$drive]->{sir}->{data}->[1] != 0)) {
-            print "ERROR first two bytes of SIR were non-zero. Mount aborted.\n";
-            return;
+            print "ERROR first two bytes of SIR were non-zero.\n";
+            $abort = 1;
         }
 
         # is the block count consistent with track/sector count
         if ($dsk[$drive]->{blks} != ($dsk[$drive]->{sir}->{MAX_T} + 1) * $dsk[$drive]->{sir}->{MAX_S}) {
-            printf "ERROR block count (%d) is inconsistent with track range (0-%d) and sector range (1-%d). Mount aborted.\n",
+            printf "ERROR block count (%d) is inconsistent with track range (0-%d) and sector range (1-%d).\n",
             $dsk[$drive]->{blks},
             $dsk[$drive]->{sir}->{MAX_T}, $dsk[$drive]->{sir}->{MAX_S};
-            return;
+            $abort = 1;
         }
 
         # cache it for easy access
         rd_dir($drive);
 
-        # finally
+        if ($mount) {
+            if ($abort) {
+                print "Mount aborted.\n";
+                return;
+            }
+        }
+        else {
+            $dsk[$drive]->{fix} = 1;
+        }
         $dsk[$drive]->{mounted} = 1;
     }
     else {
@@ -267,9 +308,10 @@ sub cmd_info {
     for my $drive (0..3) {
         print "Drive $drive: ";
         if ($dsk[$drive]->{mounted}) {
-            print "Host file:    $dsk[$drive]->{filename}\n";
+            print "Host file:      $dsk[$drive]->{filename}\n";
             describe_sir($drive);
             describe_link($drive);
+            describe_ominmax($drive);
         }
         else {
             print "not mounted\n";
@@ -286,6 +328,7 @@ sub cmd_umount {
     if ($dsk[$drive]->{mounted}) {
         close $dsk[$drive]->{handle};
         $dsk[$drive]->{mounted} = 0;
+        $dsk[$drive]->{fix} = 0;
     }
 }
 
@@ -959,11 +1002,6 @@ sub cmd_link {
 }
 
 
-sub cmd_fix {
-    print "fix TODO - not yet implemented\n";
-}
-
-
 sub cmd_rdboot {
     my ($drive) = check_arg('v', @_);
     return unless defined($drive);
@@ -1104,6 +1142,11 @@ sub cmd_scrub {
 sub cmd_check {
     my ($drive) = check_arg('v', @_);
     return unless defined($drive);
+
+    if (not $dsk[$drive]->{mounted}) {
+        print "ERROR virtual drive $drive is not mounted.\n";
+        return;
+    }
 
     my @map;
     my $status;
@@ -2075,6 +2118,7 @@ sub walk_chain {
     ##print "In walk_chain drive=$f_ref->{drive} track=$f_ref->{trk} sector=$f_ref->{sct}, $f_ref->{name} ";
 
     while (($f_ref->{trk} != 0) or ($f_ref->{sct} !=0)) {
+        update_ominmax($f_ref->{drive}, $f_ref->{trk}, $f_ref->{sct});
         $count = $count + 1;
         if (defined $map_ref->[$f_ref->{trk}][$f_ref->{sct}]) {
             print "ERROR Attempt to allocate t=$f_ref->{trk}, s=$f_ref->{sct} from $map_ref->[$f_ref->{trk}][$f_ref->{sct}] to $f_ref->{name}\n";
@@ -2130,6 +2174,17 @@ sub walk_chain_n {
         $trk = $data[0];
         $sct = $data[1];
     }
+}
+
+
+# track the minimum and maximum track and sector numbers
+sub update_ominmax {
+    my ($drive, $trk, $sct) = @_;
+
+    if ($trk > $dsk[$drive]->{omax_t}) { $dsk[$drive]->{omax_t} = $trk; }
+    if ($trk < $dsk[$drive]->{omin_t}) { $dsk[$drive]->{omin_t} = $trk; }
+    if ($sct > $dsk[$drive]->{omax_s}) { $dsk[$drive]->{omax_s} = $sct; }
+    if ($sct < $dsk[$drive]->{omin_s}) { $dsk[$drive]->{omin_s} = $sct; }
 }
 
 
@@ -2604,22 +2659,22 @@ sub describe_sir {
     my ($drive) = @_;
     my $i = "        ";
 
-    printf "$i Image size:   %d blocks (%d bytes)\n",
+    printf "$i Image size:     %d blocks (%d bytes)\n",
     $dsk[$drive]->{blks}, $dsk[$drive]->{blks} * $dsk[$drive]->{bytes_blk};
 # TODO
 #        printf "%d blocks with data first/second half mismatches\n", $dsk[$drive]->{sir}->{SDMISMATCH};
 
-    printf "$i Disk name:    %-11s\n", $dsk[$drive]->{sir}->{NAME};
-    printf "$i Disk number:  %d\n",  $dsk[$drive]->{sir}->{NUM};
-    printf "$i Disk date:    %02d,%02d,%02d (mm,dd,yy)\n", $dsk[$drive]->{sir}->{DATE_M},
+    printf "$i Disk name:      %-11s\n", $dsk[$drive]->{sir}->{NAME};
+    printf "$i Disk number:    %d\n",  $dsk[$drive]->{sir}->{NUM};
+    printf "$i Disk date:      %02d,%02d,%02d (mm,dd,yy)\n", $dsk[$drive]->{sir}->{DATE_M},
     $dsk[$drive]->{sir}->{DATE_D}, $dsk[$drive]->{sir}->{DATE_Y};
-    printf "$i Free sectors: %d. Free chain t%02d,s%02d - t%02d,s%02d\n",
+    printf "$i Free sectors:   %d. Free chain t%02d,s%02d - t%02d,s%02d\n",
     $dsk[$drive]->{sir}->{FREE},
     $dsk[$drive]->{sir}->{FIRST_T}, $dsk[$drive]->{sir}->{FIRST_S},
     $dsk[$drive]->{sir}->{LAST_T}, $dsk[$drive]->{sir}->{LAST_S};
-    printf "$i Range:        t00-t%02s, s01-s%02s\n",
+    printf "$i Range:          t00-t%02s, s01-s%02s\n",
     $dsk[$drive]->{sir}->{MAX_T}, $dsk[$drive]->{sir}->{MAX_S};
-    printf "$i Trk0 sectors: $dsk[$drive]->{sir}->{T1_OFFSET}\n";
+    printf "$i Trk0 sectors:   $dsk[$drive]->{sir}->{T1_OFFSET}\n";
 }
 
 
@@ -2630,7 +2685,19 @@ sub describe_link {
     my $data = rd_dts($drive, @FLEX_LDR_TS);
     my @data = unpack("C*", $data);
 
-    printf "$i Link:         t%02d,s%02d\n", $data[5], $data[6];
+    printf "$i Link:           t%02d,s%02d\n", $data[5], $data[6];
+}
+
+
+sub describe_ominmax {
+    my ($drive) = @_;
+    if ($dsk[$drive]->{omin_t} == 999) {
+        print  "         Observed range: unknown (use 'check' to calculate it)\n";
+    }
+    else {
+        printf "         Observed range: t%02d-t%02d, s%02d-s%02d\n",
+            $dsk[$drive]->{omin_t}, $dsk[$drive]->{omax_t}, $dsk[$drive]->{omin_s}, $dsk[$drive]->{omax_s};
+    }
 }
 
 
@@ -3373,7 +3440,12 @@ EOF
     }
     elsif ($cmd eq 'fix') {
         print <<EOF
-TODO see 'check'
+    fix <virtual drive number> <file on host filesystem> [format]
+
+    Associate a file on the host filesystem with a virtual drive number.
+
+    This is the same as the 'mount' command except that it proceeds even
+    when errors are detected. Use with care and always take a backup!
 EOF
     }
     elsif ($cmd eq 'rdboot') {
@@ -3643,7 +3715,7 @@ Commands are:
     truncate   - delete sector(s) from file(s) from virtual drive
     create     - create file from sector(s) on the free list
     link       - patch boot sector on virtual drive
-    fix        - perform low-level edit on virtual drive
+    fix        - like mount but continues even if errors are detected
     rdboot     - copy boot sector from virtual drive
     wrboot     - write boot sector to virtual drive
     rdbootfile - read boot sector from file on local file system
