@@ -14,7 +14,7 @@
 # foofoobedoo@gmail.com
 #
 
-# commands not yet implemented: fix check repair
+# commands not yet implemented: repair
 
 # FUTURE: add optional y/n arg to delete.
 # FUTURE: THEN (command separator)
@@ -50,6 +50,16 @@
 # sectors. Maybe mount such images as read-only? Maybe these are "bad" sectors?
 # TODO: support s19 format for export and import
 # S19 can represent a record-based format and can include the entry address.
+# BUG: changing the disk name/label using 'label' or 'edsir - the new label cannot
+# contain spaces.
+# FUTURE: add more commands for bad disk diagnostic and repair:
+#   dump - dump track/sector
+#   relink - change link in track/sector to specified new value
+#   - that can be used to add unlinked sectors to the free list; then use edsir to update the
+#     free list count
+#   gather - a modified version of 'create'
+#   instead of create 1.FREE.TMP 4 (file from sectors from end of free list)
+#              gather 1.FREE.TMP trk sct (file starting from unlinked sector)
 
 use strict;
 no strict 'refs'; # CLI makes subroutine from command name.
@@ -102,8 +112,9 @@ my $UPCASE = 0;
 # $dsk[n]->{blks} number of blocks
 # $dsk[n]->{filename} file name by which file was accessed
 # filled in by rd_sir when disk was mounted:
-# $dsk[n]->{sir}->{data} array of data
-# $dsk[n]->{sir}->{NAME} decoded fields of sir.
+# $dsk[n]->{sir}->{data} array of data - SIR in binary form
+# $dsk[n]->{sir}->{NAME} decoded fields of SIR.
+#                 ..
 # $dsk[n]->{sir}->{NUM}
 # filled in by rd_dir when disk was mounted:
 # $dsk[n]->{dir}->[n]->{NAME} array of directory entries
@@ -174,6 +185,7 @@ sub cmd_fix {
 
     helper_fix_mount($drive, $file, $format, 0);
 }
+
 
 sub cmd_mount {
     my ($drive, $file, $format) = check_arg('v h of', @_);
@@ -254,6 +266,55 @@ sub helper_fix_mount {
     else {
         # Unlikely - it opened OK in check_arg
         print "ERROR could not re-open $file\n";
+    }
+}
+
+
+sub cmd_edsir {
+    my ($drive, $param, $value) = check_arg('v osk oa', @_);
+    return unless defined($drive);
+
+    if (not $dsk[$drive]->{mounted}) {
+        print "ERROR virtual drive $drive is not mounted.\n";
+        return;
+    }
+    if (not $dsk[$drive]->{fix}) {
+        print "ERROR virtual drive $drive must be mounted using the 'fix' command.\n";
+        return;
+    }
+
+    if (not defined($param)) {
+        # report SIR
+        foreach my $key (sort keys %{$dsk[$drive]->{sir}}) {
+            next if $key eq 'data';
+            printf "%10s: %-10s\n", $key, $dsk[$drive]->{sir}->{$key};
+        }
+    }
+    else {
+        if ($param eq 'NAME') {
+            # pad/truncate value to correct length
+            $value = $value . (chr(0) x 10); # null-terminated/padded.
+            $value = substr $value, 0, 10;
+            $dsk[$drive]->{sir}->{$param} = $value;
+        }
+        else {
+            # check that $value is numeric and in range
+            if ($value =~ /^[0-9]+$/) {
+                if ((($param eq 'LNK') or ($param eq 'FREE') or ($param eq 'NUM')) and ($value < 65536)) {
+                    $dsk[$drive]->{sir}->{$param} = $value;
+                }
+                elsif ($value < 256) {
+                    $dsk[$drive]->{sir}->{$param} = $value;
+                }
+                else {
+                    print "ERROR $value is out of range: must be <65536 for LNK, FREE, NUM; <256 for others\n";
+                }
+            }
+            else {
+                print "ERROR $value must be a decimal integer\n";
+            }
+        }
+        wr_sir_h2b($drive);
     }
 }
 
@@ -1133,9 +1194,9 @@ sub cmd_scrub {
 # Start by creating a sector map of the whole disk. Then walk
 # the linked lists associated with:
 # - the directory, marking allocated sectors with the pseudo
-#   file-name "%DIR.DIR"
+#   file-name "directory_list_chain"
 # - each file, marking allocated sectors with their file name
-# - the free list, marking them with the pseudo file name "%FRE.FRE"
+# - the free list, marking them with the pseudo file name "free_list_chain"
 # Then mark the sectors of track 0 associated with system files.
 # On the way, report an error for any sector that is double-assigned.
 # Finally, go through the map and report any unused sectors.
@@ -1161,7 +1222,7 @@ sub cmd_check {
 
     # Walk the directory chain
     $f{drive} = $drive;
-    $f{name} = "%DIR.DIR";
+    $f{name} = "directory_list_chain";
     $f{trk} = $FLEX_DIR_TS[0];
     $f{sct} = $FLEX_DIR_TS[1];
     if (walk_chain(\@map, \%f) == -1) {
@@ -1170,7 +1231,7 @@ sub cmd_check {
     }
 
     # Walk the free list chain
-    $f{name} = "%FRE.FRE";
+    $f{name} = "free_list_chain";
     $f{trk} = $dsk[$drive]->{sir}->{FIRST_T};
     $f{sct} = $dsk[$drive]->{sir}->{FIRST_S};
     $status = walk_chain(\@map, \%f);
@@ -1195,19 +1256,26 @@ sub cmd_check {
         }
     }
 
-    # Now look through @map and see what's missing
+    # Now look through @map and report what's missing
     my $missing = 0;
     for my $trk (0..$dsk[$drive]->{sir}->{MAX_T}) {
         for my $sct (1..$dsk[$drive]->{sir}->{MAX_S}) {
             if (not defined $map[$trk][$sct]) {
                 $missing = $missing + 1;
-                print "Unused trk=$trk, sct=$sct\n";
+                $f{trk} = $trk;
+                $f{sct} = $sct;
+                rd_nxt_sct(\%f);
+                my $part_of = 'unchained sector';
+                if (defined $map[$f{trk}][$f{sct}]) {
+                    $part_of = 'part of ' . $map[$f{trk}][$f{sct}];
+                }
+                print "Unchained trk=$trk, sct=$sct (links to trk=$f{trk}, sct=$f{sct} -- $part_of)\n";
             }
         }
     }
 
     if ($missing != 0) {
-        print "ERROR found $missing unassigned sectors\n";
+        print "ERROR found $missing unchained sectors\n";
     }
 }
 
@@ -1282,6 +1350,8 @@ sub cmd_uppercase {
 # l - disk label (truncated to 16 characters)
 # i - integer
 # oi - optional integer
+# osk - optional SIR key
+# oa - optional anything (caller must check legality)
 # ovy - optional 16-bit volume number optionally followed by date in
 #       the form mm,dd,yy. The date is returned as 3 separate
 #       entries: mm, dd, yy.
@@ -1322,6 +1392,19 @@ sub check_arg {
             if (defined $_[$i]) {
                 if ($_[$i] !~ /^\d+$/) {
                     print "ERROR $_[$i] is not an integer\n";
+                    return;
+                }
+            }
+        }
+        elsif ($f eq 'oa') {
+            # anything allowed, so always succeeds.
+        }
+        elsif ($f eq 'osk') {
+            if (defined $_[$i]) {
+                my $key = uc $_[$i];
+                $_[$i] = $key;
+                if (not exists $dsk[0]->{sir}->{$key}) {
+                    print "ERROR $key is not a recognised key for the SIR\n";
                     return;
                 }
             }
@@ -2121,7 +2204,7 @@ sub walk_chain {
         update_ominmax($f_ref->{drive}, $f_ref->{trk}, $f_ref->{sct});
         $count = $count + 1;
         if (defined $map_ref->[$f_ref->{trk}][$f_ref->{sct}]) {
-            print "ERROR Attempt to allocate t=$f_ref->{trk}, s=$f_ref->{sct} from $map_ref->[$f_ref->{trk}][$f_ref->{sct}] to $f_ref->{name}\n";
+            print "ERROR Attempt to allocate sector t=$f_ref->{trk}, s=$f_ref->{sct} from $map_ref->[$f_ref->{trk}][$f_ref->{sct}] to $f_ref->{name}\n";
             print "ERROR Abandon walk_chain after $count sectors.\n";
             return -1;
 
@@ -2540,11 +2623,17 @@ sub wr_dts {
 
 # read SIR and store it both as an array and as a decoded
 # data structure that makes it easy to access.
-# must NEVER write to the {sir}->{BLAH} hash.
-# ONLY write to the SIR via the wr_sir_XX routines in
-# order to keep everything sane. Those routines have the
-# responsibility of calling rd_sir() in order to keep the
-# local data-structure in sync.
+#
+# In general, do NOT simply write to the {sir}->{BLAH} hash,
+# because this leaves stuff out of sync.
+# The usual way to write to the SIR is via the wr_sir_XX
+# routines. Those routines have the responsibility for keeping
+# - the binary data structure
+# - the disk image itself
+# in sync. The caller has the responsibility of calling rd_sir
+# afterwards to keep the decoded data structure in sync.
+# (wr_sir_h2b is the exception: the decoded data structure
+# is the starting-point so it remains in sync).
 sub rd_sir {
     my ($drive) = @_;
 
@@ -2557,10 +2646,12 @@ sub rd_sir {
 
     # SIR format is described in section 9.1.5 of the 6809FAG
     $dsk[$drive]->{sir}->{LNK}     = 256 * $sir->[0] + $sir->[1];
+
+    # Some disks use 0-terminated name, but want to read all
+    # bytes to guarantee minimum change to the disk when editing.
     my $name = '';
     for my $i (16..26) {
-        last if $dsk[$drive]->{sir}->{data}->[$i] == 0;
-        $name = $name . chr $dsk[$drive]->{sir}->{data}->[$i];
+        $name = $name . chr $sir->[$i];
     }
 
     $dsk[$drive]->{sir}->{NAME}    = $name;
@@ -2612,13 +2703,9 @@ sub wr_sir_label {
     my ($drive, $label) = @_;
     $dsk[$drive]->{sir}->{NAME} = $label;
 
+    $label = $label . (chr(0) x 10); # null-terminated/padded.
     for my $i (0..10) {
-        if ($i < length $label) {
-            $dsk[$drive]->{sir}->{data}->[16 + $i] = ord substr($label, $i, 1);
-        }
-        else {
-            $dsk[$drive]->{sir}->{data}->[16 + $i] = 0;
-        }
+        $dsk[$drive]->{sir}->{data}->[16 + $i] = ord(substr $label, $i, 1);
     }
 
     wr_dts($drive, @FLEX_SIR_TS, pack("C*", @{$dsk[$drive]->{sir}->{data}}));
@@ -2654,6 +2741,41 @@ sub wr_sir_date {
 }
 
 
+# SIR hash-to-binary: use the SIR hash to rebuild/pack the binary
+# copy and sync it back to the disk image
+sub wr_sir_h2b {
+    my ($drive) = @_;
+
+    # reference to data array
+    my $sir = $dsk[$drive]->{sir}->{data};
+
+    $sir->[0]  = ($dsk[$drive]->{sir}->{LNK} >> 8) & 0xff; # high
+    $sir->[1]  =  $dsk[$drive]->{sir}->{LNK}       & 0xff; # low
+
+    my $label = $dsk[$drive]->{sir}->{NAME};
+    $label = $label . (chr(0) x 10); # null-terminated/padded.
+    for my $i (0..10) {
+        $sir->[16 + $i] = ord(substr $label, $i, 1);
+    }
+
+    $sir->[27] = ($dsk[$drive]->{sir}->{NUM} >> 8) & 0xff; # high
+    $sir->[28] =  $dsk[$drive]->{sir}->{NUM}       & 0xff; # low
+    $sir->[29] =  $dsk[$drive]->{sir}->{FIRST_T};
+    $sir->[30] =  $dsk[$drive]->{sir}->{FIRST_S};
+    $sir->[31] =  $dsk[$drive]->{sir}->{LAST_T};
+    $sir->[32] =  $dsk[$drive]->{sir}->{LAST_S};
+    $sir->[33] = ($dsk[$drive]->{sir}->{FREE} >> 8) & 0xff; # high
+    $sir->[34] =  $dsk[$drive]->{sir}->{FREE}       & 0xff; # low
+    $sir->[35] =  $dsk[$drive]->{sir}->{DATE_M};
+    $sir->[36] =  $dsk[$drive]->{sir}->{DATE_D};
+    $sir->[37] =  $dsk[$drive]->{sir}->{DATE_Y};
+    $sir->[38] =  $dsk[$drive]->{sir}->{MAX_T};
+    $sir->[39] =  $dsk[$drive]->{sir}->{MAX_S};
+
+    wr_dts($drive, @FLEX_SIR_TS, pack("C*", @{$dsk[$drive]->{sir}->{data}}));
+}
+
+
 # Dump the SIR in human-readable format
 sub describe_sir {
     my ($drive) = @_;
@@ -2664,7 +2786,11 @@ sub describe_sir {
 # TODO
 #        printf "%d blocks with data first/second half mismatches\n", $dsk[$drive]->{sir}->{SDMISMATCH};
 
-    printf "$i Disk name:      %-11s\n", $dsk[$drive]->{sir}->{NAME};
+    # null-to-space
+    my $label = $dsk[$drive]->{sir}->{NAME};
+    $label =~ s/\x0/ /g;
+
+    printf "$i Disk name:      %-11s\n", $label;
     printf "$i Disk number:    %d\n",  $dsk[$drive]->{sir}->{NUM};
     printf "$i Disk date:      %02d,%02d,%02d (mm,dd,yy)\n", $dsk[$drive]->{sir}->{DATE_M},
     $dsk[$drive]->{sir}->{DATE_D}, $dsk[$drive]->{sir}->{DATE_Y};
@@ -3156,7 +3282,6 @@ EOF
     of the file. You must rebuild that under the control of FLEX,
     using the COPYR utility.
 
-
     Examples:
     copy 2 3
     copy 2.*.* 3
@@ -3187,7 +3312,9 @@ EOF
     label <virtual drive number> mylabel [ myvolume [ mydate]]
 
     Change the label for the specified virtual drive number.
-    label is truncated after 11 characters.
+    label is truncated after 11 characters. The label cannot
+    contain spaces (this is not a FLEX restriction; it is a
+    restriction/bug in flex_vfs).
 
     Optionally also change the volume number. Volume number is
     a 16-bit value expressed in decimal (ie, 0-65535).
@@ -3255,9 +3382,9 @@ EOF
     is silently ignored if it is zero bytes in size or if it does not
     have a legal FLEX file name.
 
-    The 'uppercase' command does not affect the wildcard matching of
-    files in the host filesystem but does affect the name used for
-    the imported file created on the virtual drive.
+    'uppercase' does not affect the wildcard matching of files in
+    the host filesystem but does affect the name used for the imported
+    file created on the virtual drive.
 
     Any existing file of the same name on the virtual drive is
     overwritten.
@@ -3275,7 +3402,7 @@ EOF
     See 'help conversions' for more details. See also 'help date'
     and 'help uppercase'.
 
-    Because import does not attempt to guess the file type, it
+    Because 'import' does not attempt to guess the file type, it
     may be necessary to import files in groups, applying different
     conversions based on file extension and user knowledge.
 
@@ -3444,8 +3571,22 @@ EOF
 
     Associate a file on the host filesystem with a virtual drive number.
 
-    This is the same as the 'mount' command except that it proceeds even
+    This is the same as the mount command except that it proceeds even
     when errors are detected. Use with care and always take a backup!
+
+    'fix', 'check', 'info', 'dir', 'create' and 'edsir' can be used to
+    inspect/repair corrupted disks.
+EOF
+    }
+    elsif ($cmd eq 'edsir') {
+        print <<EOF
+    edsir <virtual drive number>
+    edsir <virtual drive number> KEY VAL
+
+    The first form prints the SIR as a set of key-value pairs.
+    The second form allows you to modify any key to a new value.
+    This command can ONLY be used if the disk was 'mounted' using
+    the 'fix' command.
 EOF
     }
     elsif ($cmd eq 'rdboot') {
@@ -3453,17 +3594,17 @@ EOF
     rdboot <virtual drive number>
 
     Read the boot sector from the specified virtual drive. It is
-    then available for use by the wrboot command.
+    then available for use by 'wrboot'.
 EOF
     }
     elsif ($cmd eq 'wrboot') {
         print <<EOF
     wrboot <virtual drive number>
 
-    Write the current boot loader (read using the rdboot or
-    rdbootfile commands) to the boot sector of the specified
-    virtual drive. After doing this, you will need to use the
-    link command in order to make the disk bootable.
+    Write the current boot loader (read using the 'rdboot' or
+    'rdbootfile') to the boot sector of the specified
+    virtual drive. After doing this, you will need to use 'link'
+    in order to make the disk bootable.
 
     Examples:
     rdboot 2
@@ -3481,7 +3622,7 @@ EOF
     the track and sector at which the FLEX image (usually named
     FLEX.SYS) is stored on the disk.
 
-    The FLEX LINK command (and the flex_vfs link command) locate
+    The FLEX LINK command (and the flex_vfs 'link' command) locate
     a named file (eg FLEX.SYS) and patch the boot sector with the
     start track/sector of that image. This makes the function of
     the boot loader simpler.
@@ -3492,7 +3633,7 @@ EOF
     rdbootfile <file on host filesystem>
 
     Read a binary blob (required to be exactly 256 bytes in size). It
-    is then available for use by the wrboot command.
+    is then available for use by 'wrboot'.
 EOF
     }
     elsif ($cmd eq 'check') {
@@ -3504,10 +3645,9 @@ EOF
 
     - the free chain is the same size as described in the SIR
     - no sector is double-assigned
-    - no sector is unassigned
+    - no sector is unassigned (unchained)
 
-    Currently there is no command to repair a corrupt disk. If you have
-    a corrupt image contact me and I will enhance this tool to handle it.
+    See 'help fix'.
 EOF
     }
     elsif ($cmd eq 'scrub') {
@@ -3520,11 +3660,6 @@ EOF
     to compress better.
 EOF
     }
-    elsif ($cmd eq 'repair') {
-        print <<EOF
-TODO - see 'check'
-EOF
-    }
     elsif ($cmd eq 'uppercase') {
         print <<EOF
     uppercase [0|1]
@@ -3532,14 +3667,14 @@ EOF
     default. However, many old FLEX disks have upper-case only file
     names and it can be tedious using the shift key continually.
 
-    flex_vfs can force all FLEX file specifiers to upper case (note
-    that wildcard '*' will still match both upper-case and lower-case
+    flex_vfs can force all FLEX file specifiers to upper case
+    (wildcard '*' will still match both upper-case and lower-case
     if they exist on the disk).
 
-    when upper-case forcing is enabled, filenames that are arguments
+    When upper-case forcing is enabled, filenames that are arguments
     to 'import' are forced to upper case.
 
-    uppercase toggles the state of upper-case forcing. With an
+    'uppercase' toggles the state of upper-case forcing. With an
     argument of 0 or 1 it forces the state. In both cases, the new
     state is reported.
 EOF
@@ -3553,7 +3688,7 @@ EOF
     the SIR and then access any track/sector correctly. Thanks to
     this far-sight on behalf of the FLEX designers, a FLEX disk
     image can simply be represented as a sequence of 256-byte
-    blocks and is "self-describing" thanks to its SIR. The normal
+    blocks and is 'self-describing' thanks to its SIR. The normal
     file extension used for a FLEX disk in this format is .dsk.
 
     In order to use an SDcard as a virtual floppy disk, it's
@@ -3570,7 +3705,7 @@ EOF
     this double-sized file is .img.
 
     flex_vfs can mount .img and .dsk files and can convert from
-    one to the other using the clone command.
+    one to the other using 'clone'.
 
     For no particularly good reason (but maybe for integrity
     checking later) flex_vfs stores 2 copies of a FLEX sector in
@@ -3621,11 +3756,10 @@ EOF
     s19 - parse an S19 file and convert it to FLEX binary record
     format.
 
-    The 'type' and 'export' commands use a simple heuristic to
-    classify files as 'txt', 'bin' or 'xxx' (anything else).
-    A default converter is set for each of these file types. The
-    converters can be overridden by specifying name/value pairs.
-    For example:
+    'type' and 'export' use a simple heuristic to classify files
+    as 'txt', 'bin' or 'xxx' (anything else). A default converter
+    is set for each of these file types. The converters can be
+    overridden by specifying name/value pairs. For example:
 
     txt=raw bin=dump xxx=dump
 
@@ -3636,7 +3770,7 @@ EOF
 
     xxx=compress
 
-    Any file types with unspecified converters will use the defaults.
+    Any file type with unspecified converters will use the default.
 EOF
     }
     elsif ($cmd eq 'scripts') {
