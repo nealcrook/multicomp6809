@@ -60,6 +60,7 @@
 #   gather - a modified version of 'create'
 #   instead of create 1.FREE.TMP 4 (file from sectors from end of free list)
 #              gather 1.FREE.TMP trk sct (file starting from unlinked sector)
+#   whoowns - given a track/sector figure out what chain it is part of and display the chain
 
 use strict;
 no strict 'refs'; # CLI makes subroutine from command name.
@@ -243,9 +244,10 @@ sub helper_fix_mount {
 
         # is the block count consistent with track/sector count
         if ($dsk[$drive]->{blks} != ($dsk[$drive]->{sir}->{MAX_T} + 1) * $dsk[$drive]->{sir}->{MAX_S}) {
-            printf "ERROR block count (%d) is inconsistent with track range (0-%d) and sector range (1-%d).\n",
-            $dsk[$drive]->{blks},
-            $dsk[$drive]->{sir}->{MAX_T}, $dsk[$drive]->{sir}->{MAX_S};
+            printf "ERROR file size (%d sectors) is inconsistent with track range (0-%d) and sector range (1-%d) which imply %d sectors\n",
+                $dsk[$drive]->{blks},
+                $dsk[$drive]->{sir}->{MAX_T}, $dsk[$drive]->{sir}->{MAX_S},
+                ($dsk[$drive]->{sir}->{MAX_T} + 1) * $dsk[$drive]->{sir}->{MAX_S};
             $abort = 1;
         }
 
