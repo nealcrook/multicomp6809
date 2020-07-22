@@ -139,8 +139,8 @@ if (defined $ARGV[0]) {
     while (my $file = shift @ARGV) {
         cmd_mount(0,$file);
         if ($dsk[0]->{mounted}) {
-            cmd_info("");
             cmd_check(0);
+            cmd_info("");
             my $drive = "0"; # gets modified by arg processing
             cmd_dir($drive);
             cmd_umount(0);
@@ -1186,6 +1186,8 @@ sub cmd_scrub {
 # - each sector in only used once (and therefore,
 #   no loops in the linked-lists)
 # - no un-referenced sectors
+# - each file has the size and end sector claimed
+#   by the directory
 #
 # FUTURE: make this a common routine for a 'check'
 # and a 'repair' command, where repair breaks
@@ -1248,13 +1250,25 @@ sub cmd_check {
     # Walk the chain for each file
     my $files = filter_dir($drive,"*","*");
     foreach my $i (@$files) {
-        my $count;
+        my $ecount;
         my $j = $dsk[$drive]->{dir}->[$i];
         $f{name} = "$j->{NAME}.$j->{EXT}";
-        ($f{trk}, $f{sct}, $count) = rd_file_start_tsc($drive, $i);
-        if (walk_chain(\@map, \%f) == -1) {
-            print "ERROR $f{name} chain had double-assigned sector(s)\n";
+        ($f{trk}, $f{sct}, $ecount) = rd_file_start_tsc($drive, $i);
+        my $count = walk_chain(\@map, \%f);
+        if ($count == -1) {
+            printf "ERROR %12s chain had double-assigned sector(s)\n", $f{name};
             $bad_files++;
+        }
+        elsif ($count != $ecount) {
+            printf "ERROR %12s chain was $count sector(s), but directory entry claims $ecount sector(s)\n", $f{name};
+            $bad_files++;
+        }
+
+        # verify that the end sector for the file matches the values in the directory entry
+        my ($etrk, $esct, undef) = rd_file_end_tsc($drive, $i);
+        if (($etrk != $f{prev_trk}) or ($esct != $f{prev_sct})) {
+            printf "ERROR %12s chain finished at t%d,s%d but directory entry says it ends at t%d,s%d\n",
+                $f{name}, $f{prev_trk}, $f{prev_sct}, $etrk, $esct;
         }
     }
 
@@ -1278,6 +1292,9 @@ sub cmd_check {
 
     if ($missing != 0) {
         print "ERROR found $missing unchained sectors\n";
+    }
+    if ($bad_files != 0) {
+        print "ERROR found $bad_files bad files\n";
     }
 }
 
@@ -2204,6 +2221,12 @@ sub walk_chain {
 
     while (($f_ref->{trk} != 0) or ($f_ref->{sct} !=0)) {
         update_ominmax($f_ref->{drive}, $f_ref->{trk}, $f_ref->{sct});
+
+        # remember where we came from (allows caller to get the t,s of the final
+        # sector in the chain)
+        $f_ref->{prev_trk} = $f_ref->{trk};
+        $f_ref->{prev_sct} = $f_ref->{sct};
+
         $count = $count + 1;
         if (defined $map_ref->[$f_ref->{trk}][$f_ref->{sct}]) {
             print "ERROR Attempt to allocate sector t=$f_ref->{trk}, s=$f_ref->{sct} from $map_ref->[$f_ref->{trk}][$f_ref->{sct}] to $f_ref->{name}\n";
