@@ -1214,7 +1214,8 @@ sub cmd_check {
     }
 
     my @map;
-    my $status;
+    my $count;
+    my $bad_file;
     my $bad_files = 0;
     my %f;
 
@@ -1235,33 +1236,37 @@ sub cmd_check {
     }
 
     # Walk the free list chain
+    $bad_file = 0;
     $f{name} = "free_list_chain";
     $f{trk} = $dsk[$drive]->{sir}->{FIRST_T};
     $f{sct} = $dsk[$drive]->{sir}->{FIRST_S};
-    $status = walk_chain(\@map, \%f);
-    if ( $status == -1) {
+    $count = walk_chain(\@map, \%f);
+    if ($count == -1) {
         print "ERROR free-list chain had double-assigned sector(s)\n";
-        $bad_files++;
+        $bad_file = 1;
     }
-    elsif ($status != $dsk[$drive]->{sir}->{FREE}) {
-        print "ERROR free-list chain had $status sector(s) but SIR claims $dsk[$drive]->{sir}->{FREE}\n";
+    elsif ($count != $dsk[$drive]->{sir}->{FREE}) {
+        print "ERROR free-list chain had $count sector(s) but SIR claims $dsk[$drive]->{sir}->{FREE}\n";
+        $bad_file = 1;
     }
+    $bad_files = $bad_files + $bad_file;
 
     # Walk the chain for each file
     my $files = filter_dir($drive,"*","*");
     foreach my $i (@$files) {
+        $bad_file = 0;
         my $ecount;
         my $j = $dsk[$drive]->{dir}->[$i];
         $f{name} = "$j->{NAME}.$j->{EXT}";
         ($f{trk}, $f{sct}, $ecount) = rd_file_start_tsc($drive, $i);
-        my $count = walk_chain(\@map, \%f);
+        $count = walk_chain(\@map, \%f);
         if ($count == -1) {
             printf "ERROR %12s chain had double-assigned sector(s)\n", $f{name};
-            $bad_files++;
+            $bad_file = 1;
         }
         elsif ($count != $ecount) {
             printf "ERROR %12s chain was $count sector(s), but directory entry claims $ecount sector(s)\n", $f{name};
-            $bad_files++;
+            $bad_file = 1;
         }
 
         # verify that the end sector for the file matches the values in the directory entry
@@ -1269,7 +1274,9 @@ sub cmd_check {
         if (($etrk != $f{prev_trk}) or ($esct != $f{prev_sct})) {
             printf "ERROR %12s chain finished at t%d,s%d but directory entry says it ends at t%d,s%d\n",
                 $f{name}, $f{prev_trk}, $f{prev_sct}, $etrk, $esct;
+            $bad_file = 1;
         }
+        $bad_files = $bad_files + $bad_file;
     }
 
     # Now look through @map and report what's missing
