@@ -109,7 +109,7 @@ my $UPCASE = 0;
 # $dsk[n]->{omin_s}   recorded in the SIR - filled in by
 # $dsk[n]->{omax_s}   'check', reported by 'check' and 'info'.
 # $dsk[n]->{handle} file handle
-# $dsk[n]->{bytes_blk} 256 for dsk file, 512 for img file
+# $dsk[n]->{bytes_blk} $BYTES_SECTOR for dsk file, 512 for img file
 # $dsk[n]->{blks} number of blocks
 # $dsk[n]->{filename} file name by which file was accessed
 # filled in by rd_sir when disk was mounted:
@@ -184,7 +184,7 @@ sub cmd_fix {
     my ($drive, $file, $format) = check_arg('v h of', @_);
     return unless defined($drive);
 
-    helper_fix_mount($drive, $file, $format, 0);
+    fix_mount_common($drive, $file, $format, 0);
 }
 
 
@@ -192,13 +192,13 @@ sub cmd_mount {
     my ($drive, $file, $format) = check_arg('v h of', @_);
     return unless defined($drive);
 
-    helper_fix_mount($drive, $file, $format, 1);
+    fix_mount_common($drive, $file, $format, 1);
 }
 
 
 # used for cmd_mount: $mount = 1 -> errors are fatal; set the "mounted" flag.
 # used for cmd_fix:   $mount = 0 -> errors are non-fatal; set the "mounted" and "fix" flags.
-sub helper_fix_mount {
+sub fix_mount_common {
     my ($drive, $file, $format, $mount) = @_;
     return unless defined($drive);
     my $abort = 0;
@@ -217,7 +217,7 @@ sub helper_fix_mount {
     if (open $dsk[$drive]->{handle}, '+<', $file) {
         # so far so good
         $dsk[$drive]->{filename} = $file;
-        $dsk[$drive]->{bytes_blk} = $format eq 'dsk' ? 256 : 512;
+        $dsk[$drive]->{bytes_blk} = $format eq 'dsk' ? $BYTES_SECTOR : 512;
 
         rd_sir($drive);
 
@@ -331,7 +331,7 @@ sub cmd_clone {
     }
 
     my $bb_in = $dsk[$drive]->{bytes_blk};
-    my $bb_out = $format eq 'dsk' ? 256 : 512;
+    my $bb_out = $format eq 'dsk' ? $BYTES_SECTOR : 512;
 
     if (open my $handle, '>', $file) {
         seek $dsk[$drive]->{handle}, 0, 0;
@@ -417,7 +417,7 @@ sub cmd_new {
         my $nxt_sct;
         my @sector;
         my $data;
-        for my $i (0..255) {
+        for my $i (0..($BYTES_SECTOR-1)) {
             $sector[$i] = 0;
         }
 
@@ -496,7 +496,7 @@ sub cmd_new {
 
             # tidy up after writing SIR
             if (($trk == 0) && ($sct == 3)) {
-                for my $i (0..255) {
+                for my $i (0..($BYTES_SECTOR-1)) {
                     $sector[$i] = 0;
                 }
             }
@@ -1160,7 +1160,7 @@ sub cmd_scrub {
         my $track = $dsk[$drive]->{sir}->{FIRST_T};
         my $sector = $dsk[$drive]->{sir}->{FIRST_S};
         my @empty_sector;
-        for my $i (0..255) {
+        for my $i (0..($BYTES_SECTOR-1)) {
             $empty_sector[$i] = 0;
         }
 
@@ -1441,7 +1441,7 @@ sub check_arg {
             my %conv;
             my $first = $i;
             while ((defined $_[$i]) and ($_[$i] =~ /^(txt|bin|xxx)=/)) {
-                if ($_[$i] =~ /^(\w+)=(raw|record|expand|dump|s19)/) {
+                if ($_[$i] =~ /^(\w+)=(raw|sraw|record|expand|dump|sdump|s19)/) {
                     $conv{$1} = $2;
                 }
                 else {
@@ -1891,7 +1891,7 @@ sub set_converter {
         # Text file by default; skip run-length bytes
         # which could legitimately have msb set.
         $f_ref->{converter} = 'export_' . $f_ref->{converters}->{txt};
-        for my $i (4..255) {
+        for my $i ($DATA_OFFSET..($BYTES_SECTOR-1)) {
             if ($skip == 1) {
                 $skip = 0;
                 next;
@@ -1914,6 +1914,18 @@ sub set_converter {
 # Returns at end of file. Honours $export $lpp.
 sub export_raw {
     my ($f_ref) = @_;
+    $f_ref->{offset} = $DATA_OFFSET;
+    raw_sraw_common($f_ref);
+}
+
+sub export_sraw {
+    my ($f_ref) = @_;
+    $f_ref->{offset} = 0;
+    raw_sraw_common($f_ref);
+}
+
+sub raw_sraw_common {
+    my ($f_ref) = @_;
     my $handle = $f_ref->{handle};
 
     # cheat: simply emit in per-sector chunks
@@ -1924,7 +1936,7 @@ sub export_raw {
 
     my $more_data = 1;
     while ($more_data) {
-        for my $i (4..255) {
+        for my $i ($f_ref->{offset}..($BYTES_SECTOR-1)) {
             print $handle chr $f_ref->{data}->[$i];
         }
         if (not $f_ref->{export}) {
@@ -2148,6 +2160,18 @@ sub export_record {
 
 # Unknown format. Express as hex and ASCII dump
 sub export_dump {
+    my ($f_ref) = @_;
+    dump_sdump_common($f_ref);
+}
+
+sub export_sdump {
+    my ($f_ref) = @_;
+    $f_ref->{offset} = 0; # defaults if not defined
+    $f_ref->{index} = 0;  # back to start of sector
+    dump_sdump_common($f_ref);
+}
+
+sub dump_sdump_common {
     my ($f_ref) = @_;
     my $handle = $f_ref->{handle};
     my $num_str = '';
@@ -2534,7 +2558,7 @@ sub rdwr_link {
 
 # read a sector, return data as a string.
 # sector specified by drive,track,sector
-# If disk in dsk format, it's 256 bytes per sector.
+# If disk in dsk format, it's $BYTES_SECTOR bytes per sector.
 # If disk in img format, seek twice as far and read 1st copy of the data
 sub rd_dts {
     my ($drive, $trk, $sct) = @_;
@@ -2587,7 +2611,10 @@ sub rd_nxt_sct {
         $f_ref->{data} = \@data;
         $f_ref->{trk} = $data[0];
         $f_ref->{sct} = $data[1];
-        $f_ref->{index} = 4; # first payload byte
+        # Usually, first payload byte is at $DATA_OFFSET but sometimes we want to
+        # process the whole raw sector; in which case we define a value in {offset}
+        $f_ref->{index} = exists $f_ref->{offset} ? $f_ref->{offset} : $DATA_OFFSET;
+        return 1;
     }
 }
 
@@ -2605,7 +2632,7 @@ sub rd_nxt_chr {
     }
     else {
         my $byte = $f_ref->{data}->[$f_ref->{index}];
-        if ($f_ref->{index} < 255) {
+        if ($f_ref->{index} < ($BYTES_SECTOR-1)) {
             $f_ref->{index} = $f_ref->{index} + 1;
         }
         else {
@@ -3768,11 +3795,18 @@ EOF
     every sector in the file. For a file of N sectors, the file will
     be (256-4)*N bytes in size.
 
+    sraw - (sector raw) a literal byte stream representing all bytes
+    of all sectors in the file. For a file of N sectors, the file will
+    be (256)*N bytes in size.
+
     expand - decompress text file and strip NULL bytes from the end.
 
     record - parse a binary record and dump it in readable format.
 
-    dump - hex and ASCII dump.
+    dump - hex and ASCII dump of the data payload (see raw above).
+
+    sdump - (sector dump) hex and ASCII dump of all bytes of all
+    sectors (see sraw above).
 
     s19 - parse a binary record and export it in S19 format.
 
