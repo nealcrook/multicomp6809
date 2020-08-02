@@ -17,12 +17,11 @@
 # commands not yet implemented: repair
 
 # FUTURE: add optional y/n arg to delete.
-# FUTURE: THEN (command separator)
+# FUTURE: ; (command separator) - and allow sequence on command-line
 # FUTURE: EXTEND (add sectors) BEHEAD (remove sectors from start) - both pair with TRUNCATE
 # FUTURE: allow target of copy to be unique fs rather than simply drive name (ie copy
 # file with different name)
 # FUTURE: record inode so that we cannot double-mount a drive.
-# FUTURE: use of "4" here - should usually be $DATA_OFFSET
 # TODO: fs in check_arg can return a wildcard. May want a variant xfs that returns
 # exactly one file - avoid over-use of legal_flex_name. Only affects commands that create
 # new files; currently import, rename, create.
@@ -45,22 +44,20 @@
 # eg delete to see if it accommodates this special case.
 # TODO: when only 1 image is mounted, make drive number optional/implicit to save typing
 # TODO: allow delete to accept a list of file names
-# TODO: make mount tolerate bad formats - eg when SIR is inconsistent. Analyse one disk
-# from the 8" set which as this problem and find out what happened to the "missing"
-# sectors. Maybe mount such images as read-only? Maybe these are "bad" sectors?
 # TODO: support s19 format for export and import
 # S19 can represent a record-based format and can include the entry address.
 # BUG: changing the disk name/label using 'label' or 'edsir - the new label cannot
 # contain spaces.
 # FUTURE: add more commands for bad disk diagnostic and repair:
-#   dump - dump track/sector
-#   relink - change link in track/sector to specified new value
-#   - that can be used to add unlinked sectors to the free list; then use edsir to update the
-#     free list count
 #   gather - a modified version of 'create'
 #   instead of create 1.FREE.TMP 4 (file from sectors from end of free list)
 #              gather 1.FREE.TMP trk sct (file starting from unlinked sector)
 #   whoowns - given a track/sector figure out what chain it is part of and display the chain
+#   - use the data structure created by 'info'
+#   unlinked - put all the unlinked sectors into 1 chain whilst changing the
+#        minimum number of links. Can then use gather to "name" it.
+#   - use the data structure created by 'info'
+#   sectclone - clone a sector for deduplicating shared chains
 
 use strict;
 no strict 'refs'; # CLI makes subroutine from command name.
@@ -321,6 +318,39 @@ sub cmd_edsir {
 }
 
 
+sub cmd_edlink {
+    my ($drive, $trk, $sct, $newtrk, $newsct) = check_arg('v ts ots', @_);
+    return unless defined($drive);
+
+    if (not $dsk[$drive]->{mounted}) {
+        print "ERROR virtual drive $drive is not mounted.\n";
+        return;
+    }
+    if (not $dsk[$drive]->{fix}) {
+        print "ERROR virtual drive $drive must be mounted using the 'fix' command.\n";
+        return;
+    }
+
+    my $data = rd_dts($drive, $trk, $sct);
+    my @data = unpack("C*", $data);
+
+    my $oldtrk = $data[0];
+    my $oldsct = $data[1];
+
+    if (defined $newtrk) {
+        $data[0] = $newtrk;
+        $data[1] = $newsct;
+        wr_dts($drive, $trk, $sct, pack("C*", @data));
+        printf "sector t%02d,s%02d   link changed from t%02d,s%02d to t%02d,s%02d, random access bytes %02d %02d\n",
+            $trk, $sct, $oldtrk, $oldsct, $newtrk, $newsct, $data[2], $data[3];
+    }
+    else {
+        printf "sector t%02d,s%02d   links to                     t%02d,s%02d, random access bytes %02d %02d\n",
+            $trk, $sct, $oldtrk, $oldsct, $data[2], $data[3];
+    }
+}
+
+
 sub cmd_clone {
     my ($drive, $file, $format) = check_arg('v nh of', @_);
     return unless defined($drive);
@@ -399,6 +429,9 @@ sub cmd_umount {
 sub cmd_new {
     my ($file, $format, $tracks, $sectors) = check_arg('nh of ots', @_);
     return unless defined ($file);
+
+    defined $tracks  or $tracks  = $DFLT_TRKS;
+    defined $sectors or $sectors = $DFLT_SCTS;
 
     # TODO I made up these limits. Should probably impose maxima, too.
     if ($tracks < 2) {
@@ -637,6 +670,80 @@ sub cmd_label {
     }
     else {
         print "ERROR virtual drive $drive is not mounted\n";
+    }
+}
+
+
+sub cmd_chain {
+    my ($drive, $trk, $sct) = check_arg('v ts', @_);
+    return unless defined($drive);
+
+    chain_rattle_common($drive, $trk, $sct, 16);
+}
+
+
+sub cmd_rattle {
+    my ($drive, $trk, $sct) = check_arg('v ts', @_);
+    return unless defined($drive);
+
+    chain_rattle_common($drive, $trk, $sct, 1);
+}
+
+
+sub chain_rattle_common {
+    my ($drive, $trk, $sct, $lines_to_display) = @_;
+
+    if (not $dsk[$drive]->{mounted}) {
+        print "ERROR drive $drive is not mounted\n";
+        return;
+    }
+
+    while (1) {
+        my $data = rd_dts($drive, $trk, $sct);
+        my @data = unpack("C*", $data);
+
+        # Display
+        printf "t%02d,s%02d | link: t%02d,s%02d random access bytes: %02d %02d | data: ",
+            $trk, $sct, $data[0], $data[1], $data[2], $data[3];
+
+
+        my $num_str = '';
+        my $let_str = '';
+        my $indent = '';
+        for my $i (0..($lines_to_display-1)) {
+            for my $j (0..15) {
+                my $chr = $data[$i*16 + $j];
+
+                $num_str = $num_str . ' ' . sprintf("%02x",$chr);
+                if (($chr < 0x7F) and ($chr > 0x1f)) {
+                    $let_str = $let_str . chr $chr;
+                }
+                else {
+                    $let_str = $let_str . '.';
+                }
+
+                if ($j == 7) {
+                    $num_str = $num_str . ' ';
+                    $let_str = $let_str . ' ';
+                }
+            }
+
+            printf "$indent%04x%s  %s\n", $i*16, $num_str, $let_str;
+            $num_str = '';
+            $let_str = '';
+            $indent = '                                                           ';
+        }
+
+        if (($data[0] == 0) and ($data[1] == 0)) {
+            # finished
+            return;
+        }
+        elsif ($lines_to_display != 1) {
+            print "\nPress ENTER to continue, Q ENTER to quit";
+            return 1 if <STDIN> =~ /[qQ]/;
+        }
+        $trk = $data[0];
+        $sct = $data[1];
     }
 }
 
@@ -1272,7 +1379,7 @@ sub cmd_check {
         # verify that the end sector for the file matches the values in the directory entry
         my ($etrk, $esct, undef) = rd_file_end_tsc($drive, $i);
         if (($etrk != $f{prev_trk}) or ($esct != $f{prev_sct})) {
-            printf "ERROR %12s chain finished at t%d,s%d but directory entry says it ends at t%d,s%d\n",
+            printf "ERROR %12s chain finished at t%02d,s%02d but directory entry says it ends at t%02d,s%02d\n",
                 $f{name}, $f{prev_trk}, $f{prev_sct}, $etrk, $esct;
             $bad_file = 1;
         }
@@ -1292,7 +1399,8 @@ sub cmd_check {
                 if (defined $map[$f{trk}][$f{sct}]) {
                     $part_of = 'part of ' . $map[$f{trk}][$f{sct}];
                 }
-                print "Unchained trk=$trk, sct=$sct (links to trk=$f{trk}, sct=$f{sct} -- $part_of)\n";
+                printf "Unchained t%02d,s%02d (links to t%02d,s%02d -- %s)\n",
+                    $trk, $sct, $f{trk}, $f{sct}, $part_of;
             }
         }
     }
@@ -1385,7 +1493,8 @@ sub cmd_uppercase {
 # y   - date in the form mm,dd,yy. The date is returned as 3 separate
 #       entries: mm, dd, yy.
 #       mm is verified 1-12. dd is verified 1-31. yy is verified 0-99.
-# ots - optional track/sector. If omitted, default values are returned.
+# ts  - track/sector.
+# ots - optional track/sector. If omitted, undef values are returned.
 # oic - optional import converters. Returns hash reference
 # oec - optional export converters. Returns hash reference
 sub check_arg {
@@ -1632,10 +1741,11 @@ sub check_arg {
             }
         }
         elsif ($f eq 'y') {
-            # Date in FLEX format mm,dd,yy
+            # Date in FLEX format mm,dd,yy. Replace with 3 args: MM, DD, YY
             my ($mm,$dd,$yy) = extract_date($_[$i]);
             if (defined $mm) {
                 splice @_, $i, 1, $mm, $dd, $yy;
+                $i = $i + 2;
             }
             else {
                 # error message already issued by extract_date
@@ -1643,31 +1753,29 @@ sub check_arg {
             }
         }
         elsif ($f eq 'ots') {
-            # Optional t=X s=Y. If present, X, Y must be numeric. Return X,Y
+            # Optional tN,sM. If present, N, M must be numeric. Replace with 2 args: N, M
             if (defined $_[$i]) {
-                if ($_[$i] =~ /^t=(\d+)$/) {
-                    # track number is OK. Rewrite with just the number
-                    $_[$i] = $1;
-
-                    # need sector
+                if ($_[$i] =~ /^t(\d+),s(\d+)$/) {
+                    # format is OK. track number is OK. Rewrite with the numbers
+                    splice @_, $i, 1, $1, $2;
                     $i = $i + 1;
-                    if ($_[$i] =~ /^s=(\d+)$/) {
-                        # sector number is OK. Rewrite with just the number
-                        $_[$i] = $1;
-                    }
-                    else {
-                        print "ERROR illegal geometry - expected t=NN s=NN got $_[$i]\n";
-                        return;
-                    }
                 }
                 else {
-                    print "ERROR illegal geometry - expected t=NN s=NN got $_[$i]\n";
+                    print "ERROR illegal (optional) geometry - expected tN,sM\n";
                     return;
                 }
             }
+        }
+        elsif ($f eq 'ts') {
+            # tN,sM. N, M must be numeric. Return N,M
+            if ($_[$i] =~ /^t(\d+),s(\d+)$/) {
+                # format is OK. track number is OK. Rewrite with the numbers
+                splice @_, $i, 1, $1, $2;
+                $i = $i + 1;
+            }
             else {
-                splice @_, $i, 0, ($DFLT_TRKS, $DFLT_SCTS);
-                $i = $i + 2;
+                print "ERROR illegal geometry ts - expected tN,sM\n";
+                return;
             }
         }
         else {
@@ -2248,7 +2356,7 @@ sub walk_chain {
     my ($map_ref, $f_ref) = @_;
     my $count = 0;
 
-    ##print "In walk_chain drive=$f_ref->{drive} track=$f_ref->{trk} sector=$f_ref->{sct}, $f_ref->{name} ";
+    ##print "In walk_chain drive=$f_ref->{drive} t$f_ref->{trk},s$f_ref->{sct}, $f_ref->{name} ";
 
     while (($f_ref->{trk} != 0) or ($f_ref->{sct} !=0)) {
         update_ominmax($f_ref->{drive}, $f_ref->{trk}, $f_ref->{sct});
@@ -2260,7 +2368,7 @@ sub walk_chain {
 
         $count = $count + 1;
         if (defined $map_ref->[$f_ref->{trk}][$f_ref->{sct}]) {
-            print "ERROR Attempt to allocate sector t=$f_ref->{trk}, s=$f_ref->{sct} from $map_ref->[$f_ref->{trk}][$f_ref->{sct}] to $f_ref->{name}\n";
+            printf "ERROR Attempt to allocate sector t%02d,s%02d from $map_ref->[$f_ref->{trk}][$f_ref->{sct}] to $f_ref->{name}\n", $f_ref->{trk}, $f_ref->{sct};
             print "ERROR Abandon walk_chain after $count sectors.\n";
             return -1;
 
@@ -2857,7 +2965,7 @@ sub describe_sir {
     $dsk[$drive]->{sir}->{FREE},
     $dsk[$drive]->{sir}->{FIRST_T}, $dsk[$drive]->{sir}->{FIRST_S},
     $dsk[$drive]->{sir}->{LAST_T}, $dsk[$drive]->{sir}->{LAST_S};
-    printf "$i Range:          t00-t%02s, s01-s%02s\n",
+    printf "$i Range:          t00-t%02d, s01-s%02d\n",
     $dsk[$drive]->{sir}->{MAX_T}, $dsk[$drive]->{sir}->{MAX_S};
     printf "$i Trk0 sectors:   $dsk[$drive]->{sir}->{T1_OFFSET}\n";
 }
@@ -3291,7 +3399,7 @@ EOF
     }
     elsif ($cmd eq 'new') {
         print <<EOF
-    new <file on host filesystem> [format] [t=<num> s=<num>]
+    new <file on host filesystem> [format] [t<num>,s<num>]
 
     Create a file on the host filesystem that represents a blank disk.
     ANY EXISTING FILE OF THAT NAME WILL BE SILENTLY DELETED.
@@ -3302,10 +3410,10 @@ EOF
     If the format is specified, it overrides any inference made on
     the basis of the file extension.
 
-    The geometry of the disk can be specified. t=X s=Y creates a
+    The geometry of the disk can be specified: tX,sY creates a
     disk of X tracks (numbered 0..X-1) and Y sectors (numbered 1..Y).
 
-    If the geometry is not specified it defaults to t=$DFLT_TRKS s=$DFLT_SCTS which
+    If the geometry is not specified it defaults to t$DFLT_TRKS,s$DFLT_SCTS which
     is correct for my Multicomp6809 FLEX port.
 
     The disk image created is empty, with a valid SIR containing
@@ -3317,8 +3425,8 @@ EOF
 
     Examples:
     new foo.bin img
-    new foo.bin img t=50 s=128
-    new blank.dsk t=45 s=90
+    new foo.bin img t50,s128
+    new blank.dsk t45,s90
     mount 0 blank.dsk
     label 0 mydisk 1234 09/24/87
 EOF
@@ -3644,8 +3752,41 @@ EOF
 
     The first form prints the SIR as a set of key-value pairs.
     The second form allows you to modify any key to a new value.
+
     This command can ONLY be used if the disk was 'mounted' using
     the 'fix' command.
+EOF
+    }
+    elsif ($cmd eq 'edlink') {
+        print <<EOF
+    edlink <virtual drive number> t<num>,s<num>
+    edlink <virtual drive number> t<num>,s<num> t<newnum>,s<newnum>
+
+    The first form reports the link in the specified track/sector
+
+    The second form reports the link in the specified track/sector
+    and changes it to the new track/sector values.
+
+    This command can ONLY be used if the disk was 'mounted' using
+    the 'fix' command.
+EOF
+    }
+    elsif ($cmd eq 'chain') {
+        print <<EOF
+    chain t<num>,s<num>
+
+    Dump sectors in hex/ASCII format, starting at the specified
+    track/sector and continuing to the end of the chain.
+
+    See also 'rattle'.
+EOF
+    }
+    elsif ($cmd eq 'rattle') {
+        print <<EOF
+    rattle t<num>,s<num>
+
+    Like 'chain' but prints 1 line per sector rather than the
+    whole sector.
 EOF
     }
     elsif ($cmd eq 'rdboot') {
@@ -3916,6 +4057,10 @@ Commands are:
     create     - create file from sector(s) on the free list
     link       - patch boot sector on virtual drive
     fix        - like mount but continues even if errors are detected
+    edsir      - edit fields in the SIR
+    edlink     - edit the link field in a sector
+    chain      - examine chain of sectors
+    rattle     - examine links between sectors
     rdboot     - copy boot sector from virtual drive
     wrboot     - write boot sector to virtual drive
     rdbootfile - read boot sector from file on local file system
