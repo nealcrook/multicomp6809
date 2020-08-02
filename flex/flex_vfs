@@ -1080,30 +1080,23 @@ sub cmd_create {
         return;
     }
 
-    if ($sectors > $dsk[$drive]->{sir}->{FREE}) {
+    # insist on 1 unused sector (I don't know what to do with the free list if it's empty).
+    if ($sectors >= $dsk[$drive]->{sir}->{FREE}) {
         print "ERROR insufficient sectors on the free list.\n";
         return;
     }
 
-    # Start with empty directory entry
-    my $dir_entry_data = empty_dir_entry();
+    # Remove $sectors sectors from the end of the free list, fix up the SIR,
+    # and get the trk/sct of the start of this chain.
 
-    # Populate file name and extension
-    name_dir_entry($flex_name, $dir_entry_data);
-
-    # Populate file length
-    $dir_entry_data->[21+0-4] = int($sectors/256);
-    $dir_entry_data->[21+1-4] = $sectors % 256;
-
-    # Populate date
-    $dir_entry_data->[25+0-4] = $mon;
-    $dir_entry_data->[25+1-4] = $mday;
-    $dir_entry_data->[25+2-4] = $year;
-
-    # Walk the free list to the sector we want
+    # Walk the free list to the sector that will be the new final sector of the free list
     my ($status, $trk, $sct, $data_ref) = walk_chain_n($drive, $dsk[$drive]->{sir}->{FIRST_T},
                                                        $dsk[$drive]->{sir}->{FIRST_S},
                                                        $dsk[$drive]->{sir}->{FREE} - $sectors);
+
+    # The sector that links to will be the start of the file we're about to create
+    my $new_file_start_trk = $data_ref->[0];
+    my $new_file_start_sct = $data_ref->[1];
 
     if ($status == -1) {
         print "ERROR consistency error in free chain. Check/repair disk image.\n";
@@ -1111,8 +1104,8 @@ sub cmd_create {
     }
 
     # Sanity check the chain that will make up the new file
-    my ($status2, $trk2, $sct2, $data_ref2) = walk_chain_n($drive, $data_ref->[0],
-                                                           $data_ref->[1], $sectors);
+    my ($status2, $new_file_end_trk, $new_file_end_sct, $data_ref2) = walk_chain_n($drive, $new_file_start_trk,
+                                                                                   $new_file_start_sct, $sectors);
 
     if ($status2 == -1) {
         print "ERROR consistency error in end part of free chain. Check/repair disk image.\n";
@@ -1125,7 +1118,7 @@ sub cmd_create {
         return;
     }
 
-    # Everything seems to be in good order.
+    # Everything seems to be in good order: start making the changes..
 
     # Fix up the free chain link and (in the SIR) the end t/s and count
     $data_ref->[0] = 0;
@@ -1134,9 +1127,28 @@ sub cmd_create {
     wr_sir_end_free($drive, $trk, $sct, $dsk[$drive]->{sir}->{FREE} - $sectors);
     rd_sir($drive);
 
-    # Populate first t/s for the new file then write it to the directory
-    $dir_entry_data->[17-4] = $data_ref->[0];
-    $dir_entry_data->[18-4] = $data_ref->[1];
+    # Create directory entry for the new file, starting with an empty entry
+    my $dir_entry_data = empty_dir_entry();
+
+    # Populate file name and extension
+    name_dir_entry($flex_name, $dir_entry_data);
+
+    # Populate file length
+    $dir_entry_data->[21+0-4] = int($sectors/$BYTES_SECTOR);
+    $dir_entry_data->[21+1-4] = $sectors % $BYTES_SECTOR;
+
+    # Populate date
+    $dir_entry_data->[25+0-4] = $mon;
+    $dir_entry_data->[25+1-4] = $mday;
+    $dir_entry_data->[25+2-4] = $year;
+
+    # Populate start/end t/s
+    $dir_entry_data->[17-4] = $new_file_start_trk;
+    $dir_entry_data->[18-4] = $new_file_start_sct;
+    $dir_entry_data->[19-4] = $new_file_end_trk;
+    $dir_entry_data->[20-4] = $new_file_end_sct;
+
+    # Write the new directory entry it to the directory
     my $index = allocate_dir_entry($drive);
     wr_dir_entry($drive, $index, $dir_entry_data);
     rd_dir($drive);
