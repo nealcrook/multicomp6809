@@ -49,9 +49,6 @@
 # BUG: changing the disk name/label using 'label' or 'edsir - the new label cannot
 # contain spaces.
 # FUTURE: add more commands for bad disk diagnostic and repair:
-#   gather - a modified version of 'create'
-#   instead of create 1.FREE.TMP 4 (file from sectors from end of free list)
-#              gather 1.FREE.TMP trk sct (file starting from unlinked sector)
 #   whoowns - given a track/sector figure out what chain it is part of and display the chain
 #   - use the data structure created by 'info'
 #   unlinked - put all the unlinked sectors into 1 chain whilst changing the
@@ -1050,15 +1047,43 @@ sub cmd_truncate {
 }
 
 
+
 sub cmd_create {
     my ($fs, $sectors) = check_arg('fs i', @_);
     return unless defined($fs);
+
+    create_gather_common(1, $fs, $sectors, 0);
+}
+
+
+sub cmd_gather {
+    my ($fs, $trk, $sct) = check_arg('fs ts', @_);
+    return unless defined($fs);
+
+    create_gather_common(0, $fs, $trk, $sct);
+}
+
+
+sub create_gather_common {
+    my ($do_create, $fs, $sectors, $new_file_start_sct) = @_;
+    my $new_file_start_trk;
+
+    my $end_free_trk;
+    my $end_free_sct;
+    my $end_free_data_ref;
 
     my ($drive,$file,$ext) = split /\./, $fs;
 
     if (not $dsk[$drive]->{mounted}) {
         print "ERROR drive $drive is not mounted\n";
         return;
+    }
+
+    if ($do_create==0) {
+        if (not $dsk[$drive]->{fix}) {
+            print "ERROR virtual drive $drive must be mounted using the 'fix' command.\n";
+            return;
+        }
     }
 
     my $match = filter_dir($drive,$file,$ext);
@@ -1080,52 +1105,84 @@ sub cmd_create {
         return;
     }
 
-    # insist on 1 unused sector (I don't know what to do with the free list if it's empty).
-    if ($sectors >= $dsk[$drive]->{sir}->{FREE}) {
-        print "ERROR insufficient sectors on the free list.\n";
-        return;
+    # $do_create = 0 -> we already have the initial track/sector of the chain
+    # $do_create = 1 -> need to grab chain from the end of the free list.
+
+    if ($do_create) {
+        # insist on 1 unused sector (I don't know what to do with the free list if it's empty).
+        if ($sectors >= $dsk[$drive]->{sir}->{FREE}) {
+            print "ERROR insufficient sectors on the free list.\n";
+            return;
+        }
+
+        # Remove $sectors sectors from the end of the free list, fix up the SIR,
+        # and get the trk/sct of the start of this chain.
+
+        # Walk the free list to the sector that will be the new final sector of the free list
+        my $status;
+        ($status, $end_free_trk, $end_free_sct, $end_free_data_ref) = walk_chain_n($drive, $dsk[$drive]->{sir}->{FIRST_T},
+                                                                                   $dsk[$drive]->{sir}->{FIRST_S},
+                                                                                   $dsk[$drive]->{sir}->{FREE} - $sectors);
+
+        # This sector contains a link to the start of the file we're about to create
+        $new_file_start_trk = $end_free_data_ref->[0];
+        $new_file_start_sct = $end_free_data_ref->[1];
+
+        if ($status == -1) {
+            print "ERROR consistency error in free chain. Check/repair disk image.\n";
+            return;
+        }
     }
+    else {
+        # walk the chain to find length and end trk/sct. There's a bunch of duplication and
+        # extra work here, but it is a simple way of reusing existing code.
 
-    # Remove $sectors sectors from the end of the free list, fix up the SIR,
-    # and get the trk/sct of the start of this chain.
+        # original parameter list passed trk in the sectors position for 'gather'
+        $new_file_start_trk = $sectors;
 
-    # Walk the free list to the sector that will be the new final sector of the free list
-    my ($status, $trk, $sct, $data_ref) = walk_chain_n($drive, $dsk[$drive]->{sir}->{FIRST_T},
-                                                       $dsk[$drive]->{sir}->{FIRST_S},
-                                                       $dsk[$drive]->{sir}->{FREE} - $sectors);
+        my @map;
+        my %f;
 
-    # The sector that links to will be the start of the file we're about to create
-    my $new_file_start_trk = $data_ref->[0];
-    my $new_file_start_sct = $data_ref->[1];
+        $f{drive} = $drive;
+        $f{name} = "chain_for_gather";
+        $f{trk} = $new_file_start_trk;
+        $f{sct} = $new_file_start_sct;
+        $sectors = walk_chain(\@map, \%f);
 
-    if ($status == -1) {
-        print "ERROR consistency error in free chain. Check/repair disk image.\n";
-        return;
+        if ($sectors == -1) {
+            printf "ERROR chain starting at t%02d,s%02d has double-assigned sector(s)\n";
+            return;
+        }
+
     }
 
     # Sanity check the chain that will make up the new file
-    my ($status2, $new_file_end_trk, $new_file_end_sct, $data_ref2) = walk_chain_n($drive, $new_file_start_trk,
-                                                                                   $new_file_start_sct, $sectors);
+    # (some of this checking was already done for the 'gather' chain but we need to repeat it in order
+    # to find the chain end trk/sct)
+    my ($status, $new_file_end_trk, $new_file_end_sct, $data_ref) = walk_chain_n($drive, $new_file_start_trk,
+                                                                                 $new_file_start_sct, $sectors);
 
-    if ($status2 == -1) {
+    if ($status == -1) {
         print "ERROR consistency error in end part of free chain. Check/repair disk image.\n";
         return;
     }
 
     # This ought to be the current end of the free chain and so should be a 0,0 link
-    if (($data_ref2->[0] != 0) or ($data_ref2->[1] != 0)) {
+    if (($data_ref->[0] != 0) or ($data_ref->[1] != 0)) {
         print "ERROR missing 0,0 link at end of free chain. Check/repair disk image.\n";
         return;
     }
 
-    # Everything seems to be in good order: start making the changes..
+    # Now we have done every possible consistency check. Finally, it is safe to make changes to the disk image.
 
-    # Fix up the free chain link and (in the SIR) the end t/s and count
-    $data_ref->[0] = 0;
-    $data_ref->[1] = 0;
-    wr_dts($drive, $trk, $sct, pack("C*", @$data_ref));
-    wr_sir_end_free($drive, $trk, $sct, $dsk[$drive]->{sir}->{FREE} - $sectors);
-    rd_sir($drive);
+    if ($do_create) {
+        # Fix up the free chain link and (in the SIR) the end t/s and count
+        $end_free_data_ref->[0] = 0;
+        $end_free_data_ref->[1] = 0;
+        wr_dts($drive, $end_free_trk, $end_free_sct, pack("C*", @$end_free_data_ref));
+        wr_sir_end_free($drive, $end_free_trk, $end_free_sct, $dsk[$drive]->{sir}->{FREE} - $sectors);
+        rd_sir($drive);
+    }
 
     # Create directory entry for the new file, starting with an empty entry
     my $dir_entry_data = empty_dir_entry();
@@ -1350,7 +1407,7 @@ sub cmd_check {
     $f{trk} = $FLEX_DIR_TS[0];
     $f{sct} = $FLEX_DIR_TS[1];
     if (walk_chain(\@map, \%f) == -1) {
-        print "ERROR directory chain had double-assigned sector(s)\n";
+        print "ERROR directory chain has double-assigned sector(s)\n";
         $bad_files++;
     }
 
@@ -1361,11 +1418,11 @@ sub cmd_check {
     $f{sct} = $dsk[$drive]->{sir}->{FIRST_S};
     $count = walk_chain(\@map, \%f);
     if ($count == -1) {
-        print "ERROR free-list chain had double-assigned sector(s)\n";
+        print "ERROR free-list chain has double-assigned sector(s)\n";
         $bad_file = 1;
     }
     elsif ($count != $dsk[$drive]->{sir}->{FREE}) {
-        print "ERROR free-list chain had $count sector(s) but SIR claims $dsk[$drive]->{sir}->{FREE}\n";
+        print "ERROR free-list chain has $count sector(s) but SIR claims $dsk[$drive]->{sir}->{FREE}\n";
         $bad_file = 1;
     }
     $bad_files = $bad_files + $bad_file;
@@ -1380,7 +1437,7 @@ sub cmd_check {
         ($f{trk}, $f{sct}, $ecount) = rd_file_start_tsc($drive, $i);
         $count = walk_chain(\@map, \%f);
         if ($count == -1) {
-            printf "ERROR %12s chain had double-assigned sector(s)\n", $f{name};
+            printf "ERROR %12s chain has double-assigned sector(s)\n", $f{name};
             $bad_file = 1;
         }
         elsif ($count != $ecount) {
@@ -3726,6 +3783,22 @@ EOF
     create 1.FLEX.PT2 4
 EOF
     }
+    elsif ($cmd eq 'gather') {
+        print <<EOF
+    gather <file specifier> t<num>,s<num>
+
+    Create a file by taking a chain of sectors starting at t<num>
+    s<num>.
+
+    The file specifier must not match an existing file name.
+
+    This command can ONLY be used if the disk was 'mounted' using
+    the 'fix' command.
+
+    Example:
+    gather 1.FLEX.PT2 t30 s2
+EOF
+    }
     elsif ($cmd eq 'link') {
         print <<EOF
     link <file specifier>
@@ -3753,8 +3826,9 @@ EOF
     This is the same as the mount command except that it proceeds even
     when errors are detected. Use with care and always take a backup!
 
-    'fix', 'check', 'info', 'dir', 'create' and 'edsir' can be used to
-    inspect/repair corrupted disks.
+    'fix', 'check', 'info', 'dir', 'create', 'gather', 'chain', 'rattle',
+    'edlink' and 'edsir' are intended for the inspection and repair of
+    corrupted disks.
 EOF
     }
     elsif ($cmd eq 'edsir') {
@@ -4067,6 +4141,7 @@ Commands are:
     delete     - delete file(s) from virtual drive
     truncate   - delete sector(s) from file(s) from virtual drive
     create     - create file from sector(s) on the free list
+    gather     - create file from a specified initial track/sector
     link       - patch boot sector on virtual drive
     fix        - like mount but continues even if errors are detected
     edsir      - edit fields in the SIR
