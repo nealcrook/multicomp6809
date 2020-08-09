@@ -60,6 +60,7 @@ use strict;
 no strict 'refs'; # CLI makes subroutine from command name.
 use warnings;
 use File::Basename;
+use Digest::MD5 qw(md5_hex);
 
 # FLEX constants
 #
@@ -130,13 +131,24 @@ my ($mday, $mon, $year);
 }
 
 if (defined $ARGV[0]) {
+    my $hash = 0;
+    if ($ARGV[0] eq '-hash') {
+        shift @ARGV;
+        $hash = 1;
+    }
+
     while (my $file = shift @ARGV) {
         cmd_mount(0,$file);
         if ($dsk[0]->{mounted}) {
-            cmd_check(0);
-            cmd_info("");
             my $drive = "0"; # gets modified by arg processing
-            cmd_dir($drive);
+            if ($hash) {
+                cmd_hash($drive);
+            }
+            else {
+                cmd_check(0);
+                cmd_info("");
+                cmd_dir($drive);
+            }
             cmd_umount(0);
             print "\n";
         }
@@ -999,6 +1011,30 @@ sub cmd_dir {
         $j->{NAME}, $j->{EXT},
         $j->{FIRST_T}, $j->{FIRST_S}, $j->{LAST_T}, $j->{LAST_S},
         $j->{SIZE}, $j->{DATE_M}, $j->{DATE_D}, $j->{DATE_Y};
+    }
+}
+
+
+# like cmd_dir but print the hash of the payload of each matched
+# file.
+sub cmd_hash {
+    my ($fs) = check_arg('fs', @_);
+    return unless defined($fs);
+
+    my ($drive,$file,$ext) = split /\./, $fs;
+
+    if (not $dsk[$drive]->{mounted}) {
+        print "ERROR drive $drive is not mounted\n";
+        return;
+    }
+
+    my $match = filter_dir($drive,$file,$ext);
+
+    foreach my $i (@{$match}) {
+        my $j = $dsk[$drive]->{dir}->[$i];
+        my $payload = rd_chain_dts($drive, $j->{FIRST_T}, $j->{FIRST_S});
+        printf "%s % 15s.%-3s %s\n",
+            md5_hex($payload), $j->{NAME}, $j->{EXT}, $dsk[$drive]->{filename}
     }
 }
 
@@ -2733,6 +2769,25 @@ sub rdwr_link {
 }
 
 
+# read a chain, starting at given drive/track/secotr and continuing until
+# a sector with a link of 0,0 is found. Return whole of the payload as a
+# string (payload omits the link and random bytes at the start of each sector)
+sub rd_chain_dts {
+    my ($drive, $trk, $sct) = @_;
+    my $total_data = "";
+
+    while (1) {
+        my $data = rd_dts($drive, $trk, $sct);
+        $total_data = $total_data . substr($data, $DATA_OFFSET);
+
+        my @data = unpack("C*", $data);
+        $trk = $data[0];
+        $sct = $data[1];
+        return $total_data if (($trk == 0) and ($sct == 0));
+    }
+}
+
+
 # read a sector, return data as a string.
 # sector specified by drive,track,sector
 # If disk in dsk format, it's $BYTES_SECTOR bytes per sector.
@@ -3708,6 +3763,26 @@ EOF
     dir 1.*A*.*
 EOF
     }
+    elsif ($cmd eq 'hash') {
+        print <<EOF
+    hash <virtual drive number> | <file specifier>
+
+    List all of the files on the specified virtual drive, or
+    all of the files that match the file specifier. The file
+    specifier can include * used as a wildcard.
+
+    For each file, the MD5SUM of the payload is displayed,
+    followed by the file name and disk name
+
+    Examples:
+    hash 2
+    hash 1.FLEX.SYS
+    hash 1.F*.*
+    hash 1.*.CMD
+    hash 1.*A*.*
+    flex_vfs -hash *.DSK > t.t && sort t.t > sorted_t.t
+EOF
+    }
     elsif ($cmd eq 'hdir') {
         print <<EOF
     hdir <host os arguments> <path in local file system>
@@ -4111,16 +4186,14 @@ and the host filesystem. Virtual drives can be inspected and manipulated.
 
 Usage:
 
-    flex_vfs
-    flex_vfs < script
-    flex_vfs foo.bin
-    flex_vfs *.bin
-
-The first form starts an interactive session.
-The second form runs a sequence of commands from a file (See 'help scripts').
-The third form treats foo.bin as a disk image and does a mount/info/check/dir/exit.
-The fourth form treats *.bin as a set of disk images and does a
-mount/info/check/dir/exit on each image in turn.
+    flex_vfs               -- start interactive session
+    flex_vfs < script      -- run a sequence of commands from a file (see 'help scripts')
+    flex_vfs foo.bin       -- treat foo.bin as a disk image and do a mount/info/check/dir/exit.
+    flex_vfs *.bin         -- treat *.bin as a set of disk images and do a mount/info/check/dir/exit
+                              on each in turn
+    flex_vfs -hash foo.bin -- treat foo.bin as a disk image and do a mount/hash/exit.
+    flex_vfs -hash *.bin   -- treat *.bin as a set of disk images and do a mount/hash/exit
+                              on each in turn
 
 Commands are:
 
@@ -4137,6 +4210,7 @@ Commands are:
     import     - copy file from local file system to virtual drive (optional format conversion)
     date       - set date
     dir        - directory of virtual drive
+    hash       - like directory but prints MD5SUM of each matched file
     hdir       - directory of local file system
     delete     - delete file(s) from virtual drive
     truncate   - delete sector(s) from file(s) from virtual drive
