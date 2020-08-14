@@ -62,6 +62,13 @@ use warnings;
 use File::Basename;
 use Digest::MD5 qw(md5_hex);
 
+
+# (very) experimental support for MINIFLEX. Disk structure is very similar.
+# MINIFLEX has no SIR. It uses 128-byte sectors and a sub-set of the directory
+# entry information (but the directory layout is the same)
+# Q: how is the free list stored?
+my $MINIFLEX=0;
+
 # FLEX constants
 #
 # Tracks are numbered 0..n
@@ -75,6 +82,10 @@ use Digest::MD5 qw(md5_hex);
 # in order to do conversions beyond the first track.
 # FLEX assumes a fixed sector size of 256 bytes/sector
 my $BYTES_SECTOR = 256;
+# number of directory entries per sector
+my $DIRENT_SECTOR = 10;
+# offset into directory sector for 1st directory entry
+my $DIRENT_OFFSET = 16;
 # 4 bytes per sector are not available for payload. Bytes 0,1
 # hold a link to the next track/sector used by the file (or 0,0
 # for the last sector). Bytes 2,3 are reserved for random-access
@@ -94,6 +105,14 @@ my $LINES_PER_PAGE = 40;
 
 # For 'uppercase' command
 my $UPCASE = 0;
+
+if ($MINIFLEX) {
+    $BYTES_SECTOR = 128;
+    $DIRENT_SECTOR = 5;
+    $DIRENT_OFFSET = 8;
+    @FLEX_DIR_TS = (0,4); # track/sector of directory
+}
+
 
 # Data structure
 # $dsk[0..3]
@@ -687,7 +706,7 @@ sub cmd_chain {
     my ($drive, $trk, $sct) = check_arg('v ts', @_);
     return unless defined($drive);
 
-    chain_rattle_common($drive, $trk, $sct, 16);
+    chain_rattle_common($drive, $trk, $sct, $BYTES_SECTOR/16);
 }
 
 
@@ -3134,10 +3153,10 @@ sub rd_dir {
         my $data = rd_dts($drive, $trk, $sct);
         my @data = unpack("C*", $data);
 
-        # Each sector contains 10, 24-byte entries
+        # Each sector contains 5 or 10, 24-byte entries
         # The first entry starts in the 16th byte.
-        my $offset = 16;
-        foreach my $entry(0..9) {
+        my $offset = $DIRENT_OFFSET;
+        foreach my $entry(0..($DIRENT_SECTOR-1)) {
             my %d;
 
             $d{T} = $trk;
