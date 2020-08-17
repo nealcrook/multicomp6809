@@ -1,6 +1,7 @@
 #!/bin/bash
 #
-# assumes as9 srec_cat and (PERL script) hex2bin are on $PATH
+# assumes as9 srec_cat (from Ubuntu package srecord) and hex2bin
+# (a PERL script from my github bin area) are on $PATH
 
 # loader
 NAME=multicomp09_flex_loader.asm
