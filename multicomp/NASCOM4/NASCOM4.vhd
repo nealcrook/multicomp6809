@@ -80,8 +80,11 @@
 -- aborted on reading key(s) pressed). Mock up UART to return
 -- char available and to return a string. First, mock a small
 -- T command. Next, mock a S command. Look at timing and generate
--- the NMI logic. Generate synchroniser and pulse generator for
--- NMI push button and test in simulation.
+-- the NMI logic.
+--
+-- next: split out port0 write signals for clarity
+--       generate synchroniser and pulse generator for
+--       NMI push button and test in simulation.
 --
 -- V3: change VDU to be memory-mapped. Change to NASCOM timing.
 -- make test ROM to exercise the VDU. Test on real HW
@@ -345,6 +348,10 @@ architecture struct of NASCOM4 is
     -- enable readback
     signal nasLocalIOCS           : std_logic;
 
+    -- NMI to CPU and NMI state machine
+    signal n_NMI                  : std_logic;
+    signal nmi_state              : std_logic_vector(2 downto 0);
+
 begin
 
     n_LED9 <= n_HALT;
@@ -363,7 +370,7 @@ begin
             reset_n => n_reset,
             wait_n  => '1',
             int_n   => '1', -- TODO
-            nmi_n   => '1', -- TODO for single step and push-button
+            nmi_n   => n_NMI, -- from single-step logic
             busrq_n => '1', -- TODO probably unused
             halt_n  => n_HALT,
             m1_n    => n_M1,   -- TODO to s/step
@@ -397,7 +404,7 @@ begin
 
 
 -- Internal 1K WorkSpace RAM
-    wren_nasWSRam <= not(n_WR or n_nasWSRamCS);
+    wren_nasWSRam <= not(n_MREQ or n_WR or n_nasWSRamCS);
 
     WSRam: entity work.InternalRam1K
     port map(
@@ -408,7 +415,7 @@ begin
              q => nasWSRamDataOut);
 
 -- Internal 1K Video RAM
-    wren_nasVidRam <= not(n_WR or n_nasVidRamCS);
+    wren_nasVidRam <= not(n_MREQ or n_WR or n_nasVidRamCS);
 
     VidRam: entity work.InternalRam1K
     port map(
@@ -481,12 +488,6 @@ begin
       end if;
     end process;
 
-    -- next:
-    -- uart status reg
-    -- uart data reg - decode of read from port, count reads, return ASCII data
-    -- experinebt 1 T0 30<NEWLINE
-    --            2 S<NEWLINE>
-
     proc_uartcnt: process(clk, n_reset)
     begin
       if (n_reset='0') then
@@ -498,20 +499,46 @@ begin
       end if;
     end process;
 
-    port01rd <= x"54" when uartcnt = 0 else -- T0 20<newline>SC80<newline><newline>
-                x"30" when uartcnt = 1 else
-                x"20" when uartcnt = 2 else
-                x"32" when uartcnt = 3 else
-                x"30" when uartcnt = 4 else
+    port01rd <= x"53" when uartcnt = 0 else -- SC80<newline><newline>
+                x"43" when uartcnt = 1 else
+                x"38" when uartcnt = 2 else
+                x"30" when uartcnt = 3 else
+                x"0d" when uartcnt = 4 else
                 x"0d" when uartcnt = 5 else
-                x"53" when uartcnt = 6 else
-                x"43" when uartcnt = 7 else
-                x"38" when uartcnt = 8 else
-                x"30" when uartcnt = 9 else
-                x"0d" when uartcnt = 10 else
-                x"0d" when uartcnt = 11 else
-                x"0d" when uartcnt = 12 else
+                x"0d" when uartcnt = 6 else
                 x"20";
+
+    -- Single-step logic
+    -- Write to Port 0. Then, M1 cycles:
+    -- 0x472 F1    POP AF
+    -- 0x473 ED
+    -- 0x474 45    RETN (2 M1 cycles)
+    -- 0x??? the target address of the single-step
+    -- By wave inspection, this seems to work correctly: two
+    -- single-step commands in a row start execution at
+    -- successive addresses.
+    proc_sstep: process(clk, n_reset)
+    begin
+      if (n_reset='0') then
+        n_NMI <= '1';
+        nmi_state <= "000";
+      elsif rising_edge(clk) then
+        -- only assert NMI for 1 cycle
+        if (n_NMI = '0') then
+          n_NMI <= '1';
+        end if;
+        if (port00wr(3) = '0') then
+          nmi_state <= "000";
+        elsif n_M1 = '0' and n_RD = '0' then
+          if (nmi_state = "011") then
+            n_NMI <= '0';
+          end if;
+          if (nmi_state /= "111") then
+            nmi_state <= nmi_state + "001";
+          end if;
+        end if;
+      end if;
+    end process;
 
 
     n_WR_vdu <= n_interface1CS or n_WR;
