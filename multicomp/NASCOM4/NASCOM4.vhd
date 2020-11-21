@@ -89,6 +89,32 @@
 -- V3: change VDU to be memory-mapped. Change to NASCOM timing.
 -- make test ROM to exercise the VDU. Test on real HW
 --
+-- Problems:
+-- 1/ tool is complaining that ROM data is too big? Do not get this for the NAS-SYS ROM
+-- 
+--nasCharGenRom4K.qipWarning (113007): Byte addressed memory initialization file "nasCharGenRom4K.HEX" was read in the word-addressed format
+--Warning (113015): Width of data items in "nasCharGenRom4K.HEX" is greater than the memory width. Wrapping data items to subsequent addresses. Found 128 warnings, reporting 10
+--	Warning (113009): Data at line (1) of memory initialization file "nasCharGenRom4K.HEX" is too wide to fit in one memory word. Wrapping data to subsequent addresses.
+--	Warning (113009): Data at line (2) of memory initialization file "nasCharGenRom4K.HEX" is too wide to fit in one memory word. Wrapping data to subsequent addresses.
+--	Warning (113009): Data at line (3) of memory initialization file "nasCharGenRom4K.HEX" is too wide to fit in one memory word. Wrapping data to subsequent addresses.
+--	Warning (113009): Data at line (4) of memory initialization file "nasCharGenRom4K.HEX" is too wide to fit in one memory word. Wrapping data to subsequent addresses.
+--	Warning (113009): Data at line (5) of memory initialization file "nasCharGenRom4K.HEX" is too wide to fit in one memory word. Wrapping data to subsequent addresses.
+--	Warning (113009): Data at line (6) of memory initialization file "nasCharGenRom4K.HEX" is too wide to fit in one memory word. Wrapping data to subsequent addresses.
+--	Warning (113009): Data at line (7) of memory initialization file "nasCharGenRom4K.HEX" is too wide to fit in one memory word. Wrapping data to subsequent addresses.
+--	Warning (113009): Data at line (8) of memory initialization file "nasCharGenRom4K.HEX" is too wide to fit in one memory word. Wrapping data to subsequent addresses.
+--	Warning (113009): Data at line (9) of memory initialization file "nasCharGenRom4K.HEX" is too wide to fit in one memory word. Wrapping data to subsequent addresses.
+--	Warning (113009): Data at line (10) of memory initialization file "nasCharGenRom4K.HEX" is too wide to fit in one memory word. Wrapping data to subsequent addresses.
+--
+-- format looks comparable to existing code and nas-sys code so I don't see the problem..
+--
+
+
+-- 2/ not getting the whole picture on the screen. Each character is not made up of 16 rows but of 8 rows. Also, first row starts
+-- rather close to the top of the VDU.
+
+
+
+--
 -- V4: implement 6402 UART and port 0 stuff. Null out keyboard
 -- on real system with NAS-SYS3 and serial adaptor should be able
 -- to start up via "X" command and do memory dump etc. and single
@@ -255,7 +281,7 @@ architecture struct of NASCOM4 is
 
     signal nasRomDataOut          : std_logic_vector(7 downto 0);
     signal nasWSRamDataOut        : std_logic_vector(7 downto 0);
-    signal nasVidRamDataOut       : std_logic_vector(7 downto 0);
+    signal VDURamDataOut          : std_logic_vector(7 downto 0);
     signal interface1DataOut      : std_logic_vector(7 downto 0);
     signal interface2DataOut      : std_logic_vector(7 downto 0);
     signal interface3DataOut      : std_logic_vector(7 downto 0);
@@ -297,7 +323,6 @@ architecture struct of NASCOM4 is
     signal n_RD_vdu               : std_logic := '1';
 
     signal wren_nasWSRam          : std_logic := '1';
-    signal wren_nasVidRam         : std_logic := '1';
 
     signal romInhib               : std_logic := '0';
     signal ramWrInhib             : std_logic := '0';
@@ -317,6 +342,8 @@ architecture struct of NASCOM4 is
     signal n_HALT                 : std_logic;
     signal n_M1                   : std_logic;
 
+    signal n_memWr                : std_logic;
+
     signal port00wr               : std_logic_vector(7 downto 0);
     signal portE4wr               : std_logic_vector(7 downto 0);
     signal portE8wr               : std_logic_vector(7 downto 0);
@@ -325,15 +352,17 @@ architecture struct of NASCOM4 is
     signal video_map80vfc         : std_logic := '0';
     signal portFEwr               : std_logic_vector(7 downto 0);
 
+    -- NASCOM keyboard
     -- ff means no key detected
     signal port00rd               : std_logic_vector(7 downto 0) := x"ff";
+
     -- temp uart read
-    signal port01rd               : std_logic_vector(7 downto 0) := x"00"; -- data
+    signal port01rd               : std_logic_vector(7 downto 0) := x"00"; -- UART data
     -- 7    6    5    4    3   2    1    0
     -- DR   TRE  -    -    FE  PE  OE    -
     -- DR =data received
     -- TRE=transmit register empty
-    signal port02rd               : std_logic_vector(7 downto 0) := x"80"; -- status -> always has data
+    signal port02rd               : std_logic_vector(7 downto 0) := x"80"; -- UART status -> always has data
     -- disk control
     signal porte4rd               : std_logic_vector(7 downto 0) := x"00";
     -- parallel keyboard
@@ -414,18 +443,6 @@ begin
              wren => wren_nasWSRam,
              q => nasWSRamDataOut);
 
--- Internal 1K Video RAM
-    wren_nasVidRam <= not(n_MREQ or n_WR or n_nasVidRamCS);
-
-    VidRam: entity work.InternalRam1K
-    port map(
-             address => cpuAddress(9 downto 0),
-             clock => clk,
-             data => cpuDataOut,
-             wren => wren_nasVidRam,
-             q => nasVidRamDataOut);
-
-
 -- ____________________________________________________________________________________
 -- INPUT/OUTPUT DEVICES GO HERE
 
@@ -493,20 +510,28 @@ begin
       if (n_reset='0') then
         uartcnt <= x"00";
       elsif rising_edge(clk) then
-        if cpuAddress(7 downto 0) = x"01" and n_IORQ = '0' and n_RD = '0' then
-          uartcnt <= uartcnt + x"01";
+        if cpuAddress(7 downto 0) = x"01" and n_IORQ = '0' and n_RD = '0' and uartcnt /= x"ff" then
+            uartcnt <= uartcnt + x"01";
         end if;
       end if;
     end process;
 
-    port01rd <= x"53" when uartcnt = 0 else -- SC80<newline><newline>
-                x"43" when uartcnt = 1 else
-                x"38" when uartcnt = 2 else
-                x"30" when uartcnt = 3 else
-                x"0d" when uartcnt = 4 else
+--    port01rd <= x"53" when uartcnt = 0 else -- SC80<newline><newline>
+--                x"43" when uartcnt = 1 else
+--                x"38" when uartcnt = 2 else
+--                x"30" when uartcnt = 3 else
+--                x"0d" when uartcnt = 4 else
+--                x"0d" when uartcnt = 5 else
+--                x"0d" when uartcnt = 6 else
+--                x"00"; -- null -> ignored by NAS-SYS
+
+    port01rd <= x"54" when uartcnt = 0 else -- T0 40<newline>
+                x"30" when uartcnt = 1 else
+                x"20" when uartcnt = 2 else
+                x"34" when uartcnt = 3 else
+                x"30" when uartcnt = 4 else
                 x"0d" when uartcnt = 5 else
-                x"0d" when uartcnt = 6 else
-                x"20";
+                x"00"; -- null -> ignored by NAS-SYS
 
     -- Single-step logic
     -- Write to Port 0. Then, M1 cycles:
@@ -540,16 +565,19 @@ begin
       end if;
     end process;
 
+-- [NAC HACK 2020Nov20] clean up
+--    n_WR_vdu <= n_interface1CS or n_WR;
+--    n_RD_vdu <= n_interface1CS or n_RD;
 
-    n_WR_vdu <= n_interface1CS or n_WR;
-    n_RD_vdu <= n_interface1CS or n_RD;
+    n_memWr <= n_MREQ or n_WR;
 
-    io1 : entity work.SBCTextDisplayRGB
+    io1 : entity work.nasVDU
 
     generic map(
       -- Select one or other (NOT BOTH!) sets
 
       -- 80x25 uses all the internal RAM
+      -- This selects 640x400 rather than the default of 640x480
       DISPLAY_TOP_SCANLINE => 35,
       VERT_SCANLINES => 448,
       V_SYNC_ACTIVE => '1'
@@ -564,28 +592,29 @@ begin
             n_reset => n_reset,
             clk => clk,
 
+            -- memory access to video RAM
+            addr        => cpuAddress(10 downto 0),
+            n_nasCS     => n_nasVidRamCS,
+            n_mapCS     => '1',    -- TODO paged address space
+            n_charGenCS => '1',    -- TODO paged address space for chargen write path
+            n_memWr     => n_memWr,
+            dataIn      => cpuDataOut,
+            dataOut     => VDURamDataOut,
+
             -- RGB video signals
-            hSync => hSync,
-            vSync => vSync,
-            videoR0 => videoR0,
-            videoR1 => videoR1,
-            videoG0 => videoG0,
-            videoG1 => videoG1,
-            videoB0 => videoB0,
-            videoB1 => videoB1,
+            hSync       => hSync,
+            vSync       => vSync,
+            videoR0     => videoR0,
+            videoR1     => videoR1,
+            videoG0     => videoG0,
+            videoG1     => videoG1,
+            videoB0     => videoB0,
+            videoB1     => videoB1,
 
             -- Monochrome video signals (when using TV timings only)
-            sync => videoSync,
-            video => video,
+            sync        => videoSync,
+            video       => video);
 
-            n_wr => n_WR_vdu,
-            n_rd => n_RD_vdu,
-            n_int => n_int1,
-            regSel => cpuAddress(0),
-            dataIn => cpuDataOut,
-            dataOut => interface1DataOut,
-            ps2Clk => ps2Clk,
-            ps2Data => ps2Data);
 
 
 
@@ -764,7 +793,7 @@ begin
                         nasLocalIODataOut       when n_IORQ        = '0' else
                         nasRomDataOut           when n_nasRomCS    = '0' else
                         nasWSRamDataOut         when n_nasWSRamCS  = '0' else
-                        nasVidRamDataOut        when n_nasVidRamCS = '0' else
+                        VDURamDataOut           when n_nasVidRamCS = '0' else
                         sRamData;
 
 -- ____________________________________________________________________________________

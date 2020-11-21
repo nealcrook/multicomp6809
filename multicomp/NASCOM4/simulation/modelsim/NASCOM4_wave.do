@@ -15,8 +15,8 @@ add wave -noupdate -radix hexadecimal /nascom4/cpuDataOut
 add wave -noupdate -radix hexadecimal /nascom4/cpuDataIn
 add wave -noupdate -radix hexadecimal /nascom4/nasRomDataOut
 add wave -noupdate -radix hexadecimal /nascom4/nasWSRamDataOut
-add wave -noupdate -radix hexadecimal /nascom4/nasVidRamDataOut
 add wave -noupdate -radix hexadecimal /nascom4/nasLocalIODataOut
+add wave -noupdate -radix hexadecimal /nascom4/VDURamDataOut
 add wave -noupdate /nascom4/n_nasWSRamCS
 add wave -noupdate /nascom4/n_nasVidRamCS
 add wave -noupdate /nascom4/n_nasRomCS
@@ -33,8 +33,26 @@ add wave -noupdate -radix hexadecimal /nascom4/portFEwr
 add wave -noupdate -radix hexadecimal /nascom4/uartcnt
 add wave -noupdate -radix hexadecimal /nascom4/port01rd
 add wave -noupdate -radix hexadecimal /nascom4/port02rd
+add wave -noupdate /nascom4/n_NMI
+add wave -noupdate /nascom4/nmi_state
+add wave -noupdate /nascom4/n_memWr
+add wave -noupdate /nascom4/io1/dispAddr
+add wave -noupdate /nascom4/io1/charAddr
+add wave -noupdate /nascom4/io1/dispCharData
+add wave -noupdate /nascom4/io1/hSync
+add wave -noupdate /nascom4/io1/vSync
+add wave -noupdate /nascom4/io1/video
+add wave -noupdate /nascom4/io1/sync
+add wave -noupdate /nascom4/io1/pixelClockCount
+add wave -noupdate /nascom4/io1/pixelCount
+add wave -noupdate /nascom4/io1/horizCount
+add wave -noupdate /nascom4/io1/vertLineCount
+add wave -noupdate /nascom4/io1/charVert
+add wave -noupdate /nascom4/io1/charScanLine
+add wave -noupdate /nascom4/io1/charHoriz
+add wave -noupdate /nascom4/io1/charBit
 TreeUpdate [SetDefaultTree]
-WaveRestoreCursors {{Cursor 1} {0 ps} 0}
+WaveRestoreCursors {{Cursor 1} {1833604 ps} 0}
 quietly wave cursor active 1
 configure wave -namecolwidth 230
 configure wave -valuecolwidth 100
@@ -50,4 +68,4 @@ configure wave -griddelta 40
 configure wave -timeline 0
 configure wave -timelineunits ps
 update
-WaveRestoreZoom {0 ps} {80745 ns}
+WaveRestoreZoom {105654042 ps} {107487646 ps}
