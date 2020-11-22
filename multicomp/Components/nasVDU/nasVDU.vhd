@@ -22,19 +22,18 @@
 -- TODO describe the VGA timing
 -- TODO if 2 VGA outputs, allow them to be swapped so that it's OK
 -- to attach a single display.
+-- TODO generate debug signals to indicate when the display and char-gen
+-- memories are being read; work out if the char-gen can easily be shared
+-- between two render-engines, allowing dual VGA output.
+-- TODO get everything defined (if only for debug) so that it simulates
+-- ..should simply be a case of initialising the counters.
+
+
 --
 -- NEXT:
--- - unpick attribute data. Keep RGB for now to aid testing on current PCB
--- - add memory-mapped read-write port
 -- - instance 1K and 2K video RAM; common paths, separate chip selects
 --   and (for efficient timing) separate read data output
--- - instance bigger char gen and change to 16 rows per character
--- - instance in chip top-level instead of old VDU; add files, replace
---   existing videoRAM, make sure sims still work.
--- - try on PCB: display will be corrupt becasue it's set up for 80x25
---   but it should display OK and show the char set OK. 
-
-
+-- - add char gen write path?
 
 --
 -- This code is derived from Grant Searle's SBCTextDisplayRGB for multicomp
@@ -53,15 +52,18 @@ entity nasVDU is
 		-- VGA 640x480 Default values
 		constant VERT_CHARS : integer := 25;
 		constant HORIZ_CHARS : integer := 80;
+		constant HORIZ_STRIDE : integer := 80;
+		constant HORIZ_OFFSET : integer := 0;
 		constant CLOCKS_PER_SCANLINE : integer := 1600; -- NTSC/PAL = 3200
 		constant DISPLAY_TOP_SCANLINE : integer := 35+40;
-		constant DISPLAY_LEFT_CLOCK : integer := 288; -- NTSC/PAL = 600+
+		constant DISPLAY_LEFT_CLOCK : integer := 288; -- NTSC/PAL = 600+ -- seems to be (hsync+hback)*2
 		constant VERT_SCANLINES : integer := 525; -- NTSC=262, PAL=312
 		constant VSYNC_SCANLINES : integer := 2; -- NTSC/PAL = 4
 		constant HSYNC_CLOCKS : integer := 192;  -- NTSC/PAL = 235
-		constant VERT_PIXEL_SCANLINES : integer := 2; -- [NAC HACK 2020Nov21] for scan line duplication? but not quite
-                                                              -- right.. maybe coz rows-per-character is effectively hard-coded
-                                                              -- at 16. Want to add a constant for that and then reduce this to 1
+		constant SCANLINES_PER_CHAR : integer := 16; -- Number of rows (scanlines) per character in the CharGen ROM
+		constant VERT_PIXEL_SCANLINES : integer := 1; -- [NAC HACK 2020Nov21] For scan line duplication? but not quite
+                                                              -- right..
+
 		constant CLOCKS_PER_PIXEL : integer := 2; -- min = 2
 		constant H_SYNC_ACTIVE : std_logic := '0';
 		constant V_SYNC_ACTIVE : std_logic := '0';
@@ -97,23 +99,9 @@ end nasVDU;
 
 architecture rtl of nasVDU is
 
---VGA 640x400
---constant VERT_CHARS : integer := 25;
---constant HORIZ_CHARS : integer := 80;
---constant CLOCKS_PER_SCANLINE : integer := 1600;
---constant DISPLAY_TOP_SCANLINE : integer := 35;
---constant DISPLAY_LEFT_CLOCK : integer := 288;
---constant VERT_SCANLINES : integer := 448;
---constant VSYNC_SCANLINES : integer := 2;
---constant HSYNC_CLOCKS : integer := 192;
---constant VERT_PIXEL_SCANLINES : integer := 2;
---constant CLOCKS_PER_PIXEL : integer := 2; -- min = 2
---constant H_SYNC_ACTIVE : std_logic := '0';
---constant V_SYNC_ACTIVE : std_logic := '1';
-
 constant HORIZ_CHAR_MAX : integer := HORIZ_CHARS-1;
 constant VERT_CHAR_MAX : integer := VERT_CHARS-1;
-constant CHARS_PER_SCREEN : integer := HORIZ_CHARS*VERT_CHARS;
+constant CHARS_PER_SCREEN : integer := HORIZ_STRIDE*VERT_CHARS;
 
 	signal	vActive   : std_logic := '0';
 	signal	hActive   : std_logic := '0';
@@ -125,7 +113,7 @@ constant CHARS_PER_SCREEN : integer := HORIZ_CHARS*VERT_CHARS;
 	signal	vertLineCount: std_logic_vector(9 DOWNTO 0);
 
 	signal	charVert: integer range 0 to VERT_CHAR_MAX; --unsigned(4 DOWNTO 0);
-	signal	charScanLine: std_logic_vector(3 DOWNTO 0);
+	signal	charScanLine: std_logic_vector(4 DOWNTO 0); -- needs to accommodate char rows and VERT_PIXEL
 
 -- functionally this only needs to go to HORIZ_CHAR_MAX. However, at the end of a line
 -- it goes 1 beyond in the hblank time. It could be avoided but it's fiddly with no
@@ -189,7 +177,10 @@ end generate GEN_EXT_CHARS;
 
 
 -- DISPLAY RAM
-GEN_2KRAM: if (CHARS_PER_SCREEN >1024) generate
+--[NAC HACK 2020Nov22] hack the CHARS_PER_SCREEN compare to stop the big RAM from vanishing
+--when configuring for NASCOM
+--GEN_2KRAM: if (CHARS_PER_SCREEN >1024) generate
+GEN_2KRAM: if (CHARS_PER_SCREEN >10) generate
 begin
 -- [NAC HACK 2020Nov20] got this one at the moment; want to have 2K and 1K but map 1K here for now..
 -- [NAC HACK 2020Nov20] add the other two memories and write paths, and use the CS to MUX the
@@ -212,7 +203,8 @@ begin
 	);
 end generate GEN_2KRAM;
 
-GEN_1KRAM: if (CHARS_PER_SCREEN <1025) generate
+--GEN_1KRAM: if (CHARS_PER_SCREEN <1025) generate
+GEN_1KRAM: if (CHARS_PER_SCREEN <1) generate
 begin
  	dispCharRam: entity work.DisplayRam1K -- For 40x25 display character storage
 	port map
@@ -242,10 +234,11 @@ end generate GEN_1KRAM;
         -- rather than being a factor of VERT_PIXEL_SCANLINES
         -- [NAC HACK 2020Nov21] need to restore manifest constants when I have added
         -- rows-per-char or somesuch
-        charAddr <= dispCharData & charScanLine(3 downto 0);
+        charAddr <= dispCharData & charScanLine(4 downto 1);
 
-	dispAddr <= (charHoriz+(charVert * HORIZ_CHARS)) mod CHARS_PER_SCREEN;
-	cursAddr <= (cursorHoriz+(cursorVert * HORIZ_CHARS)) mod CHARS_PER_SCREEN;
+        -- "charVert + 15" is to impose line offset for NASCOM
+	dispAddr <= (charHoriz+((charVert + 15) * HORIZ_STRIDE)+HORIZ_OFFSET) mod CHARS_PER_SCREEN;
+	cursAddr <= (cursorHoriz+(cursorVert * HORIZ_CHARS)) mod CHARS_PER_SCREEN; -- [NAC HACK 2020Nov22] needs update to match above
 
 	sync <= vSync and hSync; -- composite sync for mono video out
 
@@ -267,13 +260,13 @@ end generate GEN_1KRAM;
 				if vertLineCount > (VERT_SCANLINES-1) then
 					vertLineCount <= (others => '0');
 				else
-					if vertLineCount < DISPLAY_TOP_SCANLINE or vertLineCount > (DISPLAY_TOP_SCANLINE + 8 * VERT_PIXEL_SCANLINES * VERT_CHARS - 1) then
+					if vertLineCount < DISPLAY_TOP_SCANLINE or vertLineCount > (DISPLAY_TOP_SCANLINE + SCANLINES_PER_CHAR * VERT_PIXEL_SCANLINES * VERT_CHARS - 1) then
 						vActive <= '0';
 						charVert <= 0;
 						charScanLine <= (others => '0');
 					else
 						vActive <= '1';
-						if charScanLine = (VERT_PIXEL_SCANLINES*8-1) then
+						if charScanLine = (SCANLINES_PER_CHAR * VERT_PIXEL_SCANLINES - 1) then
 							charScanLine <= (others => '0');
 							charVert <= charVert+1;
 						else
@@ -301,7 +294,7 @@ end generate GEN_1KRAM;
 					pixelClockCount <= pixelClockCount+1;
 				else
 					pixelClockCount <= (others => '0');
-					if cursorOn = '1' and cursorVert = charVert and cursorHoriz = charHoriz and charScanLine = (VERT_PIXEL_SCANLINES*8-1) then
+					if cursorOn = '1' and cursorVert = charVert and cursorHoriz = charHoriz and charScanLine = (SCANLINES_PER_CHAR * VERT_PIXEL_SCANLINES - 1) then
 					   -- Cursor (use current colour because cursor cell not yet written to)
 						if dispAttData(3)='1' then -- BRIGHT
 							videoR0 <= dispAttData(0);

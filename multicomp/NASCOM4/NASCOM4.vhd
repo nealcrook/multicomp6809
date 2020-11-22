@@ -508,7 +508,7 @@ begin
     proc_uartcnt: process(clk, n_reset)
     begin
       if (n_reset='0') then
-        uartcnt <= x"00";
+        uartcnt <= x"0a";
       elsif rising_edge(clk) then
         if cpuAddress(7 downto 0) = x"01" and n_IORQ = '0' and n_RD = '0' and uartcnt /= x"ff" then
             uartcnt <= uartcnt + x"01";
@@ -525,12 +525,33 @@ begin
 --                x"0d" when uartcnt = 6 else
 --                x"00"; -- null -> ignored by NAS-SYS
 
-    port01rd <= x"54" when uartcnt = 0 else -- T0 40<newline>
-                x"30" when uartcnt = 1 else
-                x"20" when uartcnt = 2 else
-                x"34" when uartcnt = 3 else
-                x"30" when uartcnt = 4 else
-                x"0d" when uartcnt = 5 else
+
+
+    -- starting non-zero means that, when I send uartcnt, I don't get non-printing characters like clear-screen
+    -- messing up the sign-on screen.
+    port01rd <= x"4d" when uartcnt = x"0a" else -- MBCA<newline>B6/BF9<newline>B5.<newline>
+                x"42" when uartcnt = x"0b" else -- to put characters top left/right on line 16
+                x"43" when uartcnt = x"0c" else
+                x"41" when uartcnt = x"0d" else
+                x"0d" when uartcnt = x"0e" else
+                x"42" when uartcnt = x"0f" else
+                x"36" when uartcnt = x"10" else
+                x"2f" when uartcnt = x"11" else
+                x"42" when uartcnt = x"12" else
+                x"46" when uartcnt = x"13" else
+                x"39" when uartcnt = x"14" else
+                x"0d" when uartcnt = x"15" else
+                x"42" when uartcnt = x"16" else
+                x"35" when uartcnt = x"17" else
+                x"2e" when uartcnt = x"18" else
+                x"0d" when uartcnt = x"19" else
+                x"54" when uartcnt = x"1a" else -- T0 28<newline>
+                x"30" when uartcnt = x"1b" else
+                x"20" when uartcnt = x"1c" else
+                x"32" when uartcnt = x"1d" else
+                x"38" when uartcnt = x"1e" else
+                x"0d" when uartcnt = x"1f" else
+                uartcnt when uartcnt /= x"ff" else -- (most of the) char set
                 x"00"; -- null -> ignored by NAS-SYS
 
     -- Single-step logic
@@ -578,14 +599,27 @@ begin
 
       -- 80x25 uses all the internal RAM
       -- This selects 640x400 rather than the default of 640x480
-      DISPLAY_TOP_SCANLINE => 35,
-      VERT_SCANLINES => 448,
+--      DISPLAY_TOP_SCANLINE => 35,
+--      VERT_SCANLINES => 448,
+--      V_SYNC_ACTIVE => '1'
+
+      -- TODO need to fiddle with the addressing to get line 16 at the top..
+      -- Setup for NASCOM 48x16 using 800x600 mode
+      -- at half rate so that the effective clock is 25MHz, the
+      -- same as the 80x25 mode.
+      VERT_CHARS => 16,
+      HORIZ_CHARS => 48,
+      HORIZ_STRIDE => 64, -- for NASCOM screen, stride of 64 locations per row
+      HORIZ_OFFSET => 10, -- for NASCOM screen, ignore first 10 and last 6
+      CLOCKS_PER_SCANLINE => 1056,
+      DISPLAY_TOP_SCANLINE => 40+30, -- at least vfront+vsync+vback then pad to centralise display
+      DISPLAY_LEFT_CLOCK => 240+2, -- (HSYNC + HBACK)*2
+      VERT_SCANLINES => 625,
+      VSYNC_SCANLINES => 3,
+      HSYNC_CLOCKS => 80,
+      VERT_PIXEL_SCANLINES => 2,
+      H_SYNC_ACTIVE => '1',
       V_SYNC_ACTIVE => '1'
-
-      -- 40x25 leaves resource for internal 2k RAM
-
---      HORIZ_CHARS => 40,
---      CLOCKS_PER_PIXEL => 4
     )
 
     port map (
