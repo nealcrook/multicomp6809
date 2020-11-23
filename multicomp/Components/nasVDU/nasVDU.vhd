@@ -73,6 +73,9 @@ entity nasVDU is
 	port (
 		n_reset	: in  std_logic;
 		clk    	: in  std_logic;
+
+                video_map80vfc : in std_logic;
+
                 addr    : in  std_logic_vector(10 downto 0); -- 2Kbytes address range
                 n_nasCS : in  std_logic; -- NASCOM 1Kbyte video RAM
                 n_mapCS : in  std_logic; -- MAP80 2Kbyte video RAM
@@ -132,6 +135,8 @@ constant CHARS_PER_SCREEN : integer := HORIZ_STRIDE*VERT_CHARS;
 	signal 	charAddr : std_logic_vector(11 downto 0);
 
 	signal	dispCharData : std_logic_vector(7 downto 0);
+	signal	dispCharDataMap : std_logic_vector(7 downto 0);
+	signal	dispCharDataNas : std_logic_vector(7 downto 0);
 	signal	dispCharWRData : std_logic_vector(7 downto 0);
 	signal	dispCharRDData : std_logic_vector(7 downto 0);
 
@@ -152,6 +157,9 @@ constant CHARS_PER_SCREEN : integer := HORIZ_STRIDE*VERT_CHARS;
         signal  wren_map : std_logic;
         signal  wren_charGen : std_logic;
 
+        signal  dataOutMap : std_logic_vector(7 downto 0);
+        signal  dataOutNas : std_logic_vector(7 downto 0);
+
 begin
 
 	dispAddr_xx <= std_logic_vector(to_unsigned(dispAddr,11));
@@ -160,7 +168,10 @@ begin
         wren_map     <= not(n_MemWr or n_mapCS);
         wren_charGen <= not(n_MemWr or n_charGenCS);
 
-        -- clone CGABoldRom and expand from 2k (11 address lines) to 4k (12 address lines)
+        -- route correct video RAM out for CPU read
+        dataOut   <= dataOutMap when n_mapCS='0' else dataOutNas;
+        -- route correct video RAM to character generator
+        dispCharData <= dispCharDataMap when video_map80vfc='1' else dispCharDataNas;
 
 -- DISPLAY ROM (CHARACTER GENERATOR)
 -- was 11 address lines broken up as 8,3 for char,row
@@ -177,48 +188,40 @@ end generate GEN_EXT_CHARS;
 
 
 -- DISPLAY RAM
---[NAC HACK 2020Nov22] hack the CHARS_PER_SCREEN compare to stop the big RAM from vanishing
---when configuring for NASCOM
---GEN_2KRAM: if (CHARS_PER_SCREEN >1024) generate
-GEN_2KRAM: if (CHARS_PER_SCREEN >10) generate
+GEN_2KRAM: if (TRUE) generate
 begin
--- [NAC HACK 2020Nov20] got this one at the moment; want to have 2K and 1K but map 1K here for now..
--- [NAC HACK 2020Nov20] add the other two memories and write paths, and use the CS to MUX the
--- [NAC HACK 2020Nov20] read data paths back.
-
-        dispCharRam: entity work.DisplayRam2K -- For 80x25 display character storage
+        dispMAPRam: entity work.DisplayRam2K -- For MAP80 VFC 80x25 display
 	port map
 	(
 		clock	=> clk,
 
 		address_b => addr(10 downto 0),  -- CPU access port
 		data_b => dataIn,
-		q_b => dataOut,
+		q_b => dataOutMap,
 		wren_b => wren_nas,
 
-		address_a => dispAddr_xx(10 downto 0),
+		address_a => dispAddr_xx(10 downto 0), -- Read-only display port
 		data_a => (others => '0'),
-		q_a => dispCharData,
+		q_a => dispCharDataMap,
 		wren_a => '0'
 	);
 end generate GEN_2KRAM;
 
---GEN_1KRAM: if (CHARS_PER_SCREEN <1025) generate
-GEN_1KRAM: if (CHARS_PER_SCREEN <1) generate
+GEN_1KRAM: if (TRUE) generate
 begin
- 	dispCharRam: entity work.DisplayRam1K -- For 40x25 display character storage
+ 	dispNASRam: entity work.DisplayRam1K -- For NASCOM 48x16 display
 	port map
 	(
 		clock	=> clk,
 
-		address_b => addr(9 downto 0),
-		data_b => dispCharWRData,
-		q_b => dispCharRDData,
-		wren_b => dispWR,
+		address_b => addr(9 downto 0), -- CPU access port
+		data_b => dataIn,
+		q_b => dataOutNas,
+		wren_b => wren_nas,
 
-		address_a => dispAddr_xx(9 downto 0),
+		address_a => dispAddr_xx(9 downto 0), -- Read-only display port
 		data_a => (others => '0'),
-		q_a => dispCharData,
+		q_a => dispCharDataNas,
 		wren_a => '0'
 	);
 end generate GEN_1KRAM;

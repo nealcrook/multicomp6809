@@ -69,68 +69,33 @@
 -- * I/O port E0-E3   - 2797 FDC
 
 
--- V1: get the CPU executing code. Put the memory in place for rom/ws
--- but don't worry about video. Null out the kbd and UART ports or don't
--- bother because we won't simulate for that long
--- -> in sim see screen clear, NAS-SYS banner, cursor flash and
---    port 0 access for keyboard scan
+-- TODO
 --
--- V2: code i/o port write and readback. Force kbd readback to ff
--- to mimic no-key-pressed and ensure full scan occurs (scan is
--- aborted on reading key(s) pressed). Mock up UART to return
--- char available and to return a string. First, mock a small
--- T command. Next, mock a S command. Look at timing and generate
--- the NMI logic.
---
--- next: split out port0 write signals for clarity
---       generate synchroniser and pulse generator for
---       NMI push button and test in simulation.
---
--- V3: change VDU to be memory-mapped. Change to NASCOM timing.
--- make test ROM to exercise the VDU. Test on real HW
---
--- Problems:
--- 1/ tool is complaining that ROM data is too big? Do not get this for the NAS-SYS ROM
--- 
---nasCharGenRom4K.qipWarning (113007): Byte addressed memory initialization file "nasCharGenRom4K.HEX" was read in the word-addressed format
---Warning (113015): Width of data items in "nasCharGenRom4K.HEX" is greater than the memory width. Wrapping data items to subsequent addresses. Found 128 warnings, reporting 10
---	Warning (113009): Data at line (1) of memory initialization file "nasCharGenRom4K.HEX" is too wide to fit in one memory word. Wrapping data to subsequent addresses.
---	Warning (113009): Data at line (2) of memory initialization file "nasCharGenRom4K.HEX" is too wide to fit in one memory word. Wrapping data to subsequent addresses.
---	Warning (113009): Data at line (3) of memory initialization file "nasCharGenRom4K.HEX" is too wide to fit in one memory word. Wrapping data to subsequent addresses.
---	Warning (113009): Data at line (4) of memory initialization file "nasCharGenRom4K.HEX" is too wide to fit in one memory word. Wrapping data to subsequent addresses.
---	Warning (113009): Data at line (5) of memory initialization file "nasCharGenRom4K.HEX" is too wide to fit in one memory word. Wrapping data to subsequent addresses.
---	Warning (113009): Data at line (6) of memory initialization file "nasCharGenRom4K.HEX" is too wide to fit in one memory word. Wrapping data to subsequent addresses.
---	Warning (113009): Data at line (7) of memory initialization file "nasCharGenRom4K.HEX" is too wide to fit in one memory word. Wrapping data to subsequent addresses.
---	Warning (113009): Data at line (8) of memory initialization file "nasCharGenRom4K.HEX" is too wide to fit in one memory word. Wrapping data to subsequent addresses.
---	Warning (113009): Data at line (9) of memory initialization file "nasCharGenRom4K.HEX" is too wide to fit in one memory word. Wrapping data to subsequent addresses.
---	Warning (113009): Data at line (10) of memory initialization file "nasCharGenRom4K.HEX" is too wide to fit in one memory word. Wrapping data to subsequent addresses.
---
--- format looks comparable to existing code and nas-sys code so I don't see the problem..
---
-
-
--- 2/ not getting the whole picture on the screen. Each character is not made up of 16 rows but of 8 rows. Also, first row starts
--- rather close to the top of the VDU.
-
-
-
---
--- V4: implement 6402 UART and port 0 stuff. Null out keyboard
--- on real system with NAS-SYS3 and serial adaptor should be able
--- to start up via "X" command and do memory dump etc. and single
--- step and run "Lollipop".
---
--- V5: as above but with MAP80 paged 256K RAM
---
--- V6: get 80-col video working, and video switch port
---
--- V7: clean up the clocking and design control state machine
--- to allow off-chip memory read/write and off-chip I/O cycles
--- at nominal 4MHZ with control for I/O buffer that includes
--- intack cycles.
---
--- V8: do control logic for FDC (drive select etc).
-
+------
+-- Instance special ROM and VFC ROM
+-- Code address decoding for read and write, incorporate static enables
+-- Make sure it all still works for NASCOM
+------
+-- Test it for VFC - needs different instance parameters set up
+------
+-- Create dummy Special Boot ROM code
+------
+-- Work out how to do video switching (2 sets of timing)
+-- Get video working in RTL sim
+-- Add debug signals to show reads of video/chargen RAM
+------
+-- Implement RAM paging register
+-- Implement write-protect register
+-- Add write port to char gen.. how to decode? Whole of VFC space?
+-- Code synchroniser and pulse generator for NMI push button
+-- Work out what's needed for FDC miscellaneous control
+-- Split out port0 write signals like port3 stuff.
+-- Look at clocking, implement external RAM interface, allow
+-- slow-down for I/O cycles. Allow operation at a lower clock speed.
+-- Work out external pin mapping.
+-- Consider Arduino interface; 1 or 2 external SDcards..
+-- Implement UART
+-- Implement PS/2 keyboard interface?
 
 
 
@@ -344,29 +309,70 @@ architecture struct of NASCOM4 is
 
     signal n_memWr                : std_logic;
 
-    signal port00wr               : std_logic_vector(7 downto 0);
-    signal portE4wr               : std_logic_vector(7 downto 0);
-    signal portE8wr               : std_logic_vector(7 downto 0);
-    signal portECwr               : std_logic_vector(7 downto 0);
-    -- Writes to EE/EF
-    signal video_map80vfc         : std_logic := '0';
-    signal portFEwr               : std_logic_vector(7 downto 0);
-
-    -- NASCOM keyboard
+    ------------------------------------------------------------------
+    -- Port 0: NASCOM keyboard
     -- ff means no key detected
     signal port00rd               : std_logic_vector(7 downto 0) := x"ff";
+    signal port00wr               : std_logic_vector(7 downto 0);
 
-    -- temp uart read
+    ------------------------------------------------------------------
+    -- Port 1/2: temp uart read
     signal port01rd               : std_logic_vector(7 downto 0) := x"00"; -- UART data
     -- 7    6    5    4    3   2    1    0
     -- DR   TRE  -    -    FE  PE  OE    -
     -- DR =data received
     -- TRE=transmit register empty
     signal port02rd               : std_logic_vector(7 downto 0) := x"80"; -- UART status -> always has data
-    -- disk control
-    signal porte4rd               : std_logic_vector(7 downto 0) := x"00";
-    -- parallel keyboard
-    signal porte6rd               : std_logic_vector(7 downto 0) := x"00";
+
+    ------------------------------------------------------------------
+    -- Port 3: new for FPGA implementation
+    --              Write                                   Read
+    -- B7          ignored                                 bootmode1
+    -- B6          ignored                                 bootmode0
+    -- B5          unused                                       0
+    -- B4          MAP80 VFC autoboot                           0
+    -- B3          0: enable NAS-SYS 1: enable special boot ROM 0
+    -- B2          1: enable ROM at 0                           0
+    -- B1          0: VRAM@800, 1:VRAM@?? (for CP/M)            0
+    -- B0          1: enable NASCOM VRAM                        0
+    --
+    signal iopwr03NasVidEnable    : std_logic;
+    signal iopwr03NasVidHigh      : std_logic;
+    signal iopwr03RomAtZero       : std_logic;
+    signal iopwr03NasSysRom       : std_logic;
+    signal iopwr03MAP80AutoBoot   : std_logic;
+
+    ------------------------------------------------------------------
+    -- Port 4/5/6/7: PIO (external)
+
+    ------------------------------------------------------------------
+    -- MAP80 VFC disk control
+    signal portE4wr               : std_logic_vector(7 downto 0);
+    signal portE4rd               : std_logic_vector(7 downto 0) := x"00";
+
+    ------------------------------------------------------------------
+    -- Port E6: MAP80 VFC parallel keyboard
+    signal portE6rd               : std_logic_vector(7 downto 0) := x"00";
+
+    ------------------------------------------------------------------
+    -- Port E8/E9: MAP80 VFC
+    signal portE8wr               : std_logic_vector(7 downto 0);
+
+    ------------------------------------------------------------------
+    -- Port EC/ED: MAP80 VFC Video Control
+    signal iopwrECVfcPage         : std_logic_vector(3 downto 0);
+    signal iopwrECRomEnable       : std_logic;
+    signal iopwrECRamEnable       : std_logic;
+-- [NAC HACK 2020Nov22] TODO char gen 1 vs 2, inverse video vs upper char set.
+
+    ------------------------------------------------------------------
+    -- Port EE/EF: MAP80 VFC
+    signal video_map80vfc         : std_logic := '0';
+
+    ------------------------------------------------------------------
+    -- Port FE: MAP80 256KRAM
+    signal portFEwr               : std_logic_vector(7 downto 0);
+
 
     -- combine from misc ports (and UART?)
     signal nasLocalIODataOut      : std_logic_vector(7 downto 0);
@@ -381,9 +387,40 @@ architecture struct of NASCOM4 is
     signal n_NMI                  : std_logic;
     signal nmi_state              : std_logic_vector(2 downto 0);
 
+
+    -- [NAC HACK 2020Nov22] Bootmode pins should be primary inputs
+    -- The 2 bootmode bits are set by front-panel switch and are decoded to generate
+    -- the intial state of the "low level" control bits writeable from this register.
+    -- They also provide the initial state of the MAP80 VFC LINK4 "autoboot" jumper
+    -- and the MAP80 video select
+    --
+    -- bootmode1  bootmode0
+    --     0          0       Raw NASCOM (NAS-SYS only)
+    --     0          1       MAP VFC    (CP/M)
+    --     1          0       Special boot ROM, mode 0 - usually NASCOM + ZEAP + BASIC
+    --     1          1       Special boot ROM, mode 1 - usually NASCOM CP/M
+    --
+    -- The special boot ROM allows stuff to be loaded into RAM and then protected to
+    -- make it look like ROM. It can terminate by returning to NAS-SYS or by mocking
+    -- up a power-on-reset jump. Once the special boot ROM is executing, it need
+    -- not "honour" the bootmode; it can do anything.
+    -- Any number of "profiles" can be provided via the boot ROM. For example:
+    -- start NASCOM + ZEAP + BASIC
+    -- start NASCOM + BASIC + POLYDOS
+    -- start NASCOM + BASIC + NAS-DOS
+    -- start NASCOM CP/M
+    -- start T4 + BASIC
+    --                     Port 3 low nibble        MAP80 video select
+    -- bootmode=0           00101                   NASCOM video
+    -- bootmode=1           10000                   MAP80 video
+    -- bootmode=2           01101                   NASCOM video
+    -- bootmode=3           01111                   NASCOM video
+    signal bootmode               : std_logic_vector(1 downto 0) := "00";
+
 begin
 
     n_LED9 <= n_HALT;
+
 
 -- ____________________________________________________________________________________
 -- CPU CHOICE GOES HERE
@@ -447,34 +484,76 @@ begin
 -- INPUT/OUTPUT DEVICES GO HERE
 
     -- Miscellaneous I/O port write
-    proc_iowr: process(clk, n_reset)
+    proc_iowr: process(clk, n_reset, bootmode)
     begin
       if (n_reset='0') then
         port00wr <= x"00";
+
+        -- Decode bootmode to get initial state of port3 stuff and video select
+        if (bootmode = 1) then
+          iopwr03NasVidEnable  <= '0';
+          iopwr03RomAtZero     <= '0'; -- use VFC ROM
+          iopwr03MAP80AutoBoot <= '1';
+          iopwrECRomEnable     <= '1';
+          iopwrECRamEnable     <= '1';
+          video_map80vfc       <= '1';
+        else
+          iopwr03NasVidEnable  <= '1';
+          iopwr03RomAtZero     <= '1';
+          iopwr03MAP80AutoBoot <= '0';
+          iopwrECRomEnable     <= '0';
+          iopwrECRamEnable     <= '0';
+          video_map80vfc       <= '0';
+        end if;
+
+        if (bootmode = 3) then
+          iopwr03NasVidHigh    <= '1';
+        else
+          iopwr03NasVidHigh    <= '0';
+        end if;
+
+        if (bootmode = 0) then
+          iopwr03NasSysRom     <= '1';
+        else
+          iopwr03NasSysRom     <= '0';
+        end if;
+
+
         portE4wr <= x"00";
         portE8wr <= x"00";
-        portECwr <= x"00";
-        video_map80vfc <= '0';
+
+        iopwrECVfcPage    <= x"0";
+
         portFEwr <= x"00";
+
+
       elsif rising_edge(clk) then
         if cpuAddress(7 downto 0) = x"00" and n_IORQ = '0' and n_WR = '0' then
           port00wr <= cpuDataOut;
         end if;
+
         if cpuAddress(7 downto 0) = x"e4" and n_IORQ = '0' and n_WR = '0' then
           portE4wr <= cpuDataOut;
         end if;
+
         if cpuAddress(7 downto 0) = x"e8" and n_IORQ = '0' and n_WR = '0' then
           portE8wr <= cpuDataOut;
         end if;
+
         if cpuAddress(7 downto 0) = x"ec" and n_IORQ = '0' and n_WR = '0' then
-          portECwr <= cpuDataOut;
+          iopwrECVfcPage    <= cpuDataOut(3 downto 0);
+          iopwrECRomEnable  <= cpuDataOut(1);
+          iopwrECRamEnable  <= cpuDataOut(0);
         end if;
+
         if cpuAddress(7 downto 0) = x"ee" and n_IORQ = '0' and n_WR = '0' then
           video_map80vfc <= '1';
         end if;
+
         if cpuAddress(7 downto 0) = x"ef" and n_IORQ = '0' and n_WR = '0' then
           video_map80vfc <= '0';
         end if;
+
         if cpuAddress(7 downto 0) = x"fe" and n_IORQ = '0' and n_WR = '0' then
           portFEwr <= cpuDataOut;
         end if;
@@ -625,6 +704,9 @@ begin
     port map (
             n_reset => n_reset,
             clk => clk,
+
+            -- select which video
+            video_map80vfc => video_map80vfc,
 
             -- memory access to video RAM
             addr        => cpuAddress(10 downto 0),

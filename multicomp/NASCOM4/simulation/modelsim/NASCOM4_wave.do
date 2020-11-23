@@ -23,11 +23,9 @@ add wave -noupdate /nascom4/n_nasRomCS
 add wave -noupdate /nascom4/cpuClock
 add wave -noupdate /nascom4/n_HALT
 add wave -noupdate /nascom4/wren_nasWSRam
-add wave -noupdate /nascom4/wren_nasVidRam
 add wave -noupdate -radix hexadecimal /nascom4/port00wr
 add wave -noupdate -radix hexadecimal /nascom4/portE4wr
 add wave -noupdate -radix hexadecimal /nascom4/portE8wr
-add wave -noupdate -radix hexadecimal /nascom4/portECwr
 add wave -noupdate /nascom4/video_map80vfc
 add wave -noupdate -radix hexadecimal /nascom4/portFEwr
 add wave -noupdate -radix hexadecimal /nascom4/uartcnt
@@ -51,6 +49,15 @@ add wave -noupdate /nascom4/io1/charVert
 add wave -noupdate /nascom4/io1/charScanLine
 add wave -noupdate /nascom4/io1/charHoriz
 add wave -noupdate /nascom4/io1/charBit
+add wave -noupdate /nascom4/iopwr03NasVidEnable
+add wave -noupdate /nascom4/iopwr03NasVidHigh
+add wave -noupdate /nascom4/iopwr03RomAtZero
+add wave -noupdate /nascom4/iopwr03NasSysRom
+add wave -noupdate /nascom4/iopwr03MAP80AutoBoot
+add wave -noupdate /nascom4/iopwrECVfcPage
+add wave -noupdate /nascom4/iopwrECRomEnable
+add wave -noupdate /nascom4/iopwrECRamEnable
+add wave -noupdate /nascom4/video_map80vfc
 TreeUpdate [SetDefaultTree]
 WaveRestoreCursors {{Cursor 1} {1833604 ps} 0}
 quietly wave cursor active 1
