@@ -72,13 +72,9 @@
 -- TODO
 --
 ------
--- Instance special ROM and VFC ROM
--- Code address decoding for read and write, incorporate static enables
--- Make sure it all still works for NASCOM
-------
 -- Test it for VFC - needs different instance parameters set up
 ------
--- Create dummy Special Boot ROM code
+-- Create dummy Special Boot ROM code (use T2??)
 ------
 -- Work out how to do video switching (2 sets of timing)
 -- Get video working in RTL sim
@@ -245,6 +241,8 @@ architecture struct of NASCOM4 is
     signal n_sRamCSLo_i           : std_logic;
 
     signal nasRomDataOut          : std_logic_vector(7 downto 0);
+    signal vfcRomDataOut          : std_logic_vector(7 downto 0);
+    signal sbootRomDataOut        : std_logic_vector(7 downto 0);
     signal nasWSRamDataOut        : std_logic_vector(7 downto 0);
     signal VDURamDataOut          : std_logic_vector(7 downto 0);
     signal interface1DataOut      : std_logic_vector(7 downto 0);
@@ -252,7 +250,6 @@ architecture struct of NASCOM4 is
     signal interface3DataOut      : std_logic_vector(7 downto 0);
     signal gpioDataOut            : std_logic_vector(7 downto 0);
     signal sdCardDataOut          : std_logic_vector(7 downto 0);
-    signal mmDataOut              : std_logic_vector(7 downto 0);
 
     signal irq                    : std_logic;
     signal nmi                    : std_logic;
@@ -264,6 +261,11 @@ architecture struct of NASCOM4 is
     signal n_nasWSRamCS           : std_logic :='1';
     signal n_nasVidRamCS          : std_logic :='1';
     signal n_nasRomCS             : std_logic :='1';
+
+    signal n_vfcVidRamCS          : std_logic :='1';
+    signal n_vfcRomCS             : std_logic :='1';
+
+    signal n_sbootRomCS           : std_logic :='1';
     signal n_interface1CS         : std_logic :='1';
     signal n_interface2CS         : std_logic :='1';
     signal n_interface3CS         : std_logic :='1';
@@ -289,7 +291,6 @@ architecture struct of NASCOM4 is
 
     signal wren_nasWSRam          : std_logic := '1';
 
-    signal romInhib               : std_logic := '0';
     signal ramWrInhib             : std_logic := '0';
 
     signal gpio_dat0_i            : std_logic_vector(2 downto 0);
@@ -330,7 +331,7 @@ architecture struct of NASCOM4 is
     -- B7          ignored                                 bootmode1
     -- B6          ignored                                 bootmode0
     -- B5          unused                                       0
-    -- B4          MAP80 VFC autoboot                           0
+    -- B4          MAP80 VFC autoboot                           0     <<-- [NAC HACK 2020Nov23] don't actually need this
     -- B3          0: enable NAS-SYS 1: enable special boot ROM 0
     -- B2          1: enable ROM at 0                           0
     -- B1          0: VRAM@800, 1:VRAM@?? (for CP/M)            0
@@ -449,12 +450,24 @@ begin
             do      => cpuDataOut);
 
 -- ____________________________________________________________________________________
--- ROM GOES HERE
+-- ROMS GO HERE
     rom1 : entity work.Z80_NASSYS3_ROM -- 2KB ROM
     port map(
             address => cpuAddress(10 downto 0),
             clock => clk,
             q => nasRomDataOut);
+
+    rom2 : entity work.Z80_MAP80VFC_ROM -- 2KB ROM
+    port map(
+            address => cpuAddress(10 downto 0),
+            clock => clk,
+            q => vfcRomDataOut);
+
+    rom3 : entity work.Z80_SBOOT_ROM -- 1KB ROM (insufficient resource to make this 2K)
+    port map(
+            address => cpuAddress(9 downto 0),
+            clock => clk,
+            q => sbootRomDataOut);  -- [NAC HACK 2020Nov23] RAM content is junk... Could put T2 in for testing??
 
 -- ____________________________________________________________________________________
 -- RAM GOES HERE
@@ -465,6 +478,8 @@ begin
     n_sRamCS2 <= n_sRamCSHi_i;
 
 -- External RAM - high-order address lines come from the mem_mapper
+-- [NAC HACK 2020Nov23] need to prevent video and VFC RAM writes from going to paged RAM
+-- and make sure that workspace writes DO go to paged RAM..
     sRamAddress_i(12 downto 0) <= cpuAddress(12 downto 0);
     sRamData <= cpuDataOut when n_WR='0' else (others => 'Z');
 
@@ -567,7 +582,7 @@ begin
     -- E4 read from stuff.. disk control
     -- E6 parallel keyboard synthesised from PS/2 kbd
     -- Miscellaneous I/O port write
-    proc_iord: process(cpuAddress)
+    proc_iord: process(cpuAddress, port00rd, port01rd, port02rd, porte4rd, porte6rd)
     begin
       if cpuAddress(7 downto 0) = x"00" then
         nasLocalIODataOut  <= port00rd;
@@ -711,7 +726,7 @@ begin
             -- memory access to video RAM
             addr        => cpuAddress(10 downto 0),
             n_nasCS     => n_nasVidRamCS,
-            n_mapCS     => '1',    -- TODO paged address space
+            n_mapCS     => n_vfcVidRamCS,
             n_charGenCS => '1',    -- TODO paged address space for chargen write path
             n_memWr     => n_memWr,
             dataIn      => cpuDataOut,
@@ -804,13 +819,11 @@ begin
             n_wr => n_WR_sd,
 
             dataIn => cpuDataOut,
-            dataOut => mmDataOut,
             regAddr => cpuAddress(2 downto 0),
 
             cpuAddr => cpuAddress(15 downto 9),
             ramAddr => sRamAddress_i(18 downto 13),
             ramWrInhib => ramWrInhib,
-            romInhib => romInhib,
 
             n_ramCSHi => n_sRamCSHi_i,
             n_ramCSLo => n_sRamCSLo_i,
@@ -874,9 +887,19 @@ begin
 -- CHIP SELECTS GO HERE
 
     -- Nascom code ROM and workspace RAM
-    n_nasRomCS    <= '0' when cpuAddress(15 downto 11) = "00000" and romInhib='0' else '1'; -- 2K at bottom of memory
+    n_nasRomCS    <= '0' when cpuAddress(15 downto 11) = "00000"  and iopwr03NasSysRom='1' and iopwr03RomAtZero='1' else '1'; -- 2K at bottom of memory
     n_nasWSRamCS  <= '0' when cpuAddress(15 downto 10) = "000011" else '1'; -- 1K at 0C00
-    n_nasVidRamCS <= '0' when cpuAddress(15 downto 10) = "000010" else '1'; -- 1K at 0800
+    -- video RAM at 0x0800 usually, can be at 0xf800 for NASCOM CP/M
+    n_nasVidRamCS <= '0' when (cpuAddress(15 downto 10) = "000010" and iopwr03NasVidHigh = '0' and iopwr03NasVidEnable = '1')
+                           or (cpuAddress(15 downto 10) = "111110" and iopwr03NasVidHigh = '1' and iopwr03NasVidEnable = '1') else '1';
+
+    -- Special (alternate) boot ROM at 0
+    n_sbootRomCS  <= '0' when cpuAddress(15 downto 10) = "000000" and iopwr03NasSysRom='0' and iopwr03RomAtZero='1' else '1'; -- 1K at bottom of memory
+
+    -- MAP80VFC video RAM
+    n_vfcVidRamCS <= '0' when cpuAddress(15 downto 12) = iopwrECVfcPage and cpuAddress(11) = '1' and iopwrECRamEnable = '1' else '1';
+    -- MAP80VFC ROM
+    n_vfcRomCS    <= '0' when cpuAddress(15 downto 12) = iopwrECVfcPage and cpuAddress(11) = '0' and iopwrECRomEnable = '1' else '1';
 
     -- vduffd0 swaps the assignment. Internal pullup means it is 1 by default
     n_interface1CS <= '0' when ((cpuAddress(15 downto 1) = "111111111101000" and vduffd0 = '1')  -- 2 bytes FFD0-FFD1
@@ -901,13 +924,14 @@ begin
 --                        interface2DataOut    when n_interface2CS = '0' else
 --                        interface3DataOut    when n_interface3CS = '0' else
 --                        gpioDataOut          when n_gpioCS = '0'       else
---                        sdCardDataOut or mmDataOut  when n_sdCardCS = '0' else
 --                        basRomData           when n_basRomCS = '0' else
 --                        internalRam1DataOut when n_internalRam1CS= '0' else
 --                        sRamData;
     cpuDataIn <=
                         nasLocalIODataOut       when n_IORQ        = '0' else
                         nasRomDataOut           when n_nasRomCS    = '0' else
+                        vfcRomDataOut           when n_vfcRomCS    = '0' else
+                        sbootRomDataOut         when n_sbootRomCS  = '0' else
                         nasWSRamDataOut         when n_nasWSRamCS  = '0' else
                         VDURamDataOut           when n_nasVidRamCS = '0' else
                         sRamData;

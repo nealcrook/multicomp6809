@@ -210,6 +210,9 @@ set_global_assignment -name QIP_FILE ../RAMS/InternalRam1K.qip
 set_global_assignment -name QIP_FILE ../RAMS/InternalRam2K.qip
 set_global_assignment -name QIP_FILE ../RAMS/InternalRam4K.qip
 set_global_assignment -name QIP_FILE ../ROMS/Z80/Z80_NASSYS3_ROM.qip
+set_global_assignment -name QIP_FILE ../ROMS/Z80/Z80_MAP80VFC_ROM.qip
+set_global_assignment -name QIP_FILE ../ROMS/Z80/Z80_SBOOT_ROM.qip
+
 
 
 
