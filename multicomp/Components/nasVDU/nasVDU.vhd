@@ -113,17 +113,17 @@ constant CHARS_PER_SCREEN : integer := HORIZ_STRIDE*VERT_CHARS;
 	signal	pixelCount: std_logic_vector(2 DOWNTO 0);
 
 	signal	horizCount: std_logic_vector(11 DOWNTO 0);
-	signal	vertLineCount: std_logic_vector(9 DOWNTO 0);
+	signal	vertLineCount: std_logic_vector(9 DOWNTO 0) := "0000000000";
 
 	signal	charVert: integer range 0 to VERT_CHAR_MAX; --unsigned(4 DOWNTO 0);
-	signal	charScanLine: std_logic_vector(4 DOWNTO 0); -- needs to accommodate char rows and VERT_PIXEL
+	signal	charScanLine: std_logic_vector(4 DOWNTO 0) := "00000"; -- needs to accommodate char rows and VERT_PIXEL
 
 -- functionally this only needs to go to HORIZ_CHAR_MAX. However, at the end of a line
 -- it goes 1 beyond in the hblank time. It could be avoided but it's fiddly with no
 -- benefit. Without the +1 the design synthesises and works fine but gives a fatal
 -- error in RTL simulation when the signal goes out of range.
 	signal	charHoriz: integer range 0 to 1+HORIZ_CHAR_MAX; --unsigned(6 DOWNTO 0);
-	signal	charBit: std_logic_vector(3 DOWNTO 0);
+	signal	charBit: std_logic_vector(3 DOWNTO 0) := "0000";
 
 	-- top left-hand corner of the display is 0,0 aka "home".
 	signal	cursorVert: integer range 0 to VERT_CHAR_MAX :=0;
@@ -198,7 +198,7 @@ begin
 		address_b => addr(10 downto 0),  -- CPU access port
 		data_b => dataIn,
 		q_b => dataOutMap,
-		wren_b => wren_nas,
+		wren_b => wren_map,
 
 		address_a => dispAddr_xx(10 downto 0), -- Read-only display port
 		data_a => (others => '0'),
@@ -237,10 +237,14 @@ end generate GEN_1KRAM;
         -- rather than being a factor of VERT_PIXEL_SCANLINES
         -- [NAC HACK 2020Nov21] need to restore manifest constants when I have added
         -- rows-per-char or somesuch
-        charAddr <= dispCharData & charScanLine(4 downto 1);
+-- [NAC HACK 2020Nov24] need constants for NASCOM or better coding.. based on VERT_PIXEL_SCANLINES
+          charAddr <= dispCharData & charScanLine(3 downto 0);
+--        charAddr <= dispCharData & charScanLine(4 downto 1);
 
+-- [NAC HACK 2020Nov24] need constants for NASCOM
         -- "charVert + 15" is to impose line offset for NASCOM
-	dispAddr <= (charHoriz+((charVert + 15) * HORIZ_STRIDE)+HORIZ_OFFSET) mod CHARS_PER_SCREEN;
+--	dispAddr <= (charHoriz+((charVert + 15) * HORIZ_STRIDE)+HORIZ_OFFSET) mod CHARS_PER_SCREEN;
+	dispAddr <= (charHoriz+((charVert + 0) * HORIZ_STRIDE)+HORIZ_OFFSET) mod CHARS_PER_SCREEN;
 	cursAddr <= (cursorHoriz+(cursorVert * HORIZ_CHARS)) mod CHARS_PER_SCREEN; -- [NAC HACK 2020Nov22] needs update to match above
 
 	sync <= vSync and hSync; -- composite sync for mono video out

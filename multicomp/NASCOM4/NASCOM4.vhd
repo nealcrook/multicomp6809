@@ -72,12 +72,15 @@
 -- TODO
 --
 ------
--- Test it for VFC - needs different instance parameters set up
+-- Add constants to allow hack-free switch from
+-- VFC to NASCOM video modes
 ------
 -- Create dummy Special Boot ROM code (use T2??)
+-- .. or a piece of code that reads the mode and
+-- selects NASCOM or MAP80 then vectors through RAM
+-- to set it up and go to it.
 ------
 -- Work out how to do video switching (2 sets of timing)
--- Get video working in RTL sim
 -- Add debug signals to show reads of video/chargen RAM
 ------
 -- Implement RAM paging register
@@ -286,9 +289,6 @@ architecture struct of NASCOM4 is
 
     signal n_WR_gpio              : std_logic := '1';
 
-    signal n_WR_vdu               : std_logic := '1';
-    signal n_RD_vdu               : std_logic := '1';
-
     signal wren_nasWSRam          : std_logic := '1';
 
     signal ramWrInhib             : std_logic := '0';
@@ -331,12 +331,23 @@ architecture struct of NASCOM4 is
     -- B7          ignored                                 bootmode1
     -- B6          ignored                                 bootmode0
     -- B5          unused                                       0
-    -- B4          MAP80 VFC autoboot                           0     <<-- [NAC HACK 2020Nov23] don't actually need this
+    -- B4          MAP80 VFC autoboot                           0
     -- B3          0: enable NAS-SYS 1: enable special boot ROM 0
     -- B2          1: enable ROM at 0                           0
     -- B1          0: VRAM@800, 1:VRAM@?? (for CP/M)            0
     -- B0          1: enable NASCOM VRAM                        0
     --
+    -- autoboot bit is subtle..
+    -- autoboot=0 : iopwrECRomEnable is reset to 0. Writing a 1
+    --              to the register bit sets it to 1.
+    -- autoboot=1 : iopwrECRomEnable is reset to 1. Writing a 1
+    --              to the register bit sets it to 0.
+    -- the bootmode bits determine the reset state of autoboot, and
+    -- therefore the initial state of iopwrECRomEnable. The reason
+    -- for having it as a writeable bit is that it allows the special
+    -- boot ROM to start at reset and then pass control to the MAP80
+    -- VFC ROM and autoboot.
+
     signal iopwr03NasVidEnable    : std_logic;
     signal iopwr03NasVidHigh      : std_logic;
     signal iopwr03RomAtZero       : std_logic;
@@ -364,6 +375,7 @@ architecture struct of NASCOM4 is
     signal iopwrECVfcPage         : std_logic_vector(3 downto 0);
     signal iopwrECRomEnable       : std_logic;
     signal iopwrECRamEnable       : std_logic;
+    signal iopwrECRomEnable_gated : std_logic;
 -- [NAC HACK 2020Nov22] TODO char gen 1 vs 2, inverse video vs upper char set.
 
     ------------------------------------------------------------------
@@ -416,7 +428,7 @@ architecture struct of NASCOM4 is
     -- bootmode=1           10000                   MAP80 video
     -- bootmode=2           01101                   NASCOM video
     -- bootmode=3           01111                   NASCOM video
-    signal bootmode               : std_logic_vector(1 downto 0) := "00";
+    signal bootmode               : std_logic_vector(1 downto 0) := "01";
 
 begin
 
@@ -509,15 +521,11 @@ begin
           iopwr03NasVidEnable  <= '0';
           iopwr03RomAtZero     <= '0'; -- use VFC ROM
           iopwr03MAP80AutoBoot <= '1';
-          iopwrECRomEnable     <= '1';
-          iopwrECRamEnable     <= '1';
           video_map80vfc       <= '1';
         else
           iopwr03NasVidEnable  <= '1';
           iopwr03RomAtZero     <= '1';
           iopwr03MAP80AutoBoot <= '0';
-          iopwrECRomEnable     <= '0';
-          iopwrECRamEnable     <= '0';
           video_map80vfc       <= '0';
         end if;
 
@@ -537,6 +545,8 @@ begin
         portE4wr <= x"00";
         portE8wr <= x"00";
 
+        iopwrECRomEnable  <= '0';
+        iopwrECRamEnable  <= '0';
         iopwrECVfcPage    <= x"0";
 
         portFEwr <= x"00";
@@ -556,7 +566,7 @@ begin
         end if;
 
         if cpuAddress(7 downto 0) = x"ec" and n_IORQ = '0' and n_WR = '0' then
-          iopwrECVfcPage    <= cpuDataOut(3 downto 0);
+          iopwrECVfcPage    <= cpuDataOut(7 downto 4);
           iopwrECRomEnable  <= cpuDataOut(1);
           iopwrECRamEnable  <= cpuDataOut(0);
         end if;
@@ -680,10 +690,6 @@ begin
       end if;
     end process;
 
--- [NAC HACK 2020Nov20] clean up
---    n_WR_vdu <= n_interface1CS or n_WR;
---    n_RD_vdu <= n_interface1CS or n_RD;
-
     n_memWr <= n_MREQ or n_WR;
 
     io1 : entity work.nasVDU
@@ -693,27 +699,26 @@ begin
 
       -- 80x25 uses all the internal RAM
       -- This selects 640x400 rather than the default of 640x480
---      DISPLAY_TOP_SCANLINE => 35,
---      VERT_SCANLINES => 448,
---      V_SYNC_ACTIVE => '1'
+      DISPLAY_TOP_SCANLINE => 35,
+      VERT_SCANLINES => 448,
+      V_SYNC_ACTIVE => '1'
 
-      -- TODO need to fiddle with the addressing to get line 16 at the top..
       -- Setup for NASCOM 48x16 using 800x600 mode
       -- at half rate so that the effective clock is 25MHz, the
       -- same as the 80x25 mode.
-      VERT_CHARS => 16,
-      HORIZ_CHARS => 48,
-      HORIZ_STRIDE => 64, -- for NASCOM screen, stride of 64 locations per row
-      HORIZ_OFFSET => 10, -- for NASCOM screen, ignore first 10 and last 6
-      CLOCKS_PER_SCANLINE => 1056,
-      DISPLAY_TOP_SCANLINE => 40+30, -- at least vfront+vsync+vback then pad to centralise display
-      DISPLAY_LEFT_CLOCK => 240+2, -- (HSYNC + HBACK)*2
-      VERT_SCANLINES => 625,
-      VSYNC_SCANLINES => 3,
-      HSYNC_CLOCKS => 80,
-      VERT_PIXEL_SCANLINES => 2,
-      H_SYNC_ACTIVE => '1',
-      V_SYNC_ACTIVE => '1'
+--      VERT_CHARS => 16,
+--      HORIZ_CHARS => 48,
+--      HORIZ_STRIDE => 64, -- for NASCOM screen, stride of 64 locations per row
+--      HORIZ_OFFSET => 10, -- for NASCOM screen, ignore first 10 and last 6
+--      CLOCKS_PER_SCANLINE => 1056,
+--      DISPLAY_TOP_SCANLINE => 40+30, -- at least vfront+vsync+vback then pad to centralise display
+--      DISPLAY_LEFT_CLOCK => 240+2, -- (HSYNC + HBACK)*2
+--      VERT_SCANLINES => 625,
+--      VSYNC_SCANLINES => 3,
+--      HSYNC_CLOCKS => 80,
+--      VERT_PIXEL_SCANLINES => 2,
+--      H_SYNC_ACTIVE => '1',
+--      V_SYNC_ACTIVE => '1'
     )
 
     port map (
@@ -899,7 +904,8 @@ begin
     -- MAP80VFC video RAM
     n_vfcVidRamCS <= '0' when cpuAddress(15 downto 12) = iopwrECVfcPage and cpuAddress(11) = '1' and iopwrECRamEnable = '1' else '1';
     -- MAP80VFC ROM
-    n_vfcRomCS    <= '0' when cpuAddress(15 downto 12) = iopwrECVfcPage and cpuAddress(11) = '0' and iopwrECRomEnable = '1' else '1';
+    iopwrECRomEnable_gated <= iopwrECRomEnable xor iopwr03MAP80AutoBoot;
+    n_vfcRomCS    <= '0' when cpuAddress(15 downto 12) = iopwrECVfcPage and cpuAddress(11) = '0' and iopwrECRomEnable_gated = '1' else '1';
 
     -- vduffd0 swaps the assignment. Internal pullup means it is 1 by default
     n_interface1CS <= '0' when ((cpuAddress(15 downto 1) = "111111111101000" and vduffd0 = '1')  -- 2 bytes FFD0-FFD1
