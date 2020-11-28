@@ -63,6 +63,13 @@
 -- source allowing tape loading.. but then, would want to use this to do the
 -- ROM load as well, and not use the integrated SDcard controller.
 
+-- TODO change ROMs to be a single model with an initialisation file
+-- and put them in a generic folder.
+-- TODO change char gen to an initialised RAM and add control port for
+-- writes.
+-- TODO change special boot ROM to an initialised RAM and add control
+-- port for writes??
+
 
 -- External port addressing:
 -- * I/O port 4,5,6,7 - External PIO
@@ -71,6 +78,53 @@
 
 -- TODO
 --
+-- Review compilation warnings and fix
+-- Split out port0 write signals like port3 stuff, implement DRIVE
+
+-- draw up a list of new I/O and what pins it will be assigned to
+-- .. annoying if I were to run out!!
+
+
+-- Current         New
+-- gpio0(2)        in, NMI button
+-- gpio0(1)        in, bootmode1
+-- gpio0(0)        in, bootmode0
+--
+-- n_LED7          out, DRIVE - [NAC HACK 2020Nov25] not yet coded.
+-- n_LED9          out, HALT
+-- gpio2(7)        out, nascom kbd clk
+-- gpio2(6)        out, nascom kbd rst
+-- gpio2(5)        out, /M1 (for int ack)
+-- gpio2(4)        out, CLK (for PIO)
+-- gpio2(3)        out, IORQ (for PIO)
+-- gpio2(2)        out, RD (for PIO)
+-- gpio2(1)        out, WR (for PIO)
+-- gpio2(0)        in, INT (for PIO)
+-- vduffd0         out, buf oe (for I/O bus buffer)
+-- rxd2            out, buf dir (for I/O bus buffer)
+-- txd2            out, ioclk for motor on/drive select/fm~mfm register
+-- rt2s            out iooe for reading 3 FDC status signals: INT/DAV/BUSY
+-- videoSync       out iooe for reading NASCOM kbd data
+-- txd1            out UART TXD
+-- rxd1            in UART RXD
+-- rts1            in UART TXRXCLK
+-- video           out FDC chip select
+--                 out PIO chip select
+--
+-- .. may run out of pins..
+-- currently this allows me to keep the 5 pins assigned to SDcard and its LED
+-- and the PS/2 keyboard connection
+-- and the 8 pins for VGA. VGA could be reduced to 3 pins freeing 5
+-- if I have 2 VGA ports, using 6 pins, I'll still free 2 pins.. one for the PIO
+-- chip select and one spare (FDC clock?? Reset??)
+--
+-- ..just hope I did not forget anything!
+-- mitigation is to put Port0 output latch externally:
+-- add 1 control signal, remove connections for LED, KBD-reset, KBD-clock
+-- and so save 2 pins. Still do the single-step bit internally but also publish it in the I/O write.
+
+
+
 ------
 -- Add constants to allow hack-free switch from
 -- VFC to NASCOM video modes
@@ -83,12 +137,10 @@
 -- Work out how to do video switching (2 sets of timing)
 -- Add debug signals to show reads of video/chargen RAM
 ------
--- Implement RAM paging register
 -- Implement write-protect register
 -- Add write port to char gen.. how to decode? Whole of VFC space?
 -- Code synchroniser and pulse generator for NMI push button
 -- Work out what's needed for FDC miscellaneous control
--- Split out port0 write signals like port3 stuff.
 -- Look at clocking, implement external RAM interface, allow
 -- slow-down for I/O cycles. Allow operation at a lower clock speed.
 -- Work out external pin mapping.
@@ -164,9 +216,9 @@ use  IEEE.STD_LOGIC_UNSIGNED.all;
 
 entity NASCOM4 is
     port(
-	     -- these are connected on the base FPGA board
-        n_reset     : in std_logic;
-        clk         : in std_logic;
+	-- these are connected on the base FPGA board
+        n_reset       : in std_logic;
+        clk           : in std_logic;
 
         -- LEDs on base FPGA board and duplicated on James Moxham's PCB.
         -- Set LOW to illuminate. 3rd LED is "driveLED" output.
@@ -176,7 +228,7 @@ entity NASCOM4 is
         -- External pull-up so this defaults to 1. When pulled to gnd
         -- this swaps the address decodes so that the Serial A port is
         -- decoded at $FFD0 and the VDU at $FFD2.
-        vduffd0     : in std_logic;
+        vduffd0         : in std_logic;
 
         sRamData        : inout std_logic_vector(7 downto 0);
         sRamAddress     : out std_logic_vector(18 downto 0); -- 18:0 -> 512KByte
@@ -214,7 +266,7 @@ entity NASCOM4 is
         -- bit 2: CE          (FPGA PIN 42)
         -- bit 1: SCLK        (FPGA PIN 41)
         -- bit 0: I/O (Data)  (FPGA PIN 40)
-        gpio0       : inout std_logic_vector(2 downto 0);
+        gpio0       : in std_logic_vector(2 downto 0); --[NAC HACK 2020Nov25] (1..0) now used for bootmode
         -- 8 GPIO mapped to "group B" connector. Pin 1..8 of that connector
         -- assigned to bit 0..7 of gpio2.
         gpio2       : inout std_logic_vector(7 downto 0);
@@ -232,9 +284,7 @@ architecture struct of NASCOM4 is
 
     signal n_WR                   : std_logic;
     signal n_RD                   : std_logic;
-    signal n_cpuWr                : std_logic;
     signal hold                   : std_logic;
-    signal vma                    : std_logic;
     signal state                  : std_logic_vector(2 downto 0);
     signal cpuAddress             : std_logic_vector(15 downto 0);
     signal cpuDataOut             : std_logic_vector(7 downto 0);
@@ -273,7 +323,6 @@ architecture struct of NASCOM4 is
     signal n_interface2CS         : std_logic :='1';
     signal n_interface3CS         : std_logic :='1';
     signal n_sdCardCS             : std_logic :='1';
-    signal n_gpioCS               : std_logic :='1';
 
     signal serialClkCount         : std_logic_vector(15 downto 0) := x"0000";
     signal serialClkCount_d       : std_logic_vector(15 downto 0);
@@ -292,14 +341,6 @@ architecture struct of NASCOM4 is
     signal wren_nasWSRam          : std_logic := '1';
 
     signal ramWrInhib             : std_logic := '0';
-
-    signal gpio_dat0_i            : std_logic_vector(2 downto 0);
-    signal gpio_dat0_o            : std_logic_vector(2 downto 0);
-    signal n_gpio_dat0_oe         : std_logic_vector(2 downto 0);
-
-    signal gpio_dat2_i            : std_logic_vector(7 downto 0);
-    signal gpio_dat2_o            : std_logic_vector(7 downto 0);
-    signal n_gpio_dat2_oe         : std_logic_vector(7 downto 0);
 
 --[NAC HACK 2020Nov15] new to be tidied/integrated
     signal cpuClock               : std_logic := '1';
@@ -384,8 +425,9 @@ architecture struct of NASCOM4 is
 
     ------------------------------------------------------------------
     -- Port FE: MAP80 256KRAM
-    signal portFEwr               : std_logic_vector(7 downto 0);
-
+    signal iopwrFE32kPages        : std_logic := '0';
+    signal iopwrFEUpper32k        : std_logic := '0';
+    signal iopwrFEPageSel         : std_logic_vector(5 downto 0) := "000000";
 
     -- combine from misc ports (and UART?)
     signal nasLocalIODataOut      : std_logic_vector(7 downto 0);
@@ -433,6 +475,9 @@ architecture struct of NASCOM4 is
 begin
 
     n_LED9 <= n_HALT;
+    -- [NAC HACK 2020Nov25] change sim script to set the pins accordingly
+--    bootmode(1) <= gpio0(1);
+--    bootmode(0) <= gpio0(0);
 
 
 -- ____________________________________________________________________________________
@@ -453,8 +498,8 @@ begin
             busrq_n => '1', -- TODO probably unused
             halt_n  => n_HALT,
             m1_n    => n_M1,   -- TODO to s/step
-            mreq_n  => n_MREQ, -- TODO rw => n_cpuWr,
-            iorq_n  => n_IORQ, -- TODO vma => vma,
+            mreq_n  => n_MREQ,
+            iorq_n  => n_IORQ,
             rd_n    => n_RD,
             wr_n    => n_WR,
             a       => cpuAddress,
@@ -549,12 +594,21 @@ begin
         iopwrECRamEnable  <= '0';
         iopwrECVfcPage    <= x"0";
 
-        portFEwr <= x"00";
-
+        iopwrFE32kPages   <= '0';
+        iopwrFEUpper32k   <= '0';
+        iopwrFEPageSel    <= "000000";
 
       elsif rising_edge(clk) then
         if cpuAddress(7 downto 0) = x"00" and n_IORQ = '0' and n_WR = '0' then
           port00wr <= cpuDataOut;
+        end if;
+
+        if cpuAddress(7 downto 0) = x"03" and n_IORQ = '0' and n_WR = '0' then
+          iopwr03MAP80AutoBoot <= cpuDataOut(4);
+          iopwr03NasSysRom     <= cpuDataOut(3);
+          iopwr03RomAtZero     <= cpuDataOut(2);
+          iopwr03NasVidHigh    <= cpuDataOut(1);
+          iopwr03NasVidEnable  <= cpuDataOut(0);
         end if;
 
         if cpuAddress(7 downto 0) = x"e4" and n_IORQ = '0' and n_WR = '0' then
@@ -580,7 +634,9 @@ begin
         end if;
 
         if cpuAddress(7 downto 0) = x"fe" and n_IORQ = '0' and n_WR = '0' then
-          portFEwr <= cpuDataOut;
+          iopwrFE32kPages   <= cpuDataOut(7);
+          iopwrFEUpper32k   <= cpuDataOut(6);
+          iopwrFEPageSel    <= cpuDataOut(5 downto 0);
         end if;
       end if;
     end process;
@@ -710,6 +766,7 @@ begin
 --      HORIZ_CHARS => 48,
 --      HORIZ_STRIDE => 64, -- for NASCOM screen, stride of 64 locations per row
 --      HORIZ_OFFSET => 10, -- for NASCOM screen, ignore first 10 and last 6
+--      LINE_OFFSET => 15,  -- for NASCOM screen, offset by 15 lines so top line is line 16
 --      CLOCKS_PER_SCANLINE => 1056,
 --      DISPLAY_TOP_SCANLINE => 40+30, -- at least vfront+vsync+vback then pad to centralise display
 --      DISPLAY_LEFT_CLOCK => 240+2, -- (HSYNC + HBACK)*2
@@ -816,74 +873,10 @@ begin
             clk => clk
     );
 
-    mm1 : entity work.mem_mapper2
-    port map(
-            n_reset => n_reset,
-            clk => clk,
-            hold => hold,
-            n_wr => n_WR_sd,
 
-            dataIn => cpuDataOut,
-            regAddr => cpuAddress(2 downto 0),
-
-            cpuAddr => cpuAddress(15 downto 9),
-            ramAddr => sRamAddress_i(18 downto 13),
-            ramWrInhib => ramWrInhib,
-
-            n_ramCSHi => n_sRamCSHi_i,
-            n_ramCSLo => n_sRamCSLo_i,
-
-            n_tint => n_tint,
-            nmi => nmi,
-            frt => n_LED7 -- debug
-    );
-
-    n_WR_gpio <= n_gpioCS or n_WR;
-
-    gpio1 : entity work.gpio
-    port map(
-            n_reset => n_reset,
-            clk => clk,
-            hold => hold,
-            n_wr => n_WR_gpio,
-
-            dataIn => cpuDataOut,
-            dataOut => gpioDataOut,
-            regAddr => cpuAddress(0),
-
-            dat0_i => gpio_dat0_i,
-            dat0_o => gpio_dat0_o,
-            n_dat0_oe => n_gpio_dat0_oe,
-
-            dat2_i => gpio_dat2_i,
-            dat2_o => gpio_dat2_o,
-            n_dat2_oe => n_gpio_dat2_oe
-    );
 
     -- pin control. There's probably an easier way of doing this??
-    gpio_dat0_i <= gpio0;
-    pad_ctl_gpio0: process(gpio_dat0_o, n_gpio_dat0_oe)
-    begin
-      for gpio_bit in 0 to 2 loop
-        if n_gpio_dat0_oe(gpio_bit) = '0' then
-          gpio0(gpio_bit) <= gpio_dat0_o(gpio_bit);
-        else
-          gpio0(gpio_bit) <= 'Z';
-        end if;
-      end loop;
-    end process;
-
-    gpio_dat2_i <= gpio2;
-    pad_ctl_gpio2: process(gpio_dat2_o, n_gpio_dat2_oe)
-    begin
-      for gpio_bit in 0 to 7 loop
-        if n_gpio_dat2_oe(gpio_bit) = '0' then
-          gpio2(gpio_bit) <= gpio_dat2_o(gpio_bit);
-        else
-          gpio2(gpio_bit) <= 'Z';
-        end if;
-      end loop;
-    end process;
+    -- .. refer to multicomp6809 design
 
 -- ____________________________________________________________________________________
 -- MEMORY READ/WRITE LOGIC GOES HERE
@@ -916,7 +909,6 @@ begin
                       else '1';
 
     n_interface3CS <= '0' when cpuAddress(15 downto 1) = "111111111101010" else '1'; -- 2 bytes FFD4-FFD5
-    n_gpioCS       <= '0' when cpuAddress(15 downto 1) = "111111111101011" else '1'; -- 2 bytes FFD6-FFD7
     n_sdCardCS     <= '0' when cpuAddress(15 downto 3) = "1111111111011"   else '1'; -- 8 bytes FFD8-FFDF
     -- experimented with allowing RAM to be written to "underneath" ROM but
     -- there is no advantage vs repaging the region, and it causes problems because
@@ -925,14 +917,6 @@ begin
 -- ____________________________________________________________________________________
 -- BUS ISOLATION GOES HERE
 
---    cpuDataIn <=
---                        interface1DataOut    when n_interface1CS = '0' else
---                        interface2DataOut    when n_interface2CS = '0' else
---                        interface3DataOut    when n_interface3CS = '0' else
---                        gpioDataOut          when n_gpioCS = '0'       else
---                        basRomData           when n_basRomCS = '0' else
---                        internalRam1DataOut when n_internalRam1CS= '0' else
---                        sRamData;
     cpuDataIn <=
                         nasLocalIODataOut       when n_IORQ        = '0' else
                         nasRomDataOut           when n_nasRomCS    = '0' else
@@ -1002,7 +986,7 @@ begin
 		  --   HOLD combinatorially from VMA which might introduce a timing loop.
 
         -- state control - counter influenced by VMA
-        if state = 0 and vma = '0' then
+        if state = 0               then
             state <= "100";
         else
             if state < 4 then
@@ -1015,7 +999,7 @@ begin
         end if;
 
         -- decode HOLD from state and VMA
-        if state = 3 or (state = 0 and vma = '0') then
+        if state = 3 or (state = 0              ) then
             hold <= '0'; -- run the clock
         else
             hold <= '1'; -- pause the clock
@@ -1023,13 +1007,13 @@ begin
 
         -- decode memory and RW control from state etc.
         if (state = 1 or state = 2 or state = 3) then
-            if n_cpuWr = '0' then
+--          if n_cpuWr = '0' then
 --                n_WR <= '0';
                 n_sRamWE <= (n_sRamCSHi_i and n_sRamCSLo_i) or ramWrInhib ; -- synchronous and glitch-free
-            else
+--          else
 --                n_RD <= '0';
                 n_sRamOE <= n_sRamCSHi_i and n_sRamCSLo_i; -- synchronous and glitch-free
-            end if;
+--          end if;
         else
 --            n_WR <= '1';
 --            n_RD <= '1';

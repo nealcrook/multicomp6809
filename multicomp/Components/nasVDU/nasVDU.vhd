@@ -19,21 +19,19 @@
 -- (or, for example, to use the SARGON graphics).
 --
 -- TODO how to map the character generator into the address space.
+-- -> use "tools->megawizard plug-in manager" to create RAM that has
+-- pre-initialised content.
 -- TODO describe the VGA timing
 -- TODO if 2 VGA outputs, allow them to be swapped so that it's OK
 -- to attach a single display.
--- TODO generate debug signals to indicate when the display and char-gen
+-- TODO generate debug signals to indicate when the char-gen
 -- memories are being read; work out if the char-gen can easily be shared
 -- between two render-engines, allowing dual VGA output.
--- TODO get everything defined (if only for debug) so that it simulates
--- ..should simply be a case of initialising the counters.
-
+-- Uncode the ATTRIB stuff so that 
 
 --
 -- NEXT:
--- - instance 1K and 2K video RAM; common paths, separate chip selects
---   and (for efficient timing) separate read data output
--- - add char gen write path?
+-- add char gen write path?
 
 --
 -- This code is derived from Grant Searle's SBCTextDisplayRGB for multicomp
@@ -48,12 +46,12 @@ library ieee;
 
 entity nasVDU is
 	generic(
-		constant EXTENDED_CHARSET : integer := 1; -- 1 = 256 chars, 0 = 128 chars
 		-- VGA 640x480 Default values
 		constant VERT_CHARS : integer := 25;
 		constant HORIZ_CHARS : integer := 80;
 		constant HORIZ_STRIDE : integer := 80;
 		constant HORIZ_OFFSET : integer := 0;
+		constant LINE_OFFSET : integer := 0;
 		constant CLOCKS_PER_SCANLINE : integer := 1600; -- NTSC/PAL = 3200
 		constant DISPLAY_TOP_SCANLINE : integer := 35+40;
 		constant DISPLAY_LEFT_CLOCK : integer := 288; -- NTSC/PAL = 600+ -- seems to be (hsync+hback)*2
@@ -61,8 +59,9 @@ entity nasVDU is
 		constant VSYNC_SCANLINES : integer := 2; -- NTSC/PAL = 4
 		constant HSYNC_CLOCKS : integer := 192;  -- NTSC/PAL = 235
 		constant SCANLINES_PER_CHAR : integer := 16; -- Number of rows (scanlines) per character in the CharGen ROM
-		constant VERT_PIXEL_SCANLINES : integer := 1; -- [NAC HACK 2020Nov21] For scan line duplication? but not quite
-                                                              -- right..
+                -- vertical scanline duplication. Values of 1 and 2 work. For other values need to
+                -- revisit the character generator addressing (charScanLine)
+		constant VERT_PIXEL_SCANLINES : integer := 1;
 
 		constant CLOCKS_PER_PIXEL : integer := 2; -- min = 2
 		constant H_SYNC_ACTIVE : std_logic := '0';
@@ -116,7 +115,7 @@ constant CHARS_PER_SCREEN : integer := HORIZ_STRIDE*VERT_CHARS;
 	signal	vertLineCount: std_logic_vector(9 DOWNTO 0) := "0000000000";
 
 	signal	charVert: integer range 0 to VERT_CHAR_MAX; --unsigned(4 DOWNTO 0);
-	signal	charScanLine: std_logic_vector(4 DOWNTO 0) := "00000"; -- needs to accommodate char rows and VERT_PIXEL
+	signal	charScanLine: std_logic_vector(4 DOWNTO 0) := "00000"; -- needs to accommodate char rows and VERT_PIXEL_SCANLINES
 
 -- functionally this only needs to go to HORIZ_CHAR_MAX. However, at the end of a line
 -- it goes 1 beyond in the hblank time. It could be avoided but it's fiddly with no
@@ -174,78 +173,58 @@ begin
         dispCharData <= dispCharDataMap when video_map80vfc='1' else dispCharDataNas;
 
 -- DISPLAY ROM (CHARACTER GENERATOR)
--- was 11 address lines broken up as 8,3 for char,row
--- now 12 address lines broken up as 8,4 for char,row
-GEN_EXT_CHARS: if (EXTENDED_CHARSET=1) generate
-begin
-	fontRom : entity work.nasCharGenRom4K -- 256 chars, 8 bits x 16 lines (4K)
-        port map(
-		address => charAddr, -- 12-bit: 8 (1-of-256 characters) + 4 (1-of-16 rows)
-		clock => clk,
-		q => charData
-	);
-end generate GEN_EXT_CHARS;
+    fontRom : entity work.nasCharGenRom4K -- 4Kx8 for 256 characters x 16rows x 8pixels
+      port map(
+            clock => clk,
 
+            address => charAddr, -- 12-bit: 8 (1-of-256 characters) + 4 (1-of-16 rows)
+            q => charData
+            );
 
--- DISPLAY RAM
-GEN_2KRAM: if (TRUE) generate
-begin
-        dispMAPRam: entity work.DisplayRam2K -- For MAP80 VFC 80x25 display
-	port map
-	(
-		clock	=> clk,
+-- DISPLAY RAMS
+    dispMAPRam: entity work.DisplayRam2K -- For MAP80 VFC 80x25 display
+      port map(
+            clock => clk,
 
-		address_b => addr(10 downto 0),  -- CPU access port
-		data_b => dataIn,
-		q_b => dataOutMap,
-		wren_b => wren_map,
+            address_b => addr(10 downto 0),  -- R/W CPU access port
+            data_b => dataIn,
+            q_b => dataOutMap,
+            wren_b => wren_map,
 
-		address_a => dispAddr_xx(10 downto 0), -- Read-only display port
-		data_a => (others => '0'),
-		q_a => dispCharDataMap,
-		wren_a => '0'
-	);
-end generate GEN_2KRAM;
+            address_a => dispAddr_xx(10 downto 0), -- RO Display port
+            data_a => (others => '0'),
+            q_a => dispCharDataMap,
+            wren_a => '0'
+            );
 
-GEN_1KRAM: if (TRUE) generate
-begin
- 	dispNASRam: entity work.DisplayRam1K -- For NASCOM 48x16 display
-	port map
-	(
-		clock	=> clk,
+    dispNASRam: entity work.DisplayRam1K -- For NASCOM 48x16 display
+      port map(
+            clock => clk,
 
-		address_b => addr(9 downto 0), -- CPU access port
-		data_b => dataIn,
-		q_b => dataOutNas,
-		wren_b => wren_nas,
+            address_b => addr(9 downto 0), -- R/W CPU access port
+            data_b => dataIn,
+            q_b => dataOutNas,
+            wren_b => wren_nas,
 
-		address_a => dispAddr_xx(9 downto 0), -- Read-only display port
-		data_a => (others => '0'),
-		q_a => dispCharDataNas,
-		wren_a => '0'
-	);
-end generate GEN_1KRAM;
+            address_a => dispAddr_xx(9 downto 0), -- RO Display port
+            data_a => (others => '0'),
+            q_a => dispCharDataNas,
+            wren_a => '0'
+            );
 
+        -- Character generator addressing
+        -- dispCharData contributes 8 bits to select 1-of-256 characters.
+        -- charScanLine contributes 4 bits to select 1-of-16 rows of the character.
+        -- When VERT_PIXEL_SCANLINES=1 there is 1 scanline for each row of the character; charScanLine
+        -- counts from 0..15 and the addressing here uses bits 3..0
+        -- When VERT_PIXEL_SCANLINES=2 there are 2 scanlines for each row of the character; charScanLine
+        -- counts from 0..31 and the addressing here used bits 4..1
+        -- Other power-of-2 values of VERT_PIXEL_SCANLINES are probably OK; anything else will need
+        -- adjustment here (and maybe elsewhere, too).
+        charAddr <= dispCharData & charScanLine(3+VERT_PIXEL_SCANLINES-1 downto 0+VERT_PIXEL_SCANLINES-1);
 
-        -- address character generator with 8 rows (scan lines) per character.
-        -- 7 high-order bits select the character, 3 low-order bits select the scan line
-        -- using charScanLine(3..1) so that the LSB of charScanLine does not affect the
-        -- char gen: the data is duplicated for odd and even scan lines.
-        -- To get 16 rows-per-character should just need to change VERT_PIXEL_SCANLINES
-        -- from 2 to 1 but that doesn't work out: would get charScanLines(2..0) which
-        -- still only gives 8 rows-per-character. I think the MSB should be fixed at 3
-        -- rather than being a factor of VERT_PIXEL_SCANLINES
-        -- [NAC HACK 2020Nov21] need to restore manifest constants when I have added
-        -- rows-per-char or somesuch
--- [NAC HACK 2020Nov24] need constants for NASCOM or better coding.. based on VERT_PIXEL_SCANLINES
-          charAddr <= dispCharData & charScanLine(3 downto 0);
---        charAddr <= dispCharData & charScanLine(4 downto 1);
-
--- [NAC HACK 2020Nov24] need constants for NASCOM
-        -- "charVert + 15" is to impose line offset for NASCOM
---	dispAddr <= (charHoriz+((charVert + 15) * HORIZ_STRIDE)+HORIZ_OFFSET) mod CHARS_PER_SCREEN;
-	dispAddr <= (charHoriz+((charVert + 0) * HORIZ_STRIDE)+HORIZ_OFFSET) mod CHARS_PER_SCREEN;
-	cursAddr <= (cursorHoriz+(cursorVert * HORIZ_CHARS)) mod CHARS_PER_SCREEN; -- [NAC HACK 2020Nov22] needs update to match above
+	dispAddr <= (charHoriz  +((charVert   + LINE_OFFSET) * HORIZ_STRIDE)+HORIZ_OFFSET) mod CHARS_PER_SCREEN;
+	cursAddr <= (cursorHoriz+((cursorVert + LINE_OFFSET) * HORIZ_STRIDE)+HORIZ_OFFSET) mod CHARS_PER_SCREEN;
 
 	sync <= vSync and hSync; -- composite sync for mono video out
 
