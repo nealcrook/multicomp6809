@@ -192,6 +192,7 @@ set_global_assignment -name VHDL_FILE ../Components/MMAPPER/mem_mapper.vhd
 set_global_assignment -name VHDL_FILE ../Components/MMAPPER2/mem_mapper2.vhd
 set_global_assignment -name VHDL_FILE ../Components/GPIO/gpio.vhd
 set_global_assignment -name VHDL_FILE ../Components/nasVDU/nasVDU.vhd
+set_global_assignment -name VHDL_FILE ../Components/nasVDU/nasVDU_render.vhd
 set_global_assignment -name QIP_FILE ../Components/nasVDU/DisplayRam1K.qip
 set_global_assignment -name QIP_FILE ../Components/nasVDU/DisplayRam2K.qip
 set_global_assignment -name QIP_FILE ../Components/nasVDU/nasCharGenRom4K.qip
@@ -212,6 +213,7 @@ set_global_assignment -name QIP_FILE ../RAMS/InternalRam4K.qip
 set_global_assignment -name QIP_FILE ../ROMS/Z80/Z80_NASSYS3_ROM.qip
 set_global_assignment -name QIP_FILE ../ROMS/Z80/Z80_MAP80VFC_ROM.qip
 set_global_assignment -name QIP_FILE ../ROMS/Z80/Z80_SBOOT_ROM.qip
+
 
 
 

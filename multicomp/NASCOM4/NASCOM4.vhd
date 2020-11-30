@@ -69,6 +69,8 @@
 -- writes.
 -- TODO change special boot ROM to an initialised RAM and add control
 -- port for writes??
+--
+-- TODO port ram paging code in from __ed file.
 
 
 -- External port addressing:
@@ -470,7 +472,7 @@ architecture struct of NASCOM4 is
     -- bootmode=1           10000                   MAP80 video
     -- bootmode=2           01101                   NASCOM video
     -- bootmode=3           01111                   NASCOM video
-    signal bootmode               : std_logic_vector(1 downto 0) := "01";
+    signal bootmode               : std_logic_vector(1 downto 0) := "00";
 
 begin
 
@@ -749,35 +751,6 @@ begin
     n_memWr <= n_MREQ or n_WR;
 
     io1 : entity work.nasVDU
-
-    generic map(
-      -- Select one or other (NOT BOTH!) sets
-
-      -- 80x25 uses all the internal RAM
-      -- This selects 640x400 rather than the default of 640x480
-      DISPLAY_TOP_SCANLINE => 35,
-      VERT_SCANLINES => 448,
-      V_SYNC_ACTIVE => '1'
-
-      -- Setup for NASCOM 48x16 using 800x600 mode
-      -- at half rate so that the effective clock is 25MHz, the
-      -- same as the 80x25 mode.
---      VERT_CHARS => 16,
---      HORIZ_CHARS => 48,
---      HORIZ_STRIDE => 64, -- for NASCOM screen, stride of 64 locations per row
---      HORIZ_OFFSET => 10, -- for NASCOM screen, ignore first 10 and last 6
---      LINE_OFFSET => 15,  -- for NASCOM screen, offset by 15 lines so top line is line 16
---      CLOCKS_PER_SCANLINE => 1056,
---      DISPLAY_TOP_SCANLINE => 40+30, -- at least vfront+vsync+vback then pad to centralise display
---      DISPLAY_LEFT_CLOCK => 240+2, -- (HSYNC + HBACK)*2
---      VERT_SCANLINES => 625,
---      VSYNC_SCANLINES => 3,
---      HSYNC_CLOCKS => 80,
---      VERT_PIXEL_SCANLINES => 2,
---      H_SYNC_ACTIVE => '1',
---      V_SYNC_ACTIVE => '1'
-    )
-
     port map (
             n_reset => n_reset,
             clk => clk,
@@ -802,13 +775,7 @@ begin
             videoG0     => videoG0,
             videoG1     => videoG1,
             videoB0     => videoB0,
-            videoB1     => videoB1,
-
-            -- Monochrome video signals (when using TV timings only)
-            sync        => videoSync,
-            video       => video);
-
-
+            videoB1     => videoB1);
 
 
     n_WR_uart <= n_interface2CS or n_WR;
