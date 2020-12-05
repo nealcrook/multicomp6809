@@ -7,9 +7,9 @@
 -- * MAP80 VFC
 --
 -- The "99.9%" is because I do not reproduce the 6845 on the VFC but
--- have a fixed hardware setup for that video control.
+-- have a fixed hardware setup for that video control..
 --
--- Lots of ideas and some bits of code from Grant Searle's FPGA "Microcomp"
+-- Lots of ideas and some bits of code from Grant Searle's FPGA "Multicomp"
 -- design, which is copyright by Grant Searle 2014: http://www.searle.wales/
 -- http://searle.x10host.com/Multicomp/index.html
 --
@@ -128,9 +128,6 @@
 
 
 ------
--- Add constants to allow hack-free switch from
--- VFC to NASCOM video modes
-------
 -- Create dummy Special Boot ROM code (use T2??)
 -- .. or a piece of code that reads the mode and
 -- selects NASCOM or MAP80 then vectors through RAM
@@ -151,45 +148,6 @@
 -- Implement PS/2 keyboard interface?
 
 
-
-
---
--- Modifications to Grant's original design by foofoobedoo@gmail.com
--- In summary:
--- * Deploy 6809 modified to use async active-low reset, posedge clock
--- * Clock 6809 from master (50MHz) clock and control execution rate by
---   asserting HOLD
--- * Speed up clock cycle when no external access (VMA=0)
--- * Generate external SRAM control signals synchronously rather than with
---   gated clock
--- * Deploy VDU design modified to fix scroll bug and changed to run only on
---   posedge clock (submitted to Grant but not yet published by him)
--- * Deploy SDcard design modified to run on posedge clock and to support
---   SDHC as wall as SDSC.
--- * Replace BASIC ROM with ROM for CamelForth
--- * Add 2nd serial port ($FFD4-$FFD5)
--- * Reset baud rate generator and generate enable rather than async
---   clock. Associated changes to UART. Change UART to use posedge of clk.
--- * Add GPIO unit
---   For detailed description and programming details, refer to the
---   detailed comments in the header of gpio.vhd)
--- * Add mk2 memory mapper unit that is a functional super-set of the COCO
---   design. Has the following capabilities:
---   * Can address upto 1024KByte (2 512KByte SRAM chips)
---   * Can page any 8Kbyte SRAM region into any 8KByte region of processor
---     address space
---   * Can write-protect any region
---   * Can enable/disable ROM in the top 8Kbyte region
---   * Includes a 50Hz timer interrupt with efficient register interface
---   * Includes a NMI generator for code single-step
---   For detailed description and programming details, refer to the
---   detailed comments in the header of mem_mapper2.vhd)
--- * PIN3 is output: SD DRIVE LED
--- * PIN7 is output LED (unused)
--- * PIN9 is output LED (unused.. echoes back the state of input pin 48
--- * vduffd0 (pin 48) is input, selects I/O assignment:
---   OFF: PS2/VGA is UART0 at address $FFD0-$FFD1, SERIALA is UART1 at $FFD2-$FFD3
---   ON : PS2/VGA is UART0 at address $FFD2-$FFD3, SERIALA is UART1 at $FFD0-$FFD1
 --
 -- The pin assignments here are designed to match up with James Moxham's
 -- multicomp PCB. The support for devices on that PCB is summaried below:
@@ -217,6 +175,8 @@ use  IEEE.STD_LOGIC_ARITH.all;
 use  IEEE.STD_LOGIC_UNSIGNED.all;
 
 entity NASCOM4 is
+    generic( constant RTLSIM_UART : boolean := FALSE
+    );
     port(
 	-- these are connected on the base FPGA board
         n_reset       : in std_logic;
@@ -230,7 +190,7 @@ entity NASCOM4 is
         -- External pull-up so this defaults to 1. When pulled to gnd
         -- this swaps the address decodes so that the Serial A port is
         -- decoded at $FFD0 and the VDU at $FFD2.
-        vduffd0         : in std_logic;
+        vduffd0         : in std_logic;  -- [NAC HACK 2020Dec04] unused
 
         sRamData        : inout std_logic_vector(7 downto 0);
         sRamAddress     : out std_logic_vector(18 downto 0); -- 18:0 -> 512KByte
@@ -241,14 +201,14 @@ entity NASCOM4 is
 
         rxd1            : in std_logic;
         txd1            : out std_logic;
-        rts1            : out std_logic;
+        rts1            : out std_logic; -- [NAC HACK 2020Dec04] unused
 
-        rxd2		: in std_logic;
-        txd2		: out std_logic;
-        rts2		: out std_logic;
+        rxd2		: in std_logic; -- [NAC HACK 2020Dec04] unused
+        txd2		: out std_logic; -- [NAC HACK 2020Dec04] unused
+        rts2		: out std_logic; -- [NAC HACK 2020Dec04] unused
 
-        videoSync   : out std_logic;
-        video       : out std_logic;
+        videoSync   : out std_logic; -- [NAC HACK 2020Dec04] unused
+        video       : out std_logic; -- [NAC HACK 2020Dec04] unused
 
         videoR0     : out std_logic;
         videoG0     : out std_logic;
@@ -259,8 +219,8 @@ entity NASCOM4 is
         hSync       : out std_logic;
         vSync       : out std_logic;
 
-        ps2Clk      : inout std_logic;
-        ps2Data     : inout std_logic;
+        ps2Clk      : inout std_logic; -- [NAC HACK 2020Dec04] currently unused, reserved
+        ps2Data     : inout std_logic; -- [NAC HACK 2020Dec04] currently unused, reserved
 
         -- 3 GPIO mapped to "group A" connector. Pin 1..3 of that connector
         -- assigned to bit 0..2 of gpio0.
@@ -300,10 +260,7 @@ architecture struct of NASCOM4 is
     signal sbootRomDataOut        : std_logic_vector(7 downto 0);
     signal nasWSRamDataOut        : std_logic_vector(7 downto 0);
     signal VDURamDataOut          : std_logic_vector(7 downto 0);
-    signal interface1DataOut      : std_logic_vector(7 downto 0);
-    signal interface2DataOut      : std_logic_vector(7 downto 0);
-    signal interface3DataOut      : std_logic_vector(7 downto 0);
-    signal gpioDataOut            : std_logic_vector(7 downto 0);
+    signal UartDataOut            : std_logic_vector(7 downto 0);
     signal sdCardDataOut          : std_logic_vector(7 downto 0);
 
     signal irq                    : std_logic;
@@ -321,9 +278,7 @@ architecture struct of NASCOM4 is
     signal n_vfcRomCS             : std_logic :='1';
 
     signal n_sbootRomCS           : std_logic :='1';
-    signal n_interface1CS         : std_logic :='1';
-    signal n_interface2CS         : std_logic :='1';
-    signal n_interface3CS         : std_logic :='1';
+    signal n_UartCS               : std_logic :='1';
     signal n_sdCardCS             : std_logic :='1';
 
     signal serialClkCount         : std_logic_vector(15 downto 0) := x"0000";
@@ -332,8 +287,6 @@ architecture struct of NASCOM4 is
 
     signal n_WR_uart              : std_logic := '1';
     signal n_RD_uart              : std_logic := '1';
-    signal n_WR_uart2             : std_logic := '1';
-    signal n_RD_uart2             : std_logic := '1';
 
     signal n_WR_sd                : std_logic := '1';
     signal n_RD_sd                : std_logic := '1';
@@ -360,13 +313,13 @@ architecture struct of NASCOM4 is
     signal port00wr               : std_logic_vector(7 downto 0);
 
     ------------------------------------------------------------------
-    -- Port 1/2: temp uart read
+    -- Port 1/2: UART
+    --
+    -- Only used when RTLSIM_UART is TRUE
     signal port01rd               : std_logic_vector(7 downto 0) := x"00"; -- UART data
-    -- 7    6    5    4    3   2    1    0
-    -- DR   TRE  -    -    FE  PE  OE    -
-    -- DR =data received
-    -- TRE=transmit register empty
     signal port02rd               : std_logic_vector(7 downto 0) := x"80"; -- UART status -> always has data
+    signal uartcnt                : std_logic_vector(7 downto 0) := x"00";
+
 
     ------------------------------------------------------------------
     -- Port 3: new for FPGA implementation
@@ -434,8 +387,6 @@ architecture struct of NASCOM4 is
     -- combine from misc ports (and UART?)
     signal nasLocalIODataOut      : std_logic_vector(7 downto 0);
 
-    -- temp to drive UART
-    signal uartcnt                : std_logic_vector(7 downto 0) := x"00";
 
     -- enable readback
     signal nasLocalIOCS           : std_logic;
@@ -650,14 +601,12 @@ begin
     -- E4 read from stuff.. disk control
     -- E6 parallel keyboard synthesised from PS/2 kbd
     -- Miscellaneous I/O port write
-    proc_iord: process(cpuAddress, port00rd, port01rd, port02rd, porte4rd, porte6rd)
+    proc_iord: process(cpuAddress, port00rd, UartDataOut, porte4rd, porte6rd)
     begin
       if cpuAddress(7 downto 0) = x"00" then
         nasLocalIODataOut  <= port00rd;
-      elsif cpuAddress(7 downto 0) = x"01" then
-        nasLocalIODataOut  <= port01rd; -- data
-      elsif cpuAddress(7 downto 0) = x"02" then
-        nasLocalIODataOut  <= port02rd; -- status
+      elsif cpuAddress(7 downto 0) = x"01" or cpuAddress(7 downto 0) = x"02" then
+        nasLocalIODataOut  <= UartDataOut;
       elsif cpuAddress(7 downto 0) = x"e4" then
         nasLocalIODataOut  <= porte4rd;
       elsif cpuAddress(7 downto 0) = x"e6" then
@@ -666,55 +615,6 @@ begin
         nasLocalIODataOut  <= x"00";
       end if;
     end process;
-
-    proc_uartcnt: process(clk, n_reset)
-    begin
-      if (n_reset='0') then
-        uartcnt <= x"0a";
-      elsif rising_edge(clk) then
-        if cpuAddress(7 downto 0) = x"01" and n_IORQ = '0' and n_RD = '0' and uartcnt /= x"ff" then
-            uartcnt <= uartcnt + x"01";
-        end if;
-      end if;
-    end process;
-
---    port01rd <= x"53" when uartcnt = 0 else -- SC80<newline><newline>
---                x"43" when uartcnt = 1 else
---                x"38" when uartcnt = 2 else
---                x"30" when uartcnt = 3 else
---                x"0d" when uartcnt = 4 else
---                x"0d" when uartcnt = 5 else
---                x"0d" when uartcnt = 6 else
---                x"00"; -- null -> ignored by NAS-SYS
-
-
-
-    -- starting non-zero means that, when I send uartcnt, I don't get non-printing characters like clear-screen
-    -- messing up the sign-on screen.
-    port01rd <= x"4d" when uartcnt = x"0a" else -- MBCA<newline>B6/BF9<newline>B5.<newline>
-                x"42" when uartcnt = x"0b" else -- to put characters top left/right on line 16
-                x"43" when uartcnt = x"0c" else
-                x"41" when uartcnt = x"0d" else
-                x"0d" when uartcnt = x"0e" else
-                x"42" when uartcnt = x"0f" else
-                x"36" when uartcnt = x"10" else
-                x"2f" when uartcnt = x"11" else
-                x"42" when uartcnt = x"12" else
-                x"46" when uartcnt = x"13" else
-                x"39" when uartcnt = x"14" else
-                x"0d" when uartcnt = x"15" else
-                x"42" when uartcnt = x"16" else
-                x"35" when uartcnt = x"17" else
-                x"2e" when uartcnt = x"18" else
-                x"0d" when uartcnt = x"19" else
-                x"54" when uartcnt = x"1a" else -- T0 28<newline>
-                x"30" when uartcnt = x"1b" else
-                x"20" when uartcnt = x"1c" else
-                x"32" when uartcnt = x"1d" else
-                x"38" when uartcnt = x"1e" else
-                x"0d" when uartcnt = x"1f" else
-                uartcnt when uartcnt /= x"ff" else -- (most of the) char set
-                x"00"; -- null -> ignored by NAS-SYS
 
     -- Single-step logic
     -- Write to Port 0. Then, M1 cycles:
@@ -778,45 +678,79 @@ begin
             videoB1     => videoB1);
 
 
-    n_WR_uart <= n_interface2CS or n_WR;
-    n_RD_uart <= n_interface2CS or n_RD;
+    n_WR_uart <= n_UartCS or n_WR or n_IORQ;
+    n_RD_uart <= n_UartCS or n_RD or n_IORQ;
 
-    io2 : entity work.bufferedUART
+OPT_SIM: if (RTLSIM_UART = TRUE) generate
+begin
+    UartDataOut <= port01rd when cpuAddress(1) = '0' else port02rd;
+
+    proc_uartcnt: process(clk, n_reset)
+    begin
+      if (n_reset='0') then
+        uartcnt <= x"0a";
+      elsif rising_edge(clk) then
+        if n_RD_uart = '0' and cpuAddress(1) = '0' and uartcnt /= x"ff" then
+            uartcnt <= uartcnt + x"01";
+        end if;
+      end if;
+    end process;
+
+--    port01rd <= x"53" when uartcnt = 0 else -- SC80<newline><newline>
+--                x"43" when uartcnt = 1 else
+--                x"38" when uartcnt = 2 else
+--                x"30" when uartcnt = 3 else
+--                x"0d" when uartcnt = 4 else
+--                x"0d" when uartcnt = 5 else
+--                x"0d" when uartcnt = 6 else
+--                x"00"; -- null -> ignored by NAS-SYS
+
+    -- starting non-zero means that, when I send uartcnt, I don't get non-printing characters like clear-screen
+    -- messing up the sign-on screen.
+    port01rd <= x"4d" when uartcnt = x"0a" else -- MBCA<newline>B6/BF9<newline>B5.<newline>
+                x"42" when uartcnt = x"0b" else -- to put characters top left/right on line 16
+                x"43" when uartcnt = x"0c" else
+                x"41" when uartcnt = x"0d" else
+                x"0d" when uartcnt = x"0e" else
+                x"42" when uartcnt = x"0f" else
+                x"36" when uartcnt = x"10" else
+                x"2f" when uartcnt = x"11" else
+                x"42" when uartcnt = x"12" else
+                x"46" when uartcnt = x"13" else
+                x"39" when uartcnt = x"14" else
+                x"0d" when uartcnt = x"15" else
+                x"42" when uartcnt = x"16" else
+                x"35" when uartcnt = x"17" else
+                x"2e" when uartcnt = x"18" else
+                x"0d" when uartcnt = x"19" else
+                x"54" when uartcnt = x"1a" else -- T0 28<newline>
+                x"30" when uartcnt = x"1b" else
+                x"20" when uartcnt = x"1c" else
+                x"32" when uartcnt = x"1d" else
+                x"38" when uartcnt = x"1e" else
+                x"0d" when uartcnt = x"1f" else
+                uartcnt when uartcnt /= x"ff" else -- (most of the) char set
+                x"00"; -- null -> ignored by NAS-SYS
+end generate;
+
+OPT_NOSIM: if (RTLSIM_UART = FALSE) generate
+begin
+
+    io2 : entity work.bufferedUART6402
     port map(
+            n_reset => n_reset,
             clk => clk,
+
             n_wr => n_WR_uart,
             n_rd => n_RD_uart,
-            n_int => n_int2,
             regSel => cpuAddress(0),
             dataIn => cpuDataOut,
-            dataOut => interface2DataOut,
+            dataOut => UartDataOut,
             rxClkEn => serialClkEn,
             txClkEn => serialClkEn,
             rxd => rxd1,
-            txd => txd1,
-            n_cts => '0',
-            n_dcd => '0',
-            n_rts => rts1);
-
-    n_WR_uart2 <= n_interface3CS or n_WR;
-    n_RD_uart2 <= n_interface3CS or n_RD;
-
-    io3 : entity work.bufferedUART
-    port map(
-            clk => clk,
-            n_wr => n_WR_uart2,
-            n_rd => n_RD_uart2,
-            n_int => n_int3,
-            regSel => cpuAddress(0),
-            dataIn => cpuDataOut,
-            dataOut => interface3DataOut,
-            rxClkEn => serialClkEn,
-            txClkEn => serialClkEn,
-            rxd => rxd2,
-            txd => txd2,
-            n_cts => '0',
-            n_dcd => '0',
-            n_rts => rts2);
+            txd => txd1);
+end generate;
 
     n_WR_sd <= n_sdCardCS or n_WR;
     n_RD_sd <= n_sdCardCS or n_RD;
@@ -867,15 +801,10 @@ begin
     iopwrECRomEnable_gated <= iopwrECRomEnable xor iopwr03MAP80AutoBoot;
     n_vfcRomCS    <= '0' when cpuAddress(15 downto 12) = iopwrECVfcPage and cpuAddress(11) = '0' and iopwrECRomEnable_gated = '1' else '1';
 
-    -- vduffd0 swaps the assignment. Internal pullup means it is 1 by default
-    n_interface1CS <= '0' when ((cpuAddress(15 downto 1) = "111111111101000" and vduffd0 = '1')  -- 2 bytes FFD0-FFD1
-                              or(cpuAddress(15 downto 1) = "111111111101001" and vduffd0 = '0')) -- 2 bytes FFD2-FFD3
-                      else '1';
-    n_interface2CS <= '0' when ((cpuAddress(15 downto 1) = "111111111101000" and vduffd0 = '0')  -- 2 bytes FFD0-FFD1
-                              or(cpuAddress(15 downto 1) = "111111111101001" and vduffd0 = '1')) -- 2 bytes FFD2-FFD3
-                      else '1';
+    -- NASCOM UART at I/O port 1 and 2
+    n_UartCS <= '0' when ((cpuAddress(7 downto 0) = "00000001") or (cpuAddress(7 downto 0) = "00000010")) else '1';
 
-    n_interface3CS <= '0' when cpuAddress(15 downto 1) = "111111111101010" else '1'; -- 2 bytes FFD4-FFD5
+    -- [NAC HACK 2020Dec04] needs moving to I/O space if I'm keeping it..
     n_sdCardCS     <= '0' when cpuAddress(15 downto 3) = "1111111111011"   else '1'; -- 8 bytes FFD8-FFDF
     -- experimented with allowing RAM to be written to "underneath" ROM but
     -- there is no advantage vs repaging the region, and it causes problems because
@@ -890,7 +819,7 @@ begin
                         vfcRomDataOut           when n_vfcRomCS    = '0' else
                         sbootRomDataOut         when n_sbootRomCS  = '0' else
                         nasWSRamDataOut         when n_nasWSRamCS  = '0' else
-                        VDURamDataOut           when n_nasVidRamCS = '0' else
+                        VDURamDataOut           when n_nasVidRamCS = '0' or n_vfcVidRamCS = '0' else
                         sRamData;
 
 -- ____________________________________________________________________________________

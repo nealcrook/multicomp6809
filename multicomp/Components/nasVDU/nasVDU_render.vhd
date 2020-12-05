@@ -79,7 +79,6 @@ constant CHARS_PER_SCREEN : integer := HORIZ_STRIDE*VERT_CHARS;
 	signal	cursorVert: integer range 0 to VERT_CHAR_MAX :=0;
 	signal	cursorHoriz: integer range 0 to HORIZ_CHAR_MAX :=0;
 
-	signal 	cursAddr : integer range 0 to CHARS_PER_SCREEN;
 	signal 	dispAddr : integer range 0 to CHARS_PER_SCREEN;
 
 	signal	dispCharData : std_logic_vector(7 downto 0);
@@ -88,8 +87,7 @@ constant CHARS_PER_SCREEN : integer := HORIZ_STRIDE*VERT_CHARS;
 	signal	dispCharWRData : std_logic_vector(7 downto 0);
 	signal	dispCharRDData : std_logic_vector(7 downto 0);
 
-	signal	cursorOn : std_logic := '1';
-	signal	dispWR : std_logic := '0';
+	signal	cursorOn : std_logic := '0';
 	signal	cursBlinkCount : unsigned(25 downto 0);
 
 	-- "globally static" versions of signals for use within generate
@@ -152,7 +150,6 @@ end generate GEN_RAM1K;
         charAddr <= dispCharData & charScanLine(3+VERT_PIXEL_SCANLINES-1 downto 0+VERT_PIXEL_SCANLINES-1);
 
 	dispAddr <= (charHoriz  +((charVert   + LINE_OFFSET) * HORIZ_STRIDE)+HORIZ_OFFSET) mod CHARS_PER_SCREEN;
-	cursAddr <= (cursorHoriz+((cursorVert + LINE_OFFSET) * HORIZ_STRIDE)+HORIZ_OFFSET) mod CHARS_PER_SCREEN;
 
 	-- SCREEN RENDERING
 	screen_render: process (clk)
@@ -224,7 +221,8 @@ end generate GEN_RAM1K;
 		end if;
 	end process;
 
-
+OPT_HWCURSOR: if (HWCURSOR = TRUE) generate
+begin
 	-- Hardware cursor blink -- TODO may need this for MAP80?? May need to emulate 6845 cursor register.
 	cursor_blink: process(clk)
 	begin
@@ -241,5 +239,6 @@ end generate GEN_RAM1K;
 			end if;
 		end if;
 	end process;
+end generate;
 
 end rtl;

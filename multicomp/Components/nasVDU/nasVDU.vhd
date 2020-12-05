@@ -169,8 +169,8 @@ begin
             addr        => addr(10 downto 0),
             n_CS        => n_nasCS,
             n_memWr     => n_memWr,
-            dataIn      => DataIn,
-            dataOut     => DataOutNas,
+            dataIn      => dataIn,
+            dataOut     => dataOutNas,
 
             -- access to shared character generator
             charAddr    => ncharAddr(11 downto 0),
@@ -203,8 +203,8 @@ begin
             addr        => addr(10 downto 0),
             n_CS        => n_mapCS,
             n_memWr     => n_memWr,
-            dataIn      => DataIn,
-            dataOut     => DataOutMap,
+            dataIn      => dataIn,
+            dataOut     => dataOutMap,
 
             -- access to shared character generator
             charAddr    => vcharAddr(11 downto 0),
