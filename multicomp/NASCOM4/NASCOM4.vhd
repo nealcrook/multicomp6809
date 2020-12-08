@@ -15,16 +15,37 @@
 --
 -- Also, some bits of code from my extended 6809 design.
 --
--- On the FPGA:
+-- Memory and I/O map:
 -- * 2KROM "NAS-SYS3" at location 0.
---   - Can be re-written (TBD how) to contain other monitors
+--   - can be re-written (TBD how) to contain other monitors
+--   - can be paged out via write to port 3
 -- * 1K video RAM at location 0x800
+--   - can be paged out via write to port 3
+--   - can be decoded at 0xF800 instead, for NASCOM CP/M
 -- * 1K ws RAM at location 0xc00
+-- * 1K "Special Boot ROM" at location 0x1000.
+--   - can be paged out via write to port 3
+--   - if enabled after reset, jump-on-reset circuit
+--     starts execution from this ROM
+-- * 2K MAP80 VFC ROM.
+--   - can be decoded at the start of any 4Kbyte block
+--     or disabled, via write to port 0xEC.
+-- * 2K MAP80 VFC video RAM.
+--   - can be decoded at the end of any 4Kbyte block
+--     or disabled, via write to port 0xEC.
+-- * 4K bytes character generator ROM.
+--   - 256 characters, each 8 pixels wide by 16 rows.
+--   - can be re-written (TBD how)
+-- * 512Kbyte RAM EXTERNAL
+--   - mapped as 4x64Kbyte or 8x32Kbyte pages, controlled
+--     through port 0xFE like two MAP80 256Kbyte RAM cards.
 --
 -- * I/O port 0     - keyboard and single-step control
 -- * I/O port 1,2   - 6402 compatible UART
 -- * I/O port 3     - NEW controls paging of ROM/RAM/VDU
---
+-- * I/O port 4-7   - EXTERNAL Z80 PIO
+-- * I/O port 10-1F - NEW SDcard controller
+-- * I/O port E0-E3 - EXTERNAL WD2797 Floppy Disk Controller
 -- * I/O port E4    - VFC FDC drive select etc.
 -- * I/O port E6    - VFC "parallel" keyboard (maybe; from PS/2 keyboard)
 -- * I/O port E8    - VFC Alarm (beeper?) output - TBD to external buzzer?
@@ -88,19 +109,19 @@
 -- can be loaded into the workspace RAM. Tokens:
 -- W write to address: W1234=5678 means write 0x5678 to address 1234
 -- P write to port: P34=03 means write 0x03 to port 0x34
--- G go: G1000 means jump to 1000
+-- G go: G1000=40 means write 40 to port 3 then jump to 1000
 -- I image: I125600 means set image offset (offset from start of NASROM.BIN)
 -- L load: L1000=400 means load image to address 0x1000 for 0x400 bytes.
 -- CR/LF characters are ignored/skipped.
--- Any detected error casues a HALT. The script is executed until the first
+-- Any detected error causes a HALT. The script is executed until the first
 -- error, upto a maximum of 256 characters (1 sector). The file can be
 -- bigger, eg to contain comments.
 --
 -- Example: load BASIC, ZEAP and NAS-PEN, map out ROM, write-protect memory,
 -- restart NAS-SYS.
--- I000000,LE000=2000,I004000,LD000=1000,I005000,LB800=800,P03=45,P99=FF,G0
+-- I000000,LE000=2000,I004000,LD000=1000,I005000,LB800=800,P03=45,G0=FF
 --
--- (the P commands there are NOT correct!)
+-- (the port data values here for P and G commands are NOT correct!)
 --
 -- could restrict the images to 4K boundaries to reduce the calculations
 -- required.
@@ -118,18 +139,9 @@
 -- writes.
 
 -- Next:
--- remove latches
--- wire SDcard controller correctly for I/O access
 -- programmable wait state generator
 -- external RAM access
 -- MAP80 256K RAM paging (ported in from __ed file).
-
-
-
-
--- External port addressing:
--- * I/O port 4,5,6,7 - External PIO
--- * I/O port E0-E3   - 2797 FDC
 
 
 -- TODO
@@ -249,8 +261,8 @@ entity NASCOM4 is
         sRamData        : inout std_logic_vector(7 downto 0);
         sRamAddress     : out std_logic_vector(18 downto 0); -- 18:0 -> 512KByte
         n_sRamWE        : out std_logic;
-        n_sRamCS        : out std_logic;                     -- lower blocks
-        n_sRamCS2       : out std_logic;                     -- upper blocks
+        n_sRamCS        : out std_logic;                     -- lower blocks [NAC HACK 2020Dec08] rename CSLo
+        n_sRamCS2       : out std_logic;                     -- upper blocks [NAC HACK 2020Dec08] rename CSHi
         n_sRamOE        : out std_logic;
 
         rxd1            : in std_logic;
@@ -305,7 +317,6 @@ architecture struct of NASCOM4 is
     signal cpuAddress             : std_logic_vector(15 downto 0);
     signal cpuDataOut             : std_logic_vector(7 downto 0);
     signal cpuDataIn              : std_logic_vector(7 downto 0);
-    signal sRamAddress_i          : std_logic_vector(18 downto 0);
     signal n_sRamCSHi_i           : std_logic;
     signal n_sRamCSLo_i           : std_logic;
 
@@ -353,6 +364,10 @@ architecture struct of NASCOM4 is
     signal post_reset_rd_cnt      : std_logic_vector(1 downto 0);
     signal reset_jump             : std_logic;
 
+    signal stall_a                : std_logic;
+    signal stall_s                : std_logic;
+    signal stall_cnt              : integer range 0 to 16;
+    signal n_WAIT                 : std_logic;
     signal cpuClock               : std_logic := '1';
     signal n_MREQ                 : std_logic := '1';
     signal n_IORQ                 : std_logic := '1';
@@ -382,11 +397,11 @@ architecture struct of NASCOM4 is
     -- B7          ignored                                 bootmode1
     -- B6          ignored                                 bootmode0
     -- B5          unused                                       0
-    -- B4          MAP80 VFC autoboot                           0
-    -- B3          0: disable NAS-SYS  1: enable NAS-SYS        0
-    -- B2          0: disable boot ROM 1: enable boot ROM       0
-    -- B1          0: VRAM@800, 1:VRAM@?? (for CP/M)            0
-    -- B0          1: enable NASCOM VRAM                        0
+    -- B4          MAP80 VFC autoboot                         readback
+    -- B3          0: disable NAS-SYS  1: enable NAS-SYS      readback
+    -- B2          0: disable boot ROM 1: enable boot ROM     readback
+    -- B1          0: VRAM@800, 1:VRAM@?? (for CP/M)          readback
+    -- B0          1: enable NASCOM VRAM                      readback
     --
     -- autoboot bit is subtle..
     -- autoboot=0 : iopwrECRomEnable is reset to 0. Writing a 1
@@ -413,6 +428,7 @@ architecture struct of NASCOM4 is
     signal iopwr03SBootRom        : std_logic;
     signal iopwr03NasSysRom       : std_logic;
     signal iopwr03MAP80AutoBoot   : std_logic;
+    signal port03rd               : std_logic_vector(7 downto 0);
 
     ------------------------------------------------------------------
     -- Port 4/5/6/7: PIO (external)
@@ -448,7 +464,7 @@ architecture struct of NASCOM4 is
     signal iopwrFEUpper32k        : std_logic := '0';
     signal iopwrFEPageSel         : std_logic_vector(5 downto 0) := "000000";
 
-    -- combine from misc ports (and UART?)
+    -- combine IO read data from misc ports (and UART, SDcard)
     signal nasLocalIODataOut      : std_logic_vector(7 downto 0);
 
     -- enable readback
@@ -508,7 +524,7 @@ begin
       port map(
             clk_n   => cpuClock, -- or just clk??
             reset_n => n_reset_clean,
-            wait_n  => '1',
+            wait_n  => n_WAIT,
             int_n   => '1', -- TODO from external I/O sub-system
             nmi_n   => n_NMI, -- from single-step logic
             busrq_n => '1',   -- unused
@@ -545,16 +561,72 @@ begin
 -- ____________________________________________________________________________________
 -- RAM GOES HERE
 
--- Assign to pins. Set the address width to match external RAM/pin assignments
-    sRamAddress(18 downto 0) <= sRamAddress_i(18 downto 0);
+-- External RAM. This implements memory paging compatible with the MAP80 256K RAM board.
+-- Decode chip selects for 2 external RAMs, each 512Kbyte. Probably will only have
+-- space for 1, but another could be piggy-backed sharing all pins except the /CS.
+-- The MAP80 paging scheme supports 32K or 64K pages.
+-- 1 512Kbyte chip provides 8 64K pages or 16 32Kpages on 19 address lines.
+--
+-- The decode looks like this:
+--
+-- 32kpages Upper32k   cpu(15) |  sRAM(18:15)
+-------------------------------+-----------
+--   0        x          x          PageSel(4:1),cpu(15)
+--   1        0          0          0        (page0; chip0)
+--   1        0          1          PageSel(4:1),cpu(15)
+--   1        1          0          PageSel(4:1),cpu(15)
+--   1        1          1          0        (page0; chip0)
+
+
+    -- 18:0 addresses 8*64=512K, then the chip select decoding provides
+    -- another doubling to 1MByte; equivalent to 4 MAP80 256K RAM cards.
+    -- PageSel(5) is unused. The MAP80 documentation seems contradictory
+    -- about whether 1MByte or 2MByte is the maximum capacity but it
+    -- "only" shows configuration options for upto 4 cards.
+
+
+    proc_sramadr: process(cpuAddress, iopwrFEPageSel, iopwrFEUpper32k, iopwrFE32kPages)
+    begin
+      if (iopwrFE32kPages = '0') then
+        -- 64K paging. 16 address lines from CPU, 3 from the page register.
+        sRamAddress  <= iopwrFEPageSel(3 downto 1) & cpuAddress(15 downto 0);
+        n_sRamCSLo_i <=     iopwrFEPageSel(4);
+        n_sRamCSHi_i <= not(iopwrFEPageSel(4));
+      elsif (iopwrFEUpper32k = cpuAddress(15)) then
+        -- 32K paging. Select page 0 in the lower or upper half of the address space
+        sRamAddress  <= "000" & cpuAddress(15 downto 0);
+        n_sRamCSLo_i <= '0';
+        n_sRamCSHi_i <= '1';
+      else
+        -- 32K paging. Select the addressed 32K page
+        sRamAddress  <= iopwrFEPageSel(3 downto 0) & cpuAddress(14 downto 0);
+        n_sRamCSLo_i <=     iopwrFEPageSel(4);
+        n_sRamCSHi_i <= not(iopwrFEPageSel(4));
+      end if;
+    end process;
+
+    -- Assign chip selects to pins
     n_sRamCS  <= n_sRamCSLo_i;
     n_sRamCS2 <= n_sRamCSHi_i;
 
--- External RAM - high-order address lines come from the mem_mapper
--- [NAC HACK 2020Nov23] need to prevent video and VFC RAM writes from going to paged RAM
--- and make sure that workspace writes DO go to paged RAM..
-    sRamAddress_i(12 downto 0) <= cpuAddress(12 downto 0);
-    sRamData <= cpuDataOut when n_WR='0' else (others => 'Z');
+    -- Control for external data bus [NAC HACK 2020Dec08] this will get more complex
+    -- once the external buffered I/O bus is factored in
+    sRamData <= cpuDataOut when n_WR = '0' else (others => 'Z');
+
+    -- This will need finessing for clean interaction with external buffered I/O bus
+    n_sRamWE <= n_WR;
+    n_sRamOE <= n_RD;
+
+    -- TODO may want to qualify the chip selects with something? Or
+    -- do all the work in the OE/WE control?
+
+    -- During a memory read, the priority tree of the data read-back
+    -- bus to the CPU ensures that enabled ROM, workspace or video RAM
+    -- will return data, overriding the external SRAM.
+    -- During a memory write (to mapped workspace or video RAM) need
+    -- to inhibit writes to external SRAM.
+    --
+    --TODO need to provide a mapping register to disable the ws RAM..
 
 
 -- Internal 1K WorkSpace RAM
@@ -656,6 +728,10 @@ begin
       end if;
     end process;
 
+    -- Readback for port03
+    port03rd <= bootmode(1 downto 0) & '0' & iopwr03MAP80AutoBoot
+          & iopwr03NasSysRom & iopwr03SBootRom & iopwr03NasVidHigh & iopwr03NasVidEnable;
+
     -- [NAC HACK 2020Nov16] here, I drive data for any IO request -- will need changing for external IO read
     -- [NAC HACK 2020Nov16] and for interrupt ack cycle
     -- I/O port read..
@@ -663,12 +739,16 @@ begin
     -- E4 read from stuff.. disk control
     -- E6 parallel keyboard synthesised from PS/2 kbd
     -- Miscellaneous I/O port write
-    proc_iord: process(cpuAddress, port00rd, UartDataOut, porte4rd, porte6rd)
+    proc_iord: process(cpuAddress, port00rd, UartDataOut, port03rd, sdCardDataOut, porte4rd, porte6rd)
     begin
       if cpuAddress(7 downto 0) = x"00" then
         nasLocalIODataOut  <= port00rd;
       elsif cpuAddress(7 downto 0) = x"01" or cpuAddress(7 downto 0) = x"02" then
         nasLocalIODataOut  <= UartDataOut;
+      elsif cpuAddress(7 downto 0) = x"03" then
+        nasLocalIODataOut  <= port03rd;
+      elsif cpuAddress(7 downto 4) = x"1" then
+        nasLocalIODataOut  <= sdCardDataOut;
       elsif cpuAddress(7 downto 0) = x"e4" then
         nasLocalIODataOut  <= porte4rd;
       elsif cpuAddress(7 downto 0) = x"e6" then
@@ -814,8 +894,8 @@ begin
             txd => txd1);
 end generate;
 
-    n_WR_sd <= n_sdCardCS or n_WR;
-    n_RD_sd <= n_sdCardCS or n_RD;
+    n_WR_sd <= n_sdCardCS or n_WR or n_IORQ;
+    n_RD_sd <= n_sdCardCS or n_RD or n_IORQ;
 
     sd1 : entity work.sd_controller
     generic map(
@@ -868,11 +948,8 @@ end generate;
     -- Nascom UART at I/O port 1 and 2
     n_UartCS <= '0' when ((cpuAddress(7 downto 0) = "00000001") or (cpuAddress(7 downto 0) = "00000010")) else '1';
 
-    -- [NAC HACK 2020Dec04] needs moving to I/O space if I'm keeping it..
-    n_sdCardCS     <= '0' when cpuAddress(15 downto 3) = "1111111111011"   else '1'; -- 8 bytes FFD8-FFDF
-    -- experimented with allowing RAM to be written to "underneath" ROM but
-    -- there is no advantage vs repaging the region, and it causes problems because
-    -- it's necessary to avoid writing to the I/O space.
+    -- SDcard at I/O ports 0x10-0x14
+    n_sdCardCS     <= '0' when cpuAddress(7 downto 4) = x"1" else '1';
 
 -- ____________________________________________________________________________________
 -- BUS ISOLATION GOES HERE
@@ -920,69 +997,9 @@ end generate;
         else
             serialClkEn <= '0';
         end if;
-
-        -- CPU clock control. The CPU input clock is 50MHz and the HOLD input acts
-		  -- as a clock enable. When the CPU is executing internal cycles (indicated by
-		  -- VMA=0), HOLD asserts on alternate cycles so that the effective clock rate
-		  -- is 25MHz. When the CPU is performing memory accesses (VMA=1), HOLD asserts
-		  -- for 4 cycles in 5 so that the effective clock rate is 10MHz. The slower
-		  -- cycle time is calculated to meet the access time for the external RAM.
-		  -- The n_WR, n_RD signals (and the SRAM WE/OE signals) are asserted for the
-		  -- last 4 cycles of the 5-cycle access; these are not the critical path for
-		  -- the access: the critical path is the addresss and chip select, which are
-		  -- nominally valid for all 5 cycles.
-		  -- The clock control is implemented by a counter, which tracks VMA. The
-		  -- HOLD and n_WR, n_RD controls are a synchronous decode from the counter.
-		  -- When VMA=0, state transitions 0,4,0,4,0,4...
-		  -- When VMA=1, state transitions 0,1,2,3,4,0,1,2,3,4...
-		  --
-		  -- In both cases, HOLD is negated (clock runs) when state=4 and so the CPU
-		  -- address (and VMA) transitions when state goes 4->0.
-		  --
-		  -- Speed-up options (if your RAM can take it)
-		  -- - You can easily take 1 or 2 cycles out of this timing (eg to remove 1 cycle
-		  --   change 3 to 2 and 4 to 3 in the logic below).
-		  -- - Theoretically, since the 6809 timing-closes at 50MHz, you can eliminate
-		  --   the wait state from the VMA=0 cycles. However, that would mean generating
-		  --   HOLD combinatorially from VMA which might introduce a timing loop.
-
-        -- state control - counter influenced by VMA
-        if state = 0               then
-            state <= "100";
-        else
-            if state < 4 then
-                state <= state + 1;
-            else
-                -- this gives the 4->0 transition and also provides
-                -- synchronous reset.
-                state <= (others=>'0');
-            end if;
-        end if;
-
-        -- decode HOLD from state and VMA
-        if state = 3 or (state = 0              ) then
-            hold <= '0'; -- run the clock
-        else
-            hold <= '1'; -- pause the clock
-        end if;
-
-        -- decode memory and RW control from state etc.
-        if (state = 1 or state = 2 or state = 3) then
---          if n_cpuWr = '0' then
---                n_WR <= '0';
---                n_sRamWE <= (n_sRamCSHi_i and n_sRamCSLo_i) or ramWrInhib ; -- synchronous and glitch-free
---          else
---                n_RD <= '0';
---                n_sRamOE <= n_sRamCSHi_i and n_sRamCSLo_i; -- synchronous and glitch-free
---          end if;
-        else
---            n_WR <= '1';
---            n_RD <= '1';
-            n_sRamWE <= '1';
-            n_sRamOE <= '1';
-        end if;
     end if;
     end process;
+
 
 -- reset control and jump-on-reset
 
@@ -1016,5 +1033,38 @@ end generate;
       end if;
     end process;
 
+-- wait-state generation
+-- stall_a is asynchronous decode of the need for a stall state. It is a function of address and
+-- n_MREQ, n_IORQ, n_RD, n_WR - whatever's needed. It needs to assert while n_MREQ or n_IORQ are
+-- low. It is responsible for generating the 1st wait state. It is sampled to generate the
+-- assertion of a synchronous signal, stall_s, which asserts for a fixed number of cycles.
+-- These two are combined to generate n_WAIT.
+
+    -- need to include RD/WR otherwise we'll also stall RFSH cycles, which would be a shame.
+    stall_a <= '1' when n_MREQ = '0' and (n_RD = '0' or n_WR = '0') else '0';
+
+    n_WAIT <= '0' when stall_a = '1' and stall_s = '0' else '1';
+
+    stall_gen: process (clk, n_reset_clean)
+    begin
+      if n_reset_clean = '0' then
+        stall_cnt <= 0;
+        stall_s <= '0';
+      elsif rising_edge(clk) then
+        if (stall_a = '1') then
+          if stall_cnt = 3 then
+            stall_cnt <= 0;
+          else
+            stall_cnt <= stall_cnt + 1;
+          end if;
+
+          if stall_cnt = 2 then
+            stall_s <= '1';
+          else
+            stall_s <= '0';
+          end if;
+        end if;
+      end if;
+    end process;
 
 end;

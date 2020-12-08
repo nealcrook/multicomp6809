@@ -1,9 +1,13 @@
 onerror {resume}
 quietly WaveActivateNextPane {} 0
+add wave -noupdate /nascom4/stall_a
+add wave -noupdate /nascom4/stall_s
+add wave -noupdate /nascom4/stall_cnt
 add wave -noupdate /nascom4/n_reset
 add wave -noupdate /nascom4/clk
 add wave -noupdate /nascom4/n_MREQ
 add wave -noupdate /nascom4/n_IORQ
+add wave -noupdate /nascom4/n_WAIT
 add wave -noupdate /nascom4/n_M1
 add wave -noupdate /nascom4/n_RD
 add wave -noupdate /nascom4/n_WR
@@ -61,7 +65,7 @@ add wave -noupdate /nascom4/n_reset_clean
 add wave -noupdate /nascom4/reset_jump
 add wave -noupdate /nascom4/post_reset_rd_cnt
 TreeUpdate [SetDefaultTree]
-WaveRestoreCursors {RET {31667427 ps} 1} {{Cursor 2} {340000 ps} 0}
+WaveRestoreCursors {RET {31667427 ps} 1} {{Cursor 2} {10003699546 ps} 0}
 quietly wave cursor active 2
 configure wave -namecolwidth 271
 configure wave -valuecolwidth 100
@@ -77,4 +81,4 @@ configure wave -griddelta 40
 configure wave -timeline 0
 configure wave -timelineunits ps
 update
-WaveRestoreZoom {0 ps} {1048059 ps}
+WaveRestoreZoom {103514304 ps} {104130827 ps}
