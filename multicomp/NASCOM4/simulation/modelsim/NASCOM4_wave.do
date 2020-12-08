@@ -19,6 +19,7 @@ add wave -noupdate -radix hexadecimal /nascom4/nasWSRamDataOut
 add wave -noupdate -radix hexadecimal /nascom4/nasLocalIODataOut
 add wave -noupdate -radix hexadecimal /nascom4/VDURamDataOut
 add wave -noupdate -radix hexadecimal /nascom4/vfcRomDataOut
+add wave -noupdate -radix hexadecimal /nascom4/sbootRomDataOut
 add wave -noupdate /nascom4/n_nasWSRamCS
 add wave -noupdate /nascom4/n_nasVidRamCS
 add wave -noupdate /nascom4/n_nasRomCS
@@ -43,8 +44,8 @@ add wave -noupdate /nascom4/n_memWr
 add wave -noupdate /nascom4/video_map80vfc
 add wave -noupdate /nascom4/iopwr03NasVidEnable
 add wave -noupdate /nascom4/iopwr03NasVidHigh
-add wave -noupdate /nascom4/iopwr03RomAtZero
 add wave -noupdate /nascom4/iopwr03NasSysRom
+add wave -noupdate /nascom4/iopwr03SBootRom
 add wave -noupdate /nascom4/iopwr03MAP80AutoBoot
 add wave -noupdate /nascom4/iopwrECVfcPage
 add wave -noupdate /nascom4/iopwrECRomEnable
@@ -53,8 +54,14 @@ add wave -noupdate -radix hexadecimal /nascom4/io1/charAddr
 add wave -noupdate /nascom4/io1/hSync
 add wave -noupdate /nascom4/io1/vSync
 add wave -noupdate -radix hexadecimal /nascom4/io1/addr
+add wave -noupdate /nascom4/n_reset
+add wave -noupdate /nascom4/n_reset_s1
+add wave -noupdate /nascom4/n_reset_s2
+add wave -noupdate /nascom4/n_reset_clean
+add wave -noupdate /nascom4/reset_jump
+add wave -noupdate /nascom4/post_reset_rd_cnt
 TreeUpdate [SetDefaultTree]
-WaveRestoreCursors {RET {31667427 ps} 1} {{Cursor 2} {814720000 ps} 0}
+WaveRestoreCursors {RET {31667427 ps} 1} {{Cursor 2} {340000 ps} 0}
 quietly wave cursor active 2
 configure wave -namecolwidth 271
 configure wave -valuecolwidth 100
@@ -70,4 +77,4 @@ configure wave -griddelta 40
 configure wave -timeline 0
 configure wave -timelineunits ps
 update
-WaveRestoreZoom {814507625 ps} {815389327 ps}
+WaveRestoreZoom {0 ps} {1048059 ps}
