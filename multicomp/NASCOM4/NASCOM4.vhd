@@ -1,3 +1,21 @@
+-- TODO/BUGS
+-- Implement write protection register
+-- Move all new I/O ports to 0x1X?? Rejig menus accordingly
+-- Why don't the 2k monitor replacements work? The 1k ones do??!!
+-- Add a warm-start bit set by the load process so that a subsequent
+--   button reset does not repeat it. Eg: an i/o port bit that is
+--   initialised at powerup but is not reset. OR readback of eg NMI button
+--   state at reset.
+-- Consider changing ROMs to be a single model with an initialisation file
+-- and put them in a generic folder.
+-- Change char gen to an initialised RAM and add control port for writes
+-- Programmable wait state generator??
+-- Review compilation warnings and fix
+-- Need a mapping bit to disable the workspace RAM else CP/M paging won't
+-- work if it tries to page in low memory.
+-----------------------------------------------------
+
+
 -- FPGA implementation of the NASCOM2
 -- with external RAM, Flash/ROM and peripherals.
 -- Goal is to be 100% software compatible with plain NASCOM 2
@@ -96,7 +114,8 @@
 -- -> need to put sbootRom higher than nasRom in "bus isolation" code.
 --
 -- Function of SBR
--- Very crude FAT32 support - read-only.
+-- eventually: Very crude FAT32 support - read-only.
+-- for now: just use SDcard 512-byte blocks directly.
 -- Read jumpers
 -- if bootmode2: read profile 2 from SDcard: usually ROM-based NASCOM
 -- if bootmode3: read profile 3 from SDcard: usually menu
@@ -107,51 +126,30 @@
 -- ROMIMAGES file like for NASCAS
 -- profile is very simple script, and must be small enough that it
 -- can be loaded into the workspace RAM. Tokens:
--- W write to address: W1234=5678 means write 0x5678 to address 1234
+-- W write to address: W1234=5678 means write 0x5678 to address 0x1234
 -- P write to port: P34=03 means write 0x03 to port 0x34
--- G go: G1000=40 means write 40 to port 3 then jump to 1000
--- I image: I125600 means set image offset (offset from start of NASROM.BIN)
--- L load: L1000=400 means load image to address 0x1000 for 0x400 bytes.
+-- G go: G1000=40 means write 40 to port 3 then jump to 0x1000
+-- I image: I1234 means specify image start as block 0x1234 on SDcard
+-- L load: L1000=14 means load image to address 0x1000 for 0x14 sectors (10Kbytes).
 -- CR/LF characters are ignored/skipped.
 -- Any detected error causes a HALT. The script is executed until the first
--- error, upto a maximum of 256 characters (1 sector). The file can be
+-- error, upto a maximum of 512 characters (1 SDcard block). The file can be
 -- bigger, eg to contain comments.
 --
 -- Example: load BASIC, ZEAP and NAS-PEN, map out ROM, write-protect memory,
 -- restart NAS-SYS.
--- I000000,LE000=2000,I004000,LD000=1000,I005000,LB800=800,P03=45,G0=FF
+-- I000000,LE000=2000,I4000,LD000=1000,I5000,LB800=80,P03=45,G0=FF
 --
 -- (the port data values here for P and G commands are NOT correct!)
+-- Need some way to determine that the final FF has no following hex characters
+-- just use space/cr/lf/00. Maybe I should use a space separator instead of comma
+-- can then simply skip space/cr/lf.
 --
 -- could restrict the images to 4K boundaries to reduce the calculations
 -- required.
 
--- [NAC HACK 2020Dec06] TODO need a warm-start bit set by this load process
--- so that a subsequent reset does not repeat it. Eg: an i/o port that is
--- initialised but not reset.
 
-
-
-
--- TODO change ROMs to be a single model with an initialisation file
--- and put them in a generic folder.
--- TODO change char gen to an initialised RAM and add control port for
--- writes.
-
--- Next:
--- programmable wait state generator
--- external RAM access
--- MAP80 256K RAM paging (ported in from __ed file).
-
-
--- TODO
---
--- Review compilation warnings and fix
--- Split out port0 write signals like port3 stuff, implement DRIVE
-
--- draw up a list of new I/O and what pins it will be assigned to
--- .. annoying if I were to run out!!
-
+-- I/O assignment/reassignment:
 
 -- Current         New
 -- gpio0(2)        in, NMI button
@@ -194,13 +192,8 @@
 
 
 ------
--- Create dummy Special Boot ROM code (use T2??)
--- .. or a piece of code that reads the mode and
--- selects NASCOM or MAP80 then vectors through RAM
--- to set it up and go to it.
-------
--- Work out how to do video switching (2 sets of timing)
--- Add debug signals to show reads of video/chargen RAM
+-- Work out how to do shared video access to char gen:
+-- add debug signals to show reads of video/chargen RAM
 ------
 -- Implement write-protect register
 -- Add write port to char gen.. how to decode? Whole of VFC space?
@@ -210,11 +203,8 @@
 -- slow-down for I/O cycles. Allow operation at a lower clock speed.
 -- Work out external pin mapping.
 -- Consider Arduino interface; 1 or 2 external SDcards..
--- Implement UART
 -- Implement PS/2 keyboard interface?
 
-
---
 -- The pin assignments here are designed to match up with James Moxham's
 -- multicomp PCB. The support for devices on that PCB is summaried below:
 -- LED pin 3  - connected, controlled by SDcard
@@ -241,7 +231,8 @@ use  IEEE.STD_LOGIC_ARITH.all;
 use  IEEE.STD_LOGIC_UNSIGNED.all;
 
 entity NASCOM4 is
-    generic( constant RTLSIM_UART : boolean := FALSE
+    generic( constant RTLSIM_UART : boolean := FALSE;
+             constant DEFAULT_BOOTMODE : std_logic_vector(1 downto 0) := "10"
     );
     port(
 	-- these are connected on the base FPGA board
@@ -249,7 +240,7 @@ entity NASCOM4 is
         clk           : in std_logic;
 
         -- LEDs on base FPGA board and duplicated on James Moxham's PCB.
-        -- Set LOW to illuminate. 3rd LED is "driveLED" output.
+        -- Set LOW to illuminate. 3rd LED is "driveLED" output from SDcard
         n_LED7        : out std_logic := '1';
         n_LED9        : out std_logic := '1';  -- HALT
 
@@ -377,42 +368,51 @@ architecture struct of NASCOM4 is
     signal n_memWr                : std_logic;
 
     ------------------------------------------------------------------
-    -- Port 0: NASCOM keyboard
+    -- Port 0: NASCOM keyboard and NMI control
+
+    -- NASCOM implements 6 bits but only uses 4. The two unused bits
+    -- are wired to the NASCOM2 keyboard connector
+    signal iopwr00NasDrive        : std_logic; -- bit 4
+    signal iopwr00NasNMI          : std_logic; -- bit 3
+    signal iopwr00NasKbdClk       : std_logic; -- bit 1
+    signal iopwr00NasKbdRst       : std_logic; -- bit 0
     -- ff means no key detected
-    signal port00rd               : std_logic_vector(7 downto 0) := x"ff";
-    signal port00wr               : std_logic_vector(7 downto 0);
+    signal ioprd00                : std_logic_vector(7 downto 0) := x"ff";
+
 
     ------------------------------------------------------------------
     -- Port 1/2: UART
     --
     -- Only used when RTLSIM_UART is TRUE
-    signal port01rd               : std_logic_vector(7 downto 0) := x"00"; -- UART data
-    signal port02rd               : std_logic_vector(7 downto 0) := x"80"; -- UART status -> always has data
+    signal ioprd01                : std_logic_vector(7 downto 0) := x"00"; -- UART data
+    signal ioprd02                : std_logic_vector(7 downto 0) := x"80"; -- UART status -> always has data
     signal uartcnt                : std_logic_vector(7 downto 0) := x"00";
 
 
     ------------------------------------------------------------------
     -- Port 3: new for FPGA implementation
-    --              Write                                   Read
-    -- B7          ignored                                 bootmode1
-    -- B6          ignored                                 bootmode0
-    -- B5          unused                                       0
+    --              Write                                     Read
+    -- B7          ignored                                    bootmode1
+    -- B6          ignored                                    bootmode0
+    -- B5          unused                                     0
     -- B4          MAP80 VFC autoboot                         readback
     -- B3          0: disable NAS-SYS  1: enable NAS-SYS      readback
     -- B2          0: disable boot ROM 1: enable boot ROM     readback
     -- B1          0: VRAM@800, 1:VRAM@?? (for CP/M)          readback
     -- B0          1: enable NASCOM VRAM                      readback
     --
-    -- autoboot bit is subtle..
-    -- autoboot=0 : iopwrECRomEnable is reset to 0. Writing a 1
-    --              to the register bit sets it to 1.
-    -- autoboot=1 : iopwrECRomEnable is reset to 1. Writing a 1
-    --              to the register bit sets it to 0.
-    -- the bootmode bits determine the reset state of autoboot, and
-    -- therefore the initial state of iopwrECRomEnable. The reason
-    -- for having it as a writeable bit is that it allows the special
-    -- boot ROM to start at reset and then pass control to the MAP80
-    -- VFC ROM and autoboot.
+    -- The autoboot bit controls the VFC ROM enable:
+    -- autoboot=0 : after reset, the ROM is disabled; writing a 1
+    --              enables the ROM.
+    -- autoboot=1 : after reset, the ROM is enabled; writing a 1
+    --              disables the ROM.
+    --
+    -- The bootmode bits determine the reset state of autoboot, and
+    -- therefore whether the ROM is enabled or disabled after reset.
+    --
+    -- Implementation:
+    -- * register bit iopwrECRomEnable is reset to a 0.
+    -- * ROM enable is autoboot XOR iopwrECRomEnable
     --
     -- The boot ROM is 1Kbytes decoded at address 0x1000.
     -- When it is enabled at reset, it is selected for the first
@@ -423,15 +423,37 @@ architecture struct of NASCOM4 is
     -- ROM is to load ROM images into RAM, and then write-protect
     -- the RAM, to give the appearance of a ROM-laden NASCOM.
 
-    signal iopwr03NasVidEnable    : std_logic;
-    signal iopwr03NasVidHigh      : std_logic;
-    signal iopwr03SBootRom        : std_logic;
-    signal iopwr03NasSysRom       : std_logic;
-    signal iopwr03MAP80AutoBoot   : std_logic;
-    signal port03rd               : std_logic_vector(7 downto 0);
+    signal iopwr03MAP80AutoBoot   : std_logic; -- bit 4
+    signal iopwr03NasSysRom       : std_logic; -- bit 3
+    signal iopwr03SBootRom        : std_logic; -- bit 2
+    signal iopwr03NasVidHigh      : std_logic; -- bit 1
+    signal iopwr03NasVidEnable    : std_logic; -- bit 0
+    signal ioprd03                : std_logic_vector(7 downto 0);
 
     ------------------------------------------------------------------
     -- Port 4/5/6/7: PIO (external)
+
+    ------------------------------------------------------------------
+    -- Port 1x: Decoded for SDcard (only 10,11,12,13,14 used)
+
+    -- [NAC HACK 2020Dec19] should I decode that properly and
+    -- then use 1E for memory map control and 1F for write protect..
+    -- decide soon, because the port03 stuff is spreading into
+    -- firmware and the scripts for SDcard image generation..
+
+
+    ------------------------------------------------------------------
+    -- Port 20: RAM write protect
+    -- [NAC HACK 2020Dec19] or different number??
+    -- Ef8k means: from E000 for 8K
+    -- [NAC HACK 2020Dec19] not yet implemented..
+
+    signal iopwr20ProtEf8k        : std_logic; -- bit 6 Protect BASIC
+    signal iopwr20ProtDf4k        : std_logic; -- bit 5 Protect ZEAP etc
+    signal iopwr20ProtCf4k        : std_logic; -- bit 4 Protect ??
+    signal iopwr20ProtBf4k        : std_logic; -- bit 3 Protect ??
+    signal iopwr20ProtAf4k        : std_logic; -- bit 2 Protect ??
+    signal iopwr20Prot0f2k        : std_logic; -- bit 0 Protect NAS-SYS
 
     ------------------------------------------------------------------
     -- MAP80 VFC disk control
@@ -504,7 +526,7 @@ architecture struct of NASCOM4 is
     -- bootmode=1           10000                   MAP80 video
     -- bootmode=2           01101                   NASCOM video
     -- bootmode=3           01101                   NASCOM video
-    signal bootmode               : std_logic_vector(1 downto 0) := "10";
+    signal bootmode               : std_logic_vector(1 downto 0) := DEFAULT_BOOTMODE;
 
 begin
 
@@ -614,6 +636,12 @@ begin
     sRamData <= cpuDataOut when n_WR = '0' else (others => 'Z');
 
     -- This will need finessing for clean interaction with external buffered I/O bus
+
+    -- [NAC HACK 2020Dec09] also, the memory write protect factors in to the WE path,
+    -- as does the decode for MAP80 VFC video RAM. TBD whether to factor in the decode
+    -- for the workspace RAM (DO need a way of masking that out else it will cause
+    -- a problem when paging memory)
+
     n_sRamWE <= n_WR;
     n_sRamOE <= n_RD;
 
@@ -647,7 +675,10 @@ begin
     proc_iowr: process(clk, n_reset_clean, bootmode)
     begin
       if (n_reset_clean='0') then
-        port00wr <= x"00";
+        iopwr00NasDrive  <= '0';
+        iopwr00NasNMI    <= '0';
+        iopwr00NasKbdClk <= '0';
+        iopwr00NasKbdRst <= '0';
 
         -- Decode bootmode to get initial state of port3 stuff and video select
         if (bootmode = 1) then
@@ -687,7 +718,10 @@ begin
 
       elsif rising_edge(clk) then
         if cpuAddress(7 downto 0) = x"00" and n_IORQ = '0' and n_WR = '0' then
-          port00wr <= cpuDataOut;
+          iopwr00NasDrive  <= cpuDataOut(4);
+          iopwr00NasNMI    <= cpuDataOut(3);
+          iopwr00NasKbdClk <= cpuDataOut(1);
+          iopwr00NasKbdRst <= cpuDataOut(0);
         end if;
 
         if cpuAddress(7 downto 0) = x"03" and n_IORQ = '0' and n_WR = '0' then
@@ -729,7 +763,7 @@ begin
     end process;
 
     -- Readback for port03
-    port03rd <= bootmode(1 downto 0) & '0' & iopwr03MAP80AutoBoot
+    ioprd03 <= bootmode(1 downto 0) & '0' & iopwr03MAP80AutoBoot
           & iopwr03NasSysRom & iopwr03SBootRom & iopwr03NasVidHigh & iopwr03NasVidEnable;
 
     -- [NAC HACK 2020Nov16] here, I drive data for any IO request -- will need changing for external IO read
@@ -739,14 +773,14 @@ begin
     -- E4 read from stuff.. disk control
     -- E6 parallel keyboard synthesised from PS/2 kbd
     -- Miscellaneous I/O port write
-    proc_iord: process(cpuAddress, port00rd, UartDataOut, port03rd, sdCardDataOut, porte4rd, porte6rd)
+    proc_iord: process(cpuAddress, ioprd00, UartDataOut, ioprd03, sdCardDataOut, porte4rd, porte6rd)
     begin
       if cpuAddress(7 downto 0) = x"00" then
-        nasLocalIODataOut  <= port00rd;
+        nasLocalIODataOut  <= ioprd00;
       elsif cpuAddress(7 downto 0) = x"01" or cpuAddress(7 downto 0) = x"02" then
         nasLocalIODataOut  <= UartDataOut;
       elsif cpuAddress(7 downto 0) = x"03" then
-        nasLocalIODataOut  <= port03rd;
+        nasLocalIODataOut  <= ioprd03;
       elsif cpuAddress(7 downto 4) = x"1" then
         nasLocalIODataOut  <= sdCardDataOut;
       elsif cpuAddress(7 downto 0) = x"e4" then
@@ -774,16 +808,16 @@ begin
         nmi_state <= "000";
       elsif rising_edge(clk) then
         -- only assert NMI for 1 cycle
-        if (n_NMI = '0') then
+        if n_NMI = '0' then
           n_NMI <= '1';
         end if;
-        if (port00wr(3) = '0') then
+        if iopwr00NasNMI = '0' then
           nmi_state <= "000";
-        elsif n_M1 = '0' and n_RD = '0' then
-          if (nmi_state = "011") then
+        elsif n_M1 = '0' and n_RD = '0' and n_WAIT = '1' then
+          if nmi_state = "011" then
             n_NMI <= '0';
           end if;
-          if (nmi_state /= "111") then
+          if nmi_state /= "111" then
             nmi_state <= nmi_state + "001";
           end if;
         end if;
@@ -825,7 +859,7 @@ begin
 
 OPT_SIM: if (RTLSIM_UART = TRUE) generate
 begin
-    UartDataOut <= port01rd when cpuAddress(1) = '0' else port02rd;
+    UartDataOut <= ioprd01 when cpuAddress(1) = '0' else ioprd02;
 
     proc_uartcnt: process(clk, n_reset_clean)
     begin
@@ -838,41 +872,41 @@ begin
       end if;
     end process;
 
---    port01rd <= x"53" when uartcnt = 0 else -- SC80<newline><newline>
---                x"43" when uartcnt = 1 else
---                x"38" when uartcnt = 2 else
---                x"30" when uartcnt = 3 else
---                x"0d" when uartcnt = 4 else
---                x"0d" when uartcnt = 5 else
---                x"0d" when uartcnt = 6 else
---                x"00"; -- null -> ignored by NAS-SYS
+    ioprd01  <= x"53" when uartcnt = x"0a" else -- SC80<newline><newline>
+                x"43" when uartcnt = x"0b" else
+                x"38" when uartcnt = x"0c" else
+                x"30" when uartcnt = x"0d" else
+                x"0d" when uartcnt = x"0e" else
+                x"0d" when uartcnt = x"0f" else
+                x"0d" when uartcnt = x"10" else
+                x"00"; -- null -> ignored by NAS-SYS
 
     -- starting non-zero means that, when I send uartcnt, I don't get non-printing characters like clear-screen
     -- messing up the sign-on screen.
-    port01rd <= x"4d" when uartcnt = x"0a" else -- MBCA<newline>B6/BF9<newline>B5.<newline>
-                x"42" when uartcnt = x"0b" else -- to put characters top left/right on line 16
-                x"43" when uartcnt = x"0c" else
-                x"41" when uartcnt = x"0d" else
-                x"0d" when uartcnt = x"0e" else
-                x"42" when uartcnt = x"0f" else
-                x"36" when uartcnt = x"10" else
-                x"2f" when uartcnt = x"11" else
-                x"42" when uartcnt = x"12" else
-                x"46" when uartcnt = x"13" else
-                x"39" when uartcnt = x"14" else
-                x"0d" when uartcnt = x"15" else
-                x"42" when uartcnt = x"16" else
-                x"35" when uartcnt = x"17" else
-                x"2e" when uartcnt = x"18" else
-                x"0d" when uartcnt = x"19" else
-                x"54" when uartcnt = x"1a" else -- T0 28<newline>
-                x"30" when uartcnt = x"1b" else
-                x"20" when uartcnt = x"1c" else
-                x"32" when uartcnt = x"1d" else
-                x"38" when uartcnt = x"1e" else
-                x"0d" when uartcnt = x"1f" else
-                uartcnt when uartcnt /= x"ff" else -- (most of the) char set
-                x"00"; -- null -> ignored by NAS-SYS
+--    ioprd01  <= x"4d" when uartcnt = x"0a" else -- MBCA<newline>B6/BF9<newline>B5.<newline>
+--                x"42" when uartcnt = x"0b" else -- to put characters top left/right on line 16
+--                x"43" when uartcnt = x"0c" else
+--                x"41" when uartcnt = x"0d" else
+--                x"0d" when uartcnt = x"0e" else
+--                x"42" when uartcnt = x"0f" else
+--                x"36" when uartcnt = x"10" else
+--                x"2f" when uartcnt = x"11" else
+--                x"42" when uartcnt = x"12" else
+--                x"46" when uartcnt = x"13" else
+--                x"39" when uartcnt = x"14" else
+--                x"0d" when uartcnt = x"15" else
+--                x"42" when uartcnt = x"16" else
+--                x"35" when uartcnt = x"17" else
+--                x"2e" when uartcnt = x"18" else
+--                x"0d" when uartcnt = x"19" else
+--                x"54" when uartcnt = x"1a" else -- T0 28<newline>
+--                x"30" when uartcnt = x"1b" else
+--                x"20" when uartcnt = x"1c" else
+--                x"32" when uartcnt = x"1d" else
+--                x"38" when uartcnt = x"1e" else
+--                x"0d" when uartcnt = x"1f" else
+--                uartcnt when uartcnt /= x"ff" else -- (most of the) char set
+--                x"00"; -- null -> ignored by NAS-SYS
 end generate;
 
 OPT_NOSIM: if (RTLSIM_UART = FALSE) generate
@@ -948,7 +982,7 @@ end generate;
     -- Nascom UART at I/O port 1 and 2
     n_UartCS <= '0' when ((cpuAddress(7 downto 0) = "00000001") or (cpuAddress(7 downto 0) = "00000010")) else '1';
 
-    -- SDcard at I/O ports 0x10-0x14
+    -- SDcard at I/O ports 0x10-0x14 but decode 0x10-0x1f
     n_sdCardCS     <= '0' when cpuAddress(7 downto 4) = x"1" else '1';
 
 -- ____________________________________________________________________________________
@@ -1020,14 +1054,14 @@ end generate;
         n_reset_s2 <= n_reset_s1;
 
         -- count reads after reset..
-        if (n_reset_s2 = '1' and n_rd = '0' and post_reset_rd_cnt /= "11") then
+        if n_reset_s2 = '1' and n_rd = '0' and n_WAIT = '1' and post_reset_rd_cnt /= "11" then
           post_reset_rd_cnt <= post_reset_rd_cnt + "01";
         end if;
 
         -- ..after the 3rd read, set reset_jump high to un-map the special
         -- boot ROM (NASCOM 2 does this by counting 2 M1 cycles but counting
         -- reads has cleaner timing).
-        if (post_reset_rd_cnt = "11" and reset_jump = '1') then
+        if post_reset_rd_cnt = "11" and reset_jump = '1' then
           reset_jump <= '0';
         end if;
       end if;

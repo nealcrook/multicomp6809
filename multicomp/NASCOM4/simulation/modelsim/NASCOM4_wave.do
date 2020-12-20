@@ -1,5 +1,6 @@
 onerror {resume}
 quietly WaveActivateNextPane {} 0
+add wave -noupdate /nascom4/vduffd0
 add wave -noupdate /nascom4/stall_a
 add wave -noupdate /nascom4/stall_s
 add wave -noupdate /nascom4/stall_cnt
@@ -13,7 +14,10 @@ add wave -noupdate /nascom4/n_RD
 add wave -noupdate /nascom4/n_WR
 add wave -noupdate -radix hexadecimal /nascom4/sRamData
 add wave -noupdate -radix hexadecimal /nascom4/sRamAddress
-add wave -noupdate /nascom4/vduffd0
+add wave -noupdate /nascom4/n_sRamWE
+add wave -noupdate /nascom4/n_sRamCS
+add wave -noupdate /nascom4/n_sRamCS2
+add wave -noupdate /nascom4/n_sRamOE
 add wave -noupdate -radix hexadecimal /nascom4/cpuAddress
 add wave -noupdate -radix hexadecimal /nascom4/cpuDataOut
 add wave -noupdate -radix hexadecimal /nascom4/cpuDataIn
@@ -33,15 +37,12 @@ add wave -noupdate /nascom4/n_sbootRomCS
 add wave -noupdate /nascom4/cpuClock
 add wave -noupdate /nascom4/n_HALT
 add wave -noupdate /nascom4/wren_nasWSRam
-add wave -noupdate -radix hexadecimal /nascom4/port00wr
 add wave -noupdate -radix hexadecimal /nascom4/portE4wr
 add wave -noupdate -radix hexadecimal /nascom4/portE8wr
 add wave -noupdate /nascom4/n_UartCS
 add wave -noupdate /nascom4/n_WR_uart
 add wave -noupdate /nascom4/n_RD_uart
 add wave -noupdate -radix hexadecimal /nascom4/uartcnt
-add wave -noupdate -radix hexadecimal /nascom4/port01rd
-add wave -noupdate -radix hexadecimal /nascom4/port02rd
 add wave -noupdate /nascom4/n_NMI
 add wave -noupdate /nascom4/nmi_state
 add wave -noupdate /nascom4/n_memWr
@@ -65,7 +66,7 @@ add wave -noupdate /nascom4/n_reset_clean
 add wave -noupdate /nascom4/reset_jump
 add wave -noupdate /nascom4/post_reset_rd_cnt
 TreeUpdate [SetDefaultTree]
-WaveRestoreCursors {RET {31667427 ps} 1} {{Cursor 2} {10003699546 ps} 0}
+WaveRestoreCursors {RET {31667427 ps} 1} {{Cursor 2} {766932931 ps} 0}
 quietly wave cursor active 2
 configure wave -namecolwidth 271
 configure wave -valuecolwidth 100
@@ -81,4 +82,4 @@ configure wave -griddelta 40
 configure wave -timeline 0
 configure wave -timelineunits ps
 update
-WaveRestoreZoom {103514304 ps} {104130827 ps}
+WaveRestoreZoom {754611427 ps} {779254435 ps}

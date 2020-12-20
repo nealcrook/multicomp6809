@@ -5,6 +5,8 @@
 --
 -- In both cases, the character is 8 pixels wide by 16 scan lines high.
 --
+-- VGA timing from http://tinyvga.com/vga-timing
+--
 -- This module provides 1K and 2K video RAM, with separate input selects,
 -- so that both screens can co-exist without corruption.
 --

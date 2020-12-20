@@ -31,6 +31,24 @@ STMON:  EQU     $0d
 RIN:    EQU     $8
 ROUT:   EQU     $30
 
+;;; NAS-SYS SCAL codes
+ZMRET:  EQU     $5b
+ZTBCD3: EQU     $66
+ZCRLF:  EQU     $6a
+ZERRM:  EQU     $6b
+
+;;; Macro for using SCAL
+SCAL:   MACRO FOO
+        RST 18H
+        DB FOO
+        ENDM
+
+;;; NAS-SYS workspace
+ARGN:   EQU     $0c0b
+ARG1:   EQU     $0c0c
+ARG2:   EQU     $0c0e
+ARG3:   EQU     $0c10
+ARG4:   EQU     $0c12
 
 ;;; 512 byte buffer for loading menu and profile data. Image data is
 ;;; moved directly from the SDcard to its destination address.
@@ -54,6 +72,9 @@ POFFSET:EQU     $8
 SBSTART:
         org     $1000
         jp      REENTER         ;power-on-reset jump
+        jp      CSUM            ;portable entry point to CSUM utility
+        jp      SD2MEM          ;portable entry point to SD2MEM utility
+
 REENTER:ld      sp,$1000        ;like NAS-SYS
         call    STMON           ;initialise NAS-SYS
 
@@ -341,6 +362,17 @@ GA1:    ret
 
 SDRD512:push    de
         push    bc
+
+;;; Didn't need this in 6809 code but, in Z80 code, without this
+;;; it sometimes reads an extra byte when this routine is called
+;;; in a loop - but not when I breakpoint after each iteration of
+;;; the loop. Would need to add observation for external scope to
+;;; understand what's going on here; don't have an adequate tb
+;;; representation of the SDcard to simulate this scenario.
+SDINIT: in      a,(SDCTRL)
+        cp      $80
+        jr      nz, SDINIT      ;wait until SDcard is ready
+
         ld      a,d
         out     (SDLBA1),a
         ld      a,e
@@ -357,6 +389,7 @@ SDWAIT1:in      a,(SDCTRL)      ;get status
         ld      (hl),a
         inc     hl
         djnz    SDWAIT1
+        nop                     ;only here to allow debug/breakpoint
         ;; get second 256 bytes (b=0 == 256)
 SDWAIT2:in      a,(SDCTRL)      ;get status
         cp      $E0             ;read data available
@@ -368,6 +401,101 @@ SDWAIT2:in      a,(SDCTRL)      ;get status
         pop     bc
         pop     de
         ret
+
+;;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Command-line utility: Calculate checksum of memory region
+;;;
+;;; E 1003 ssss eeee
+;;;
+;;; Compute checksum of memory from ssss to eeee inclusive.
+;;; Checksum is the sum of all bytes and is reported as a
+;;; 16-bit value. Carry off the MSB is lost/ignored.
+CSUM:   ld      de,EARG
+        ld      a,(ARGN)
+        cp      3               ;expect 3 arguments
+        jp      nz, MEXIT
+
+        call    E2LEN           ;hl=start, bc=count
+        ld      d,0
+        ld      e,d             ;accumulate in de
+
+C1:     ld      a,b             ;is byte count zero?
+        or      c
+        jr      z,CDONE         ;if so, we're done
+
+        ld      a,e             ;get lo accumulator
+        add     a,(hl)          ;add next byte
+        jr      nc,C2
+        inc     d               ;carry to hi accumlator
+C2:     ld      e,a             ;store lo accumulator
+        inc     hl              ;next byte
+        dec     bc
+        jr      C1              ;loop
+
+CDONE:  ld      h,d             ;move sum from de to hl
+        ld      l,e
+
+        SCAL    ZTBCD3          ;print hl
+        jr      MEX1
+
+;;; End-To-Length: start address in (ARG2), end address in (ARG3).
+;;; Exit with HL=start, BC=byte count.
+;;; corrupts: AF
+E2LEN:  ld      de,(ARG2)       ;start address
+        ld      hl,(ARG3)       ;end address
+        ;; compute end - start + 1
+        or      a               ;clear carry flag
+        sbc     hl,de
+        inc     hl              ;byte count in hl
+        ld      b,h
+        ld      c,l             ;byte count in bc
+
+        ld      hl,(ARG2)       ;start address in hl
+        ret
+
+;;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;;; Command-line utility: read data from SDcard to memory
+;;;
+;;; E 1006 dddd bbbb nn
+;;;
+;;; dddd - destination address
+;;; bbbb - block address on SDcard
+;;; nn   - number of blocks (512-bytes per block)
+
+SD2MEM: ld      de,EARG
+        ld      a,(ARGN)
+        cp      4               ;expect 4 arguments
+        jp      nz, MEXIT
+        ;; in case it's never been done
+        xor     a
+        out     (SDLBA2),a      ;high block address is ALWAYS 0
+
+        ld      hl,(ARG2)       ;destination
+        ld      de,(ARG3)       ;block number
+        ld      bc,(ARG4)       ;block count
+        ld      b,c             ;block count low 8 bits in B
+SD1:    call    SDRD512
+        inc     de
+        djnz    SD1
+        jr      MEX1            ;done
+
+
+EARG:   DB "Wrong number of arguments",0
+
+;;; Exit with message. Can be used for successful or error/fatal
+;;; exit. (DE) is null-terminated string (possibly 0-length).
+;;; Print string then CR then return to NAS-SYS.
+;;; Come here by CALL or JP/JR -- NAS-SYS will clean up the
+;;; stack if necessary.
+MEXIT:  ld      a,(de)
+        or      a
+        jr      z, MEX1
+        rst     ROUT
+        inc     de
+        jr      MEXIT
+
+MEX1:   SCAL    ZCRLF
+        SCAL    ZMRET
 
 
 ;;; pad ROM to 1Kbytes.
