@@ -1,18 +1,23 @@
 -- TODO/BUGS
--- Implement write protection register
--- Move all new I/O ports to 0x1X?? Rejig menus accordingly
+-- Change SBR and sdcard menus to use port 18 instead of 3.
+-- Change sdcard menus to write-protect the "ROM" images
 -- Why don't the 2k monitor replacements work? The 1k ones do??!!
+--   add copy-under utility to copy monitor to RAM for inspection
 -- Add a warm-start bit set by the load process so that a subsequent
 --   button reset does not repeat it. Eg: an i/o port bit that is
 --   initialised at powerup but is not reset. OR readback of eg NMI button
---   state at reset.
+--   state at reset. BUT then would need to know the state of the
+--   mmap bits and the write protect. Might be better to have a "last
+--   profile" register then can restart without going through the menu
 -- Consider changing ROMs to be a single model with an initialisation file
--- and put them in a generic folder.
+--   and put them in a generic folder.
 -- Change char gen to an initialised RAM and add control port for writes
 -- Programmable wait state generator??
 -- Review compilation warnings and fix
 -- Need a mapping bit to disable the workspace RAM else CP/M paging won't
--- work if it tries to page in low memory.
+--   work if it tries to page in low memory.
+-- Emulate NASCOM keyboard via PS/2?
+-- Do gate-count estimate for adding GM813 memory-mapper
 -----------------------------------------------------
 
 
@@ -60,9 +65,12 @@
 --
 -- * I/O port 0     - keyboard and single-step control
 -- * I/O port 1,2   - 6402 compatible UART
--- * I/O port 3     - NEW controls paging of ROM/RAM/VDU
+-- * I/O port 3     - NEW controls paging of ROM/RAM/VDU -> will move to 18
 -- * I/O port 4-7   - EXTERNAL Z80 PIO
--- * I/O port 10-1F - NEW SDcard controller
+-- * I/O port 10-17 - NEW SDcard controller
+-- * I/O port 18    - NEW controls paging of ROM/RAM/VDU
+-- * I/O port 19    - NEW controls RAM write-protect
+-- * I/O port 1A    - NEW ??? last profile?
 -- * I/O port E0-E3 - EXTERNAL WD2797 Floppy Disk Controller
 -- * I/O port E4    - VFC FDC drive select etc.
 -- * I/O port E6    - VFC "parallel" keyboard (maybe; from PS/2 keyboard)
@@ -73,13 +81,6 @@
 
 -- * I/O port FE    - MAP80 256KRAM paging/memory mapping (write-only)
 
-
--- TBD port for memory-mapping control
--- * NASCOM video RAM in low memory or (for NASCOM CP/M) high memory
---   -- write-only? Reads come from RAM?
--- * Possible write-protect of RAM? Or would this be too fiddly with paged MAP80 RAM "underneath"?
--- emulate NASCOM keyboard via PS/2?
--- SDcard support? Could be instead of Flash ROM..
 
 -- Connection off-chip to:
 -- * VGA video drive
@@ -241,7 +242,7 @@ entity NASCOM4 is
 
         -- LEDs on base FPGA board and duplicated on James Moxham's PCB.
         -- Set LOW to illuminate. 3rd LED is "driveLED" output from SDcard
-        n_LED7        : out std_logic := '1';
+        n_LED7        : out std_logic := '1';  -- DRIVE (tape)
         n_LED9        : out std_logic := '1';  -- HALT
 
         -- External pull-up so this defaults to 1. When pulled to gnd
@@ -381,16 +382,26 @@ architecture struct of NASCOM4 is
 
 
     ------------------------------------------------------------------
-    -- Port 1/2: UART
+    -- Ports 1,2: UART
     --
     -- Only used when RTLSIM_UART is TRUE
     signal ioprd01                : std_logic_vector(7 downto 0) := x"00"; -- UART data
     signal ioprd02                : std_logic_vector(7 downto 0) := x"80"; -- UART status -> always has data
     signal uartcnt                : std_logic_vector(7 downto 0) := x"00";
 
+    ------------------------------------------------------------------
+    -- Port 4,5,6,7: PIO (external)
 
     ------------------------------------------------------------------
-    -- Port 3: new for FPGA implementation
+    -- Port 10-17: Decoded for SDcard (only 10,11,12,13,14 used)
+
+    -- [NAC HACK 2020Dec19] should I decode that properly and
+    -- then use 1E for memory map control and 1F for write protect..
+    -- decide soon, because the port03 stuff is spreading into
+    -- firmware and the scripts for SDcard image generation..
+
+    ------------------------------------------------------------------
+    -- Port 18: new for FPGA implementation
     --              Write                                     Read
     -- B7          ignored                                    bootmode1
     -- B6          ignored                                    bootmode0
@@ -423,37 +434,25 @@ architecture struct of NASCOM4 is
     -- ROM is to load ROM images into RAM, and then write-protect
     -- the RAM, to give the appearance of a ROM-laden NASCOM.
 
-    signal iopwr03MAP80AutoBoot   : std_logic; -- bit 4
-    signal iopwr03NasSysRom       : std_logic; -- bit 3
-    signal iopwr03SBootRom        : std_logic; -- bit 2
-    signal iopwr03NasVidHigh      : std_logic; -- bit 1
-    signal iopwr03NasVidEnable    : std_logic; -- bit 0
-    signal ioprd03                : std_logic_vector(7 downto 0);
+    signal iopwr18MAP80AutoBoot   : std_logic; -- bit 4
+    signal iopwr18NasSysRom       : std_logic; -- bit 3
+    signal iopwr18SBootRom        : std_logic; -- bit 2
+    signal iopwr18NasVidHigh      : std_logic; -- bit 1
+    signal iopwr18NasVidEnable    : std_logic; -- bit 0
+    signal ioprd18                : std_logic_vector(7 downto 0);
 
     ------------------------------------------------------------------
-    -- Port 4/5/6/7: PIO (external)
-
-    ------------------------------------------------------------------
-    -- Port 1x: Decoded for SDcard (only 10,11,12,13,14 used)
-
-    -- [NAC HACK 2020Dec19] should I decode that properly and
-    -- then use 1E for memory map control and 1F for write protect..
-    -- decide soon, because the port03 stuff is spreading into
-    -- firmware and the scripts for SDcard image generation..
-
-
-    ------------------------------------------------------------------
-    -- Port 20: RAM write protect
-    -- [NAC HACK 2020Dec19] or different number??
+    -- Port 19: RAM write protect
     -- Ef8k means: from E000 for 8K
-    -- [NAC HACK 2020Dec19] not yet implemented..
 
-    signal iopwr20ProtEf8k        : std_logic; -- bit 6 Protect BASIC
-    signal iopwr20ProtDf4k        : std_logic; -- bit 5 Protect ZEAP etc
-    signal iopwr20ProtCf4k        : std_logic; -- bit 4 Protect ??
-    signal iopwr20ProtBf4k        : std_logic; -- bit 3 Protect ??
-    signal iopwr20ProtAf4k        : std_logic; -- bit 2 Protect ??
-    signal iopwr20Prot0f2k        : std_logic; -- bit 0 Protect NAS-SYS
+    signal iopwr19ProtEf8k        : std_logic; -- bit 6 Protect BASIC
+    signal iopwr19ProtDf4k        : std_logic; -- bit 5 Protect ZEAP etc
+    signal iopwr19ProtCf4k        : std_logic; -- bit 4 Protect ??
+    signal iopwr19ProtBf4k        : std_logic; -- bit 3 Protect ??
+    signal iopwr19ProtAf4k        : std_logic; -- bit 2 Protect ??
+    signal iopwr19Prot0f2k        : std_logic; -- bit 0 Protect NAS-SYS
+    signal ioprd19                : std_logic_vector(7 downto 0);
+    signal sRamProtect            : std_logic;
 
     ------------------------------------------------------------------
     -- MAP80 VFC disk control
@@ -531,7 +530,9 @@ architecture struct of NASCOM4 is
 begin
 
     n_LED9 <= n_HALT;
-    -- [NAC HACK 2020Nov25] change sim script to set the pins accordingly
+    n_LED7 <= not iopwr00NasDrive;
+
+-- [NAC HACK 2020Nov25] change sim script to set the pins accordingly
 --    bootmode(1) <= gpio0(1);
 --    bootmode(0) <= gpio0(0);
 
@@ -631,33 +632,29 @@ begin
     n_sRamCS  <= n_sRamCSLo_i;
     n_sRamCS2 <= n_sRamCSHi_i;
 
+
     -- Control for external data bus [NAC HACK 2020Dec08] this will get more complex
     -- once the external buffered I/O bus is factored in
     sRamData <= cpuDataOut when n_WR = '0' else (others => 'Z');
 
-    -- This will need finessing for clean interaction with external buffered I/O bus
 
-    -- [NAC HACK 2020Dec09] also, the memory write protect factors in to the WE path,
-    -- as does the decode for MAP80 VFC video RAM. TBD whether to factor in the decode
-    -- for the workspace RAM (DO need a way of masking that out else it will cause
-    -- a problem when paging memory)
+    sRamProtect <= '1' when (iopwr19ProtEf8k = '1' and cpuAddress(15 downto 13) = "111")
+                         or (iopwr19ProtDf4k = '1' and cpuAddress(15 downto 12) = "1101")
+                         or (iopwr19ProtCf4k = '1' and cpuAddress(15 downto 12) = "1100")
+                         or (iopwr19ProtBf4k = '1' and cpuAddress(15 downto 12) = "1011")
+                         or (iopwr19ProtAf4k = '1' and cpuAddress(15 downto 12) = "1010")
+                         or (iopwr19Prot0f2k = '1' and cpuAddress(15 downto 11) = "00000") else '0';
 
-    n_sRamWE <= n_WR;
+
+    -- Inhibit WRITES to external SRAM when the CPU address corresponds to the MAP80 VFC
+    -- video RAM or to a protected region.
+    -- [NAC HACK 2020Dec20] should I also exclude workspace RAM? That's not currently
+    -- paged but probably needs to be.
+    n_sRamWE <= n_WR when n_vfcVidRamCS = '1' and sRamProtect = '0' else '1';
     n_sRamOE <= n_RD;
 
-    -- TODO may want to qualify the chip selects with something? Or
-    -- do all the work in the OE/WE control?
 
-    -- During a memory read, the priority tree of the data read-back
-    -- bus to the CPU ensures that enabled ROM, workspace or video RAM
-    -- will return data, overriding the external SRAM.
-    -- During a memory write (to mapped workspace or video RAM) need
-    -- to inhibit writes to external SRAM.
-    --
-    --TODO need to provide a mapping register to disable the ws RAM..
-
-
--- Internal 1K WorkSpace RAM
+    -- Internal 1K WorkSpace RAM
     wren_nasWSRam <= not(n_MREQ or n_WR or n_nasWSRamCS);
 
     WSRam: entity work.InternalRam1K
@@ -683,27 +680,35 @@ begin
         -- Decode bootmode to get initial state of port3 stuff and video select
         if (bootmode = 1) then
           -- MAP80 VFC CP/M boot
-          iopwr03NasVidEnable  <= '0';
-          iopwr03NasSysRom     <= '0';
-          iopwr03SBootRom      <= '0';
-          iopwr03MAP80AutoBoot <= '1';
+          iopwr18NasVidEnable  <= '0';
+          iopwr18NasSysRom     <= '0';
+          iopwr18SBootRom      <= '0';
+          iopwr18MAP80AutoBoot <= '1';
           video_map80vfc       <= '1';
         else
-          iopwr03NasVidEnable  <= '1';
-          iopwr03NasSysRom     <= '1';
+          iopwr18NasVidEnable  <= '1';
+          iopwr18NasSysRom     <= '1';
           if bootmode = 2 or bootmode = 3 then
-            iopwr03SBootRom    <= '1';
+            iopwr18SBootRom    <= '1';
           else
-            iopwr03SBootRom    <= '0';
+            iopwr18SBootRom    <= '0';
           end if;
-          iopwr03MAP80AutoBoot <= '0';
+          iopwr18MAP80AutoBoot <= '0';
           video_map80vfc       <= '0';
         end if;
 
         -- This will be high for NASCOM CP/M but that requires other stuff
         -- to be loaded by the SBootRom so that ROM can also do the port
         -- write to remap this.
-        iopwr03NasVidHigh    <= '0';
+        iopwr18NasVidHigh    <= '0';
+
+        -- After reset, whole address space is writeable
+        iopwr19ProtEf8k <= '0';
+        iopwr19ProtDf4k <= '0';
+        iopwr19ProtCf4k <= '0';
+        iopwr19ProtBf4k <= '0';
+        iopwr19ProtAf4k <= '0';
+        iopwr19Prot0f2k <= '0';
 
         portE4wr <= x"00";
         portE8wr <= x"00";
@@ -724,12 +729,22 @@ begin
           iopwr00NasKbdRst <= cpuDataOut(0);
         end if;
 
-        if cpuAddress(7 downto 0) = x"03" and n_IORQ = '0' and n_WR = '0' then
-          iopwr03MAP80AutoBoot <= cpuDataOut(4);
-          iopwr03NasSysRom     <= cpuDataOut(3);
-          iopwr03SBootRom      <= cpuDataOut(2);
-          iopwr03NasVidHigh    <= cpuDataOut(1);
-          iopwr03NasVidEnable  <= cpuDataOut(0);
+        -- [NAC HACK 2020Dec20] remove the 03 decode once it's fully migrated to 18
+        if (cpuAddress(7 downto 0) = x"03" or cpuAddress(7 downto 0) = x"18") and n_IORQ = '0' and n_WR = '0' then
+          iopwr18MAP80AutoBoot <= cpuDataOut(4);
+          iopwr18NasSysRom     <= cpuDataOut(3);
+          iopwr18SBootRom      <= cpuDataOut(2);
+          iopwr18NasVidHigh    <= cpuDataOut(1);
+          iopwr18NasVidEnable  <= cpuDataOut(0);
+        end if;
+
+        if cpuAddress(7 downto 0) = x"19" and n_IORQ = '0' and n_WR = '0' then
+          iopwr19ProtEf8k <= cpuDataOut(6);
+          iopwr19ProtDf4k <= cpuDataOut(5);
+          iopwr19ProtCf4k <= cpuDataOut(4);
+          iopwr19ProtBf4k <= cpuDataOut(3);
+          iopwr19ProtAf4k <= cpuDataOut(2);
+          iopwr19Prot0f2k <= cpuDataOut(0);
         end if;
 
         if cpuAddress(7 downto 0) = x"e4" and n_IORQ = '0' and n_WR = '0' then
@@ -762,9 +777,13 @@ begin
       end if;
     end process;
 
-    -- Readback for port03
-    ioprd03 <= bootmode(1 downto 0) & '0' & iopwr03MAP80AutoBoot
-          & iopwr03NasSysRom & iopwr03SBootRom & iopwr03NasVidHigh & iopwr03NasVidEnable;
+    -- Readback for port18
+    ioprd18 <= bootmode(1 downto 0) & '0' & iopwr18MAP80AutoBoot
+          & iopwr18NasSysRom & iopwr18SBootRom & iopwr18NasVidHigh & iopwr18NasVidEnable;
+
+    -- Readback for port19
+    ioprd19 <= '0' & iopwr19ProtEf8k & iopwr19ProtDf4k & iopwr19ProtCf4k & iopwr19ProtBf4k
+          & iopwr19ProtAf4k & '0' & iopwr19Prot0f2k;
 
     -- [NAC HACK 2020Nov16] here, I drive data for any IO request -- will need changing for external IO read
     -- [NAC HACK 2020Nov16] and for interrupt ack cycle
@@ -773,16 +792,20 @@ begin
     -- E4 read from stuff.. disk control
     -- E6 parallel keyboard synthesised from PS/2 kbd
     -- Miscellaneous I/O port write
-    proc_iord: process(cpuAddress, ioprd00, UartDataOut, ioprd03, sdCardDataOut, porte4rd, porte6rd)
+    proc_iord: process(cpuAddress, ioprd00, UartDataOut, ioprd18, ioprd19, sdCardDataOut, porte4rd, porte6rd)
     begin
       if cpuAddress(7 downto 0) = x"00" then
         nasLocalIODataOut  <= ioprd00;
       elsif cpuAddress(7 downto 0) = x"01" or cpuAddress(7 downto 0) = x"02" then
         nasLocalIODataOut  <= UartDataOut;
       elsif cpuAddress(7 downto 0) = x"03" then
-        nasLocalIODataOut  <= ioprd03;
-      elsif cpuAddress(7 downto 4) = x"1" then
+        nasLocalIODataOut  <= ioprd18; --- [NAC HACK 2020Dec20] get rid of this once 03 has migrated to 18
+      elsif cpuAddress(7 downto 3) = "00010" then
         nasLocalIODataOut  <= sdCardDataOut;
+      elsif cpuAddress(7 downto 0) = x"18" then
+        nasLocalIODataOut  <= ioprd18;
+      elsif cpuAddress(7 downto 0) = x"19" then
+        nasLocalIODataOut  <= ioprd19;
       elsif cpuAddress(7 downto 0) = x"e4" then
         nasLocalIODataOut  <= porte4rd;
       elsif cpuAddress(7 downto 0) = x"e6" then
@@ -951,10 +974,6 @@ end generate;
     );
 
 
-
-    -- pin control. There's probably an easier way of doing this??
-    -- .. refer to multicomp6809 design
-
 -- ____________________________________________________________________________________
 -- MEMORY READ/WRITE LOGIC GOES HERE
 
@@ -962,28 +981,28 @@ end generate;
 -- CHIP SELECTS GO HERE
 
     -- Nascom code ROM is 2Kbytes at 0x0000
-    n_nasRomCS    <= '0' when cpuAddress(15 downto 11) = "00000"  and iopwr03NasSysRom='1' else '1';
+    n_nasRomCS    <= '0' when cpuAddress(15 downto 11) = "00000"  and iopwr18NasSysRom='1' else '1';
     -- Nascom workspace RAM is 1Kbytes at 0x0C00
     n_nasWSRamCS  <= '0' when cpuAddress(15 downto 10) = "000011" else '1';
     -- Nascom video RAM is 1Kbytes at 0x0800 usually, can be at 0xF800 for NASCOM CP/M
-    n_nasVidRamCS <= '0' when (cpuAddress(15 downto 10) = "000010" and iopwr03NasVidHigh = '0' and iopwr03NasVidEnable = '1')
-                           or (cpuAddress(15 downto 10) = "111110" and iopwr03NasVidHigh = '1' and iopwr03NasVidEnable = '1') else '1';
+    n_nasVidRamCS <= '0' when (cpuAddress(15 downto 10) = "000010" and iopwr18NasVidHigh = '0' and iopwr18NasVidEnable = '1')
+                           or (cpuAddress(15 downto 10) = "111110" and iopwr18NasVidHigh = '1' and iopwr18NasVidEnable = '1') else '1';
 
     -- Special (alternate) boot ROM is 1Kbyte at 0 after reset but normally at 0x1000
-    n_sbootRomCS <= '0' when (cpuAddress(15 downto 10) = "000000" and iopwr03SBootRom = '1' and reset_jump = '1')
-                          or (cpuAddress(15 downto 10) = "000100" and iopwr03SBootRom = '1'                     ) else '1';
+    n_sbootRomCS <= '0' when (cpuAddress(15 downto 10) = "000000" and iopwr18SBootRom = '1' and reset_jump = '1')
+                          or (cpuAddress(15 downto 10) = "000100" and iopwr18SBootRom = '1'                     ) else '1';
 
     -- MAP80 VFC video RAM
     n_vfcVidRamCS <= '0' when cpuAddress(15 downto 12) = iopwrECVfcPage and cpuAddress(11) = '1' and iopwrECRamEnable = '1' else '1';
     -- MAP80 VFC ROM
-    iopwrECRomEnable_gated <= iopwrECRomEnable xor iopwr03MAP80AutoBoot;
+    iopwrECRomEnable_gated <= iopwrECRomEnable xor iopwr18MAP80AutoBoot;
     n_vfcRomCS    <= '0' when cpuAddress(15 downto 12) = iopwrECVfcPage and cpuAddress(11) = '0' and iopwrECRomEnable_gated = '1' else '1';
 
-    -- Nascom UART at I/O port 1 and 2
+    -- Nascom UART at I/O ports 0x01 and 0x02
     n_UartCS <= '0' when ((cpuAddress(7 downto 0) = "00000001") or (cpuAddress(7 downto 0) = "00000010")) else '1';
 
-    -- SDcard at I/O ports 0x10-0x14 but decode 0x10-0x1f
-    n_sdCardCS     <= '0' when cpuAddress(7 downto 4) = x"1" else '1';
+    -- SDcard at I/O ports 0x10-0x14 but decode 0x10-0x17
+    n_sdCardCS     <= '0' when cpuAddress(7 downto 3) = "00010" else '1';
 
 -- ____________________________________________________________________________________
 -- BUS ISOLATION GOES HERE
