@@ -47,11 +47,6 @@ add wave -noupdate /nascom4/n_NMI
 add wave -noupdate /nascom4/nmi_state
 add wave -noupdate /nascom4/n_memWr
 add wave -noupdate /nascom4/video_map80vfc
-add wave -noupdate /nascom4/iopwr03NasVidEnable
-add wave -noupdate /nascom4/iopwr03NasVidHigh
-add wave -noupdate /nascom4/iopwr03NasSysRom
-add wave -noupdate /nascom4/iopwr03SBootRom
-add wave -noupdate /nascom4/iopwr03MAP80AutoBoot
 add wave -noupdate /nascom4/iopwrECVfcPage
 add wave -noupdate /nascom4/iopwrECRomEnable
 add wave -noupdate /nascom4/iopwrECRamEnable
@@ -65,6 +60,12 @@ add wave -noupdate /nascom4/n_reset_s2
 add wave -noupdate /nascom4/n_reset_clean
 add wave -noupdate /nascom4/reset_jump
 add wave -noupdate /nascom4/post_reset_rd_cnt
+add wave -noupdate /nascom4/iopwr18MAP80AutoBoot
+add wave -noupdate /nascom4/iopwr18NasSysRom
+add wave -noupdate /nascom4/iopwr18SBootRom
+add wave -noupdate /nascom4/iopwr18NasVidHigh
+add wave -noupdate /nascom4/iopwr18NasVidRam
+add wave -noupdate /nascom4/ioprd18
 TreeUpdate [SetDefaultTree]
 WaveRestoreCursors {RET {31667427 ps} 1} {{Cursor 2} {766932931 ps} 0}
 quietly wave cursor active 2

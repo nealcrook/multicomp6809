@@ -55,7 +55,8 @@ ARG4:   EQU     $0c12
 BUFFER: EQU     $c80
 
 ;;; I/O ports
-REMAP:  EQU     $03
+REMAP:  EQU     $18
+PROTECT:EQU     $19
 SDDATA: EQU     $10
 SDCTRL: EQU     $11
 SDLBA0: EQU     $12
@@ -204,13 +205,13 @@ LCMD1:  call    SDRD512
 ;;; from ROM or it will disappear from under our feet. Portable solution: build
 ;;; a code fragment on the stack, then jump to it.
 ;;;
-;;; entry: A  contains the value to be output to port 3
+;;; entry: A  contains the value to be output to port REMAP
 ;;;        HL contains the destination address
 ;;; exit:  Never returns. Continues execution at HL
 ;;;
 ;;; For a destination of DH, DL (destination high,low bytes) the code fragment
 ;;; looks like this:
-;;; d3 03      OUT (3), A
+;;; d3 18      OUT (REMAP), A
 ;;; c3 DL DH   JP DHDL
 ;;; xx         ??
 ;;;
@@ -226,9 +227,9 @@ EXIT:   ld      c, h
         ld      b, l
         ld      c, OPJP
         push    bc              ; JP DL
-        ld      b, 3            ; Port 3
+        ld      b, REMAP        ; Port 0x18
         ld      c, OPOUT
-        push    bc              ; OUT (3) A
+        push    bc              ; OUT (REMAP) A
 
         ;; jump to code fragment at SP -- is there a simpler way?
         ;; assumption is that the stack will be re-initialised by

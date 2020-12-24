@@ -1,8 +1,6 @@
 -- TODO/BUGS
--- Change SBR and sdcard menus to use port 18 instead of 3.
--- Change sdcard menus to write-protect the "ROM" images
 -- Why don't the 2k monitor replacements work? The 1k ones do??!!
---   add copy-under utility to copy monitor to RAM for inspection
+--   use MAP80 paging to view monitor in high RAM for inspection
 -- Add a warm-start bit set by the load process so that a subsequent
 --   button reset does not repeat it. Eg: an i/o port bit that is
 --   initialised at powerup but is not reset. OR readback of eg NMI button
@@ -18,6 +16,10 @@
 --   work if it tries to page in low memory.
 -- Emulate NASCOM keyboard via PS/2?
 -- Do gate-count estimate for adding GM813 memory-mapper
+-- Add dedicated profile string in ROM for loading and running external
+--   memory test from David Allday.
+-- Try old version vs latest version: why did space invaders loop
+--  before but now it does not. Need to revert RTL, SDcard, ROM
 -----------------------------------------------------
 
 
@@ -395,18 +397,13 @@ architecture struct of NASCOM4 is
     ------------------------------------------------------------------
     -- Port 10-17: Decoded for SDcard (only 10,11,12,13,14 used)
 
-    -- [NAC HACK 2020Dec19] should I decode that properly and
-    -- then use 1E for memory map control and 1F for write protect..
-    -- decide soon, because the port03 stuff is spreading into
-    -- firmware and the scripts for SDcard image generation..
-
     ------------------------------------------------------------------
     -- Port 18: new for FPGA implementation
     --              Write                                     Read
     -- B7          ignored                                    bootmode1
     -- B6          ignored                                    bootmode0
-    -- B5          unused                                     0
-    -- B4          MAP80 VFC autoboot                         readback
+    -- B5          MAP80 VFC autoboot                         readback
+    -- B4          1: enable NASCOM WS RAM                    readback
     -- B3          0: disable NAS-SYS  1: enable NAS-SYS      readback
     -- B2          0: disable boot ROM 1: enable boot ROM     readback
     -- B1          0: VRAM@800, 1:VRAM@?? (for CP/M)          readback
@@ -434,11 +431,12 @@ architecture struct of NASCOM4 is
     -- ROM is to load ROM images into RAM, and then write-protect
     -- the RAM, to give the appearance of a ROM-laden NASCOM.
 
-    signal iopwr18MAP80AutoBoot   : std_logic; -- bit 4
+    signal iopwr18MAP80AutoBoot   : std_logic; -- bit 5
+    signal iopwr18NasWsRam        : std_logic; -- bit 4
     signal iopwr18NasSysRom       : std_logic; -- bit 3
     signal iopwr18SBootRom        : std_logic; -- bit 2
     signal iopwr18NasVidHigh      : std_logic; -- bit 1
-    signal iopwr18NasVidEnable    : std_logic; -- bit 0
+    signal iopwr18NasVidRam       : std_logic; -- bit 0
     signal ioprd18                : std_logic_vector(7 downto 0);
 
     ------------------------------------------------------------------
@@ -520,7 +518,7 @@ architecture struct of NASCOM4 is
     -- start NASCOM + BASIC + NAS-DOS
     -- start NASCOM CP/M
     -- start T4 + BASIC
-    --                     Port 3 b4:b0           MAP80 VFC video select
+    --                     Port 18 b4:b0           MAP80 VFC video select
     -- bootmode=0           01001                   NASCOM video
     -- bootmode=1           10000                   MAP80 video
     -- bootmode=2           01101                   NASCOM video
@@ -650,8 +648,8 @@ begin
     -- video RAM or to a protected region.
     -- [NAC HACK 2020Dec20] should I also exclude workspace RAM? That's not currently
     -- paged but probably needs to be.
-    n_sRamWE <= n_WR when n_vfcVidRamCS = '1' and sRamProtect = '0' else '1';
-    n_sRamOE <= n_RD;
+    n_sRamWE <= '0' when n_WR = '0' and n_MREQ = '0' and n_vfcVidRamCS = '1' and sRamProtect = '0' else '1';
+    n_sRamOE <= '0' when n_RD = '0' and n_MREQ = '0' else '1';
 
 
     -- Internal 1K WorkSpace RAM
@@ -680,21 +678,24 @@ begin
         -- Decode bootmode to get initial state of port3 stuff and video select
         if (bootmode = 1) then
           -- MAP80 VFC CP/M boot
-          iopwr18NasVidEnable  <= '0';
-          iopwr18NasSysRom     <= '0';
-          iopwr18SBootRom      <= '0';
-          iopwr18MAP80AutoBoot <= '1';
           video_map80vfc       <= '1';
+          iopwr18MAP80AutoBoot <= '1';
+          iopwr18NasWsRam      <= '0';
+          iopwr18SBootRom      <= '0';
+          iopwr18NasSysRom     <= '0';
+          iopwr18NasVidRam     <= '0';
         else
-          iopwr18NasVidEnable  <= '1';
-          iopwr18NasSysRom     <= '1';
+          -- Native NASCOM or Special Boot ROM
+          video_map80vfc       <= '0';
+          iopwr18MAP80AutoBoot <= '0';
+          iopwr18NasWsRam      <= '1';
           if bootmode = 2 or bootmode = 3 then
             iopwr18SBootRom    <= '1';
           else
             iopwr18SBootRom    <= '0';
           end if;
-          iopwr18MAP80AutoBoot <= '0';
-          video_map80vfc       <= '0';
+          iopwr18NasSysRom     <= '1';
+          iopwr18NasVidRam     <= '1';
         end if;
 
         -- This will be high for NASCOM CP/M but that requires other stuff
@@ -729,13 +730,13 @@ begin
           iopwr00NasKbdRst <= cpuDataOut(0);
         end if;
 
-        -- [NAC HACK 2020Dec20] remove the 03 decode once it's fully migrated to 18
-        if (cpuAddress(7 downto 0) = x"03" or cpuAddress(7 downto 0) = x"18") and n_IORQ = '0' and n_WR = '0' then
-          iopwr18MAP80AutoBoot <= cpuDataOut(4);
+        if cpuAddress(7 downto 0) = x"18" and n_IORQ = '0' and n_WR = '0' then
+          iopwr18MAP80AutoBoot <= cpuDataOut(5);
+          iopwr18NasWsRam      <= cpuDataOut(4);
           iopwr18NasSysRom     <= cpuDataOut(3);
           iopwr18SBootRom      <= cpuDataOut(2);
           iopwr18NasVidHigh    <= cpuDataOut(1);
-          iopwr18NasVidEnable  <= cpuDataOut(0);
+          iopwr18NasVidRam     <= cpuDataOut(0);
         end if;
 
         if cpuAddress(7 downto 0) = x"19" and n_IORQ = '0' and n_WR = '0' then
@@ -778,8 +779,8 @@ begin
     end process;
 
     -- Readback for port18
-    ioprd18 <= bootmode(1 downto 0) & '0' & iopwr18MAP80AutoBoot
-          & iopwr18NasSysRom & iopwr18SBootRom & iopwr18NasVidHigh & iopwr18NasVidEnable;
+    ioprd18 <= bootmode(1 downto 0) & iopwr18MAP80AutoBoot & iopwr18NasWsRam
+          & iopwr18NasSysRom & iopwr18SBootRom & iopwr18NasVidHigh & iopwr18NasVidRam;
 
     -- Readback for port19
     ioprd19 <= '0' & iopwr19ProtEf8k & iopwr19ProtDf4k & iopwr19ProtCf4k & iopwr19ProtBf4k
@@ -798,8 +799,6 @@ begin
         nasLocalIODataOut  <= ioprd00;
       elsif cpuAddress(7 downto 0) = x"01" or cpuAddress(7 downto 0) = x"02" then
         nasLocalIODataOut  <= UartDataOut;
-      elsif cpuAddress(7 downto 0) = x"03" then
-        nasLocalIODataOut  <= ioprd18; --- [NAC HACK 2020Dec20] get rid of this once 03 has migrated to 18
       elsif cpuAddress(7 downto 3) = "00010" then
         nasLocalIODataOut  <= sdCardDataOut;
       elsif cpuAddress(7 downto 0) = x"18" then
@@ -982,11 +981,12 @@ end generate;
 
     -- Nascom code ROM is 2Kbytes at 0x0000
     n_nasRomCS    <= '0' when cpuAddress(15 downto 11) = "00000"  and iopwr18NasSysRom='1' else '1';
+    -- [NAC HACK 2020Dec21] should this decode high when CP/M is in use?
     -- Nascom workspace RAM is 1Kbytes at 0x0C00
-    n_nasWSRamCS  <= '0' when cpuAddress(15 downto 10) = "000011" else '1';
+    n_nasWSRamCS  <= '0' when cpuAddress(15 downto 10) = "000011" and iopwr18NasWsRam = '1' else '1';
     -- Nascom video RAM is 1Kbytes at 0x0800 usually, can be at 0xF800 for NASCOM CP/M
-    n_nasVidRamCS <= '0' when (cpuAddress(15 downto 10) = "000010" and iopwr18NasVidHigh = '0' and iopwr18NasVidEnable = '1')
-                           or (cpuAddress(15 downto 10) = "111110" and iopwr18NasVidHigh = '1' and iopwr18NasVidEnable = '1') else '1';
+    n_nasVidRamCS <= '0' when (cpuAddress(15 downto 10) = "000010" and iopwr18NasVidHigh = '0' and iopwr18NasVidRam = '1')
+                           or (cpuAddress(15 downto 10) = "111110" and iopwr18NasVidHigh = '1' and iopwr18NasVidRam = '1') else '1';
 
     -- Special (alternate) boot ROM is 1Kbyte at 0 after reset but normally at 0x1000
     n_sbootRomCS <= '0' when (cpuAddress(15 downto 10) = "000000" and iopwr18SBootRom = '1' and reset_jump = '1')
