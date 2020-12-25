@@ -1,6 +1,4 @@
 -- TODO/BUGS
--- Why don't the 2k monitor replacements work? The 1k ones do??!!
---   use MAP80 paging to view monitor in high RAM for inspection
 -- Add a warm-start bit set by the load process so that a subsequent
 --   button reset does not repeat it. Eg: an i/o port bit that is
 --   initialised at powerup but is not reset. OR readback of eg NMI button
@@ -12,14 +10,10 @@
 -- Change char gen to an initialised RAM and add control port for writes
 -- Programmable wait state generator??
 -- Review compilation warnings and fix
--- Need a mapping bit to disable the workspace RAM else CP/M paging won't
---   work if it tries to page in low memory.
 -- Emulate NASCOM keyboard via PS/2?
 -- Do gate-count estimate for adding GM813 memory-mapper
 -- Add dedicated profile string in ROM for loading and running external
 --   memory test from David Allday.
--- Try old version vs latest version: why did space invaders loop
---  before but now it does not. Need to revert RTL, SDcard, ROM
 -----------------------------------------------------
 
 
@@ -645,10 +639,9 @@ begin
 
 
     -- Inhibit WRITES to external SRAM when the CPU address corresponds to the MAP80 VFC
-    -- video RAM or to a protected region.
-    -- [NAC HACK 2020Dec20] should I also exclude workspace RAM? That's not currently
-    -- paged but probably needs to be.
-    n_sRamWE <= '0' when n_WR = '0' and n_MREQ = '0' and n_vfcVidRamCS = '1' and sRamProtect = '0' else '1';
+    -- video RAM or NASCOM video RAM or workspace RAM or to a protected address region.
+    n_sRamWE <= '0' when n_WR = '0' and n_MREQ = '0'
+                and n_vfcVidRamCS = '1' and n_nasVidRamCS = '1' and n_nasWSRamCS = '1' and sRamProtect = '0' else '1';
     n_sRamOE <= '0' when n_RD = '0' and n_MREQ = '0' else '1';
 
 

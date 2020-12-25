@@ -50,9 +50,18 @@ ARG2:   EQU     $0c0e
 ARG3:   EQU     $0c10
 ARG4:   EQU     $0c12
 
-;;; 512 byte buffer for loading menu and profile data. Image data is
-;;; moved directly from the SDcard to its destination address.
-BUFFER: EQU     $c80
+;;; When images are loaded, they are copied straight from SDcard to
+;;; their destination address. Need block buffer for menu and profile.
+;;;
+;;; 512 byte buffer for loading menu. Menu blocks are loaded to this
+;;; buffer from SDcard and then output via NAS-SYS RST ROUT calls
+MBUFF:  EQU     $c80
+;;; 512 byte buffer for the selected profile. Profile block is loaded
+;;; to this buffer from SDcard and then processed directly. By using
+;;; video RAM for this buffer, images loaded by the profile can go
+;;; anywhere (previously, used $c80 for the profile which prevented
+;;; loading the memory test program, because that loads at $c80)
+PBUFF: EQU     $800
 
 ;;; I/O ports
 REMAP:  EQU     $18
@@ -94,7 +103,7 @@ REENTER:ld      sp,$1000        ;like NAS-SYS
 
         ld      d,a             ;d=0
         ld      e,a             ;e=0 - start at block 0
-MENNXT: ld      hl,BUFFER
+MENNXT: ld      hl,MBUFF
         push    hl
         call    SDRD512         ;read 1st block of menu
         pop     hl              ;point back to start
@@ -130,7 +139,7 @@ GETPRO: rst     RIN
 ;;; Load profile into memory buffer
         ld      d,0
         ld      e,a
-        ld      hl,BUFFER
+        ld      hl,PBUFF
         push    hl
         call    SDRD512
         pop     hl
