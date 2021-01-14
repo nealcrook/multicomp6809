@@ -14,6 +14,7 @@
 -- Do gate-count estimate for adding GM813 memory-mapper
 -- Add dedicated profile string in ROM for loading and running external
 --   memory test from David Allday.
+-- Make sure input-only pins can have internal pullups
 -----------------------------------------------------
 
 
@@ -229,7 +230,7 @@ use  IEEE.STD_LOGIC_UNSIGNED.all;
 
 entity NASCOM4 is
     generic( constant RTLSIM_UART : boolean := FALSE;
-             constant DEFAULT_BOOTMODE : std_logic_vector(1 downto 0) := "10"
+             constant DEFAULT_BOOTMODE : std_logic_vector(1 downto 0) := "10" -- "10" for real build
     );
     port(
 	-- these are connected on the base FPGA board
@@ -371,8 +372,8 @@ architecture struct of NASCOM4 is
     -- are wired to the NASCOM2 keyboard connector
     signal iopwr00NasDrive        : std_logic; -- bit 4
     signal iopwr00NasNMI          : std_logic; -- bit 3
-    signal iopwr00NasKbdClk       : std_logic; -- bit 1
-    signal iopwr00NasKbdRst       : std_logic; -- bit 0
+    signal iopwr00NasKbdRst       : std_logic; -- bit 1
+    signal iopwr00NasKbdClk       : std_logic; -- bit 0
     -- ff means no key detected
     signal ioprd00                : std_logic_vector(7 downto 0) := x"ff";
 
@@ -719,8 +720,8 @@ begin
         if cpuAddress(7 downto 0) = x"00" and n_IORQ = '0' and n_WR = '0' then
           iopwr00NasDrive  <= cpuDataOut(4);
           iopwr00NasNMI    <= cpuDataOut(3);
-          iopwr00NasKbdClk <= cpuDataOut(1);
-          iopwr00NasKbdRst <= cpuDataOut(0);
+          iopwr00NasKbdRst <= cpuDataOut(1);
+          iopwr00NasKbdClk <= cpuDataOut(0);
         end if;
 
         if cpuAddress(7 downto 0) = x"18" and n_IORQ = '0' and n_WR = '0' then
@@ -942,6 +943,25 @@ begin
             rxd => rxd1,
             txd => txd1);
 end generate;
+
+
+
+    io3 : entity work.nasKBDPS2
+    port map(
+            n_reset => n_reset_clean,
+            clk => clk,
+
+            ps2Clk => ps2Clk,
+            ps2Data => ps2Data,
+
+            kbdrst => iopwr00NasKbdRst,
+            kbdclk => iopwr00NasKbdClk,
+
+            kbddata => ioprd00 -- [NAC HACK 2021Jan13] need to combine with real NASCOM kbd data in from the outside
+            -- [NAC HACK 2021Jan11] to add: function key outputs
+
+            );
+
 
     n_WR_sd <= n_sdCardCS or n_WR or n_IORQ;
     n_RD_sd <= n_sdCardCS or n_RD or n_IORQ;

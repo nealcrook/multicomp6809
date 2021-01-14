@@ -1,0 +1,460 @@
+-- Connect to a PS/2 keyboard and converts the keyboard code to behave like
+-- a NASCOM keyboard.
+--
+-- NASCOM keyboard scan is 1 high-going pulse on kbdrst followed by (upto) 8
+-- high-going pulses on kbdclk. Internal to the keyboard, these signals
+-- control a counter which sequences 1-of-8 DRIVE lines using a decode of
+-- a 3-bit counter. Because it's 3 bits it counts 0 (on reset) then 1..7
+-- and back to 0 on the 8 kbdclk pulses.
+-- The scan can be aborted early eg once a keypress is detected, but I'm
+-- not sure of the details (consult NAS-SYS source code..) I thought
+-- that drive0 is always scanned (in order to check the state of
+-- the shift key) then the scan aborted after the first found key, but
+-- I don't think that can be accurate, because drive0 contains SHIFT
+-- and CTRL but not GRA.
+--
+-- The real keyboard uses LICON pulse transformer switches. There are
+-- 7 SENSE lines which drive latches. The kbdrst and kbdclk pulses both
+-- clear all of the latches and then the transformer effect in the keys
+-- causes a depressed key on the current DRIVE line to set the latch
+-- on the associated SENSE line.
+--
+-- The latch outputs drive the kbddata outputs back to the NASCOM where
+-- they are read through a buffer which is enabled on I/O port 0 read.
+-- The latch outputs are 1 by default and 0 when a key is pressed.
+-- kbddata[7] has a pullup on the keyboard and is permanently 1.
+--
+-- Although the kbdrst and kbdclk are normally-low and pulse high, it
+-- is the falling edge that triggers the activity.
+--
+-- For this PS/2 version, the keyboard is scanned autonomously to generate
+-- a stream of keycodes: depress and release codes. An array of flops
+-- 8 drive x 6 sense represents a map of the NASCOM keyboard matrix. The
+-- keycodes are translated into locations in the matrix, and a location is
+-- set on key-press and cleared on key-release.
+-- The current drive value is tracked and used to output the corresponding
+-- map sense bits onto kbddata.
+--
+-- The code requires some key-cap markup of a regular PS/2 keyboard,
+-- because, although a couple of keys are in different positions compared
+-- to a NASCOM keyboard, all of the unshifted/shifted relationships follow
+-- the NASCOM keyboard. For example, = is unshifted on a PS/2 keyboard but
+-- shifted on a NASCOM keyboard.
+--
+-- TODO
+-- Handle the FN keys and generate hard outputs for them
+-- Do something with these unused keys: to-the-left-of-1, to-the-left-of-backspace
+-- to-the-left-of-z
+-- Decode the prefix byte and handle the extra cursor keys
+-- Consider decoding the numeric pad and the cursor pad
+--
+--
+--
+-- Modifications by foofoobedoo@gmail.com
+--
+-- Based on the PS/2 code from Grant Searle's SBCTextDisplayRGB design
+-- which is:
+-- "copyright Grant Searle 2014
+-- You are free to use this file in your own projects but must never charge for it nor use it without
+-- acknowledgement."
+--
+
+library ieee;
+	use ieee.std_logic_1164.all;
+	use ieee.numeric_std.all;
+	use ieee.std_logic_unsigned.all;
+
+entity nasKBDPS2 is
+	generic(
+		constant DEBUG : boolean := FALSE
+	);
+	port (
+		n_reset	: in std_logic;
+		clk    	: in  std_logic;
+
+		-- PS/2 Keyboard signals
+		ps2Clk	: inout std_logic;
+		ps2Data	: inout std_logic;
+
+		-- FN keys passed out as general signals (momentary and toggled versions)
+                -- [NAC HACK 2021Jan10] todo: create CPU RESET and NMI and BOOTMODE signals from these
+		FNkeys	: out std_logic_vector(12 downto 0);
+		FNtoggledKeys	: out std_logic_vector(12 downto 0);
+
+		-- Pretend to be NASCOM keyboard
+		kbdrst 	: in  std_logic;
+		kbdclk  : in  std_logic;
+		kbddata	: out std_logic_vector(7 downto 0)
+ );
+end nasKBDPS2;
+
+architecture rtl of nasKBDPS2 is
+
+	signal	FNkeysSig	: std_logic_vector(12 downto 0) := (others => '0');
+	signal	FNtoggledKeysSig	: std_logic_vector(12 downto 0) := (others => '0');
+
+	signal	func_reset: std_logic := '0';
+
+        -- 2 ways of doing the PS/2 keyboard map: could end up with a 3-bit drive code and 3-bit sense code (which
+        -- would allow 8 sense lines)
+        -- OR could store an index for the 56 key grid positions - both require 6 bits of storage.
+        -- Cleaner to use the 3-bit + 3-bit. Can then use the unused sense code value as a way of
+        -- encoding the special keys: the function keys.
+
+
+        -- keyboard map       DRIVE                       SENSE
+        type t_kmap is array (0 to 7) of std_logic_vector(6 downto 0);
+        signal  kmap : t_kmap := (others => (others => '0'));
+        -- track the current drive line
+        signal	drv: std_logic_vector(2 downto 0);
+        signal  kbdrst_d1: std_logic;
+        signal  kbdclk_d1: std_logic;
+
+        -- decode of current ps2ConvertedDS
+        signal  kbdSense: integer range 0 to 7;
+        signal  kbdDrive: integer range 0 to 7;
+        signal  kbdMask: std_logic_vector(6 downto 0);
+        signal  msk6 : std_logic_vector(6 downto 0)   := "0000001";
+
+
+
+        signal	kbWatchdogTimer : integer range 0 to 50000000 :=0;
+	signal	kbWriteTimer :    integer range 0 to 50000000 :=0;
+
+	signal	n_int_internal   : std_logic := '1';
+	signal	statusReg : std_logic_vector(7 downto 0) := (others => '0');
+
+	signal	ps2Byte: std_logic_vector(7 DOWNTO 0);
+	signal	ps2PreviousByte: std_logic_vector(7 DOWNTO 0);
+	signal	ps2ConvertedDS: std_logic_vector(5 DOWNTO 0);
+	signal	ps2ClkCount : integer range 0 to 10 :=0;
+	signal	ps2WriteClkCount : integer range 0 to 20 :=0;
+	signal	ps2WriteByte: std_logic_vector(7 DOWNTO 0) := x"FF";
+	signal	ps2WriteByte2: std_logic_vector(7 DOWNTO 0):= x"FF";
+	signal	ps2PrevClk: std_logic := '1';
+	signal 	ps2ClkFilter : integer range 0 to 50;
+	signal 	ps2ClkFiltered : std_logic := '1';
+
+        -- TODO probably unstitch and remove some or all of the code associated with these
+	signal	ps2Caps: std_logic := '1';
+	signal	ps2Num: std_logic := '0';
+	signal	ps2Scroll: std_logic := '0';
+
+	signal	ps2DataOut: std_logic := '1';
+	signal	ps2ClkOut: std_logic := '1';
+	signal	n_kbWR: std_logic := '1'; -- TODO WTF - change to active high
+	signal	kbWRParity: std_logic := '0';
+
+	type	kbDataArray is array (0 to 131) of std_logic_vector(5 downto 0);
+
+	-- the key codes are expressed as (drive,sense) each is a 3-bit value and
+        -- they are combined to get a 6-bit value
+	function t (
+	  drive: integer range 0 to 7;
+	  sense: integer range 0 to 7
+	  ) return std_logic_vector is
+	begin
+	  return std_logic_vector(to_unsigned(drive*8 + sense,6)); -- 6-bit value
+	end t;
+
+	-- scan-code-to-ASCII for UK KEYBOARD MAPPING (except for shift-3 = "#")
+	-- Read it like this: row 4,col 9 represents scan code 0x49. From a map
+	-- of the PS/2 keyboard scan codes this is the ". >" key so the unshifted
+	-- table as has 0x2E (ASCII .) and the shifted table has 0x3E (ASCII >)
+	-- Do not need a lookup for CTRL because this is simply the ASCII code
+	-- with bits 6,5 cleared.
+	-- A value of 0 represents either an unused keycode or a keycode like
+	-- SHIFT that is processed separately (not looked up in the table).
+	-- The FN keys do not generate ASCII values to the virtual UART here.
+	-- Rather, they are used to generate direct output signals. The key
+	-- codes in the table for the function keys are the values 0x11-0x1C
+	-- which cannot be generated directly by any keypress and so do not
+	-- conflict with normal operation.
+
+	-- scan code set 2 (8-bit hex)
+	--
+	--                       PRESS                         RELEASE
+	-- easy stuff            00                            F0 00
+	--                       ..
+	--                       86                            F0 86              I only have lookup for 00..83
+        --                                                                        codes 84..86 are used on scan code set 1
+	--
+	-- simple E0 prefix      E0 ??                         E0 F0 ??
+	--
+	-- applies to these:
+	-- l-WINDOWS, r-ALT r-WINDOWS MENU r-CTRL INSERT HOME PgUP DELETE END PgDOWN UP-ARR LEFT-ARR DOWN-ARR RIGH-ARR KP/ KPENTER
+	--
+	-- final fiddly ones:
+	--
+	-- print screen          E0 12 E0 7C                   E0 F0 7C E0 F0 12
+	-- pause break           E1 14 77 E1 F0 14 F0 77       (none) (no auto-repeat)
+	--
+	-- print screen just looks like 2 keys pressed and released in succession; easy to ignore like any other ignored E0 ?? pair.
+	--
+        -- all keys except pause/break auto-repeat and there seems no way to turn it off at the keyboard.
+        -- TODO could I eliminate repeating keys here? Not very easily..
+
+	-- Read the table like this: SPACE is PS/2 keyboard code 92. On the NASCOM it is on drive line 7, sense line 4 and is coded
+	-- here as t(7,4) which is converted into a 6-bit value (See function t above). Shift is treated/encoded like any other key.
+        -- For keys that have no corresponding key on the NASCOM, the value 7,7 is coded.
+        -- Special keys:
+        -- NASCOM GRA = TAB
+	constant kbUnshifted : kbDataArray :=
+	(
+	--  0        1        2        3        4        5        6        7        8        9        A        B        C        D        E        F
+	--       F9                F5       F3       F1       F2       F12               F10      F8       F6       F4       TAB      `
+	t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(5,6),  t(7,7),  t(7,7), -- 0
+	--       l-ALT    l-SHIFT           l-CTRL   q        1                                   z        s        a        w        2
+	t(7,7),  t(1,6),  t(0,4),  t(7,7),  t(0,3),  t(5,4),  t(6,4),  t(7,7),  t(7,7),  t(7,7),  t(2,4),  t(3,4),  t(4,4),  t(4,3),  t(6,3),  t(7,7), -- 1
+	--       c        x        d        e        4        3                          SPACE    v        f        t        r        5
+	t(7,7),  t(7,3),  t(1,4),  t(2,3),  t(3,3),  t(7,2),  t(5,3),  t(7,7),  t(7,7),  t(7,4),  t(7,1),  t(1,3),  t(1,5),  t(7,5),  t(1,2),  t(7,7), -- 2
+	--       n        b        h        g        y        6                                   m        j        u        7        8
+	t(7,7),  t(2,1),  t(1,1),  t(1,0),  t(7,0),  t(2,5),  t(2,2),  t(7,7),  t(7,7),  t(7,7),  t(3,1),  t(2,0),  t(3,5),  t(3,2),  t(4,2),  t(7,7), -- 3
+	--       ,        k        i        o        0        9                          .        /        l        ;        p        -
+	t(7,7),  t(4,1),  t(3,0),  t(4,5),  t(5,5),  t(6,2),  t(5,2),  t(7,7),  t(7,7),  t(5,1),  t(6,1),  t(4,0),  t(5,0),  t(6,5),  t(0,2),  t(7,7), -- 4
+	--                '                 [        =                          CAPLOCK  r-SHIFT  ENTER    ]                 #~
+	t(7,7),  t(7,7),  t(0,5),  t(7,7),  t(6,6),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(0,4),  t(0,1),  t(7,6),  t(7,7),  t(0,6),  t(7,7),  t(7,7), -- 5
+	--       \|                                           BACKSP                     KP1               KP4      KP7
+	t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(0,0),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7), -- 6
+	-- KP0   KP.      KP2      KP5      KP6      KP8      ESC      NUMLCK   F11      KP+      KP3      KP-      KP*      KP9      SCRLCK
+	t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7), -- 7
+	--                         F7
+	t(7,7),  t(7,7),  t(7,7),  t(7,7) -- 8
+	);
+
+begin
+
+	FNkeys <= FNkeysSig;
+	FNtoggledKeys <= FNtoggledKeysSig;
+
+        -- [NAC HACK 2021Jan10] clean up the reset; recode as async
+        func_reset <= not n_reset;
+
+        track_drv: process(clk)
+        begin
+                if rising_edge(clk) then
+                  kbdrst_d1 <= kbdrst;
+                  kbdclk_d1 <= kbdclk;
+
+                  if kbdrst='1' and kbdrst_d1='0' then
+                    drv <= "000";
+                  end if;
+                  if kbdclk='1' and kbdclk_d1='0' then
+                    drv <= drv + "001";
+                  end if;
+                end if;
+        end process;
+
+        data_out: process(drv, kmap)
+        begin
+          -- in the kmap, 1 represents a depressed key. At the output, 0 represents a
+          -- depressed key.
+          kbddata <= not('0' & kmap(to_integer(unsigned(drv))));
+        end process;
+
+	-- PROCESS DATA FROM PS2 KEYBOARD
+	ps2Data <= ps2DataOut when ps2DataOut='0' else 'Z';
+	ps2Clk <= ps2ClkOut when ps2ClkOut='0' else 'Z';
+
+        -- Decode most recent byte
+        kbdSense <= to_integer(unsigned(ps2ConvertedDS(2 downto 0)));
+        kbdDrive <= to_integer(unsigned(ps2ConvertedDS(5 downto 3)));
+        -- thing being shifted needs to be the same width as the output
+        -- ..for some reason.
+        kbdMask  <= std_logic_vector( shift_left(unsigned(msk6), kbdSense) );
+
+
+	-- PS2 clock de-glitcher - important because the FPGA is very sensistive
+	-- Filtered clock will not switch low to high until there is 50 more high samples than lows
+	-- hysteresis will then not switch high to low until there is 50 more low samples than highs.
+	-- Introduces a minor (1uS) delay with 50MHz clock
+	kbd_filter: process(clk)
+	begin
+		if rising_edge(clk) then
+			if ps2Clk = '1' and ps2ClkFilter=50 then
+				ps2ClkFiltered <= '1';
+			end if;
+			if ps2Clk = '1' and ps2ClkFilter /= 50 then
+				ps2ClkFilter <= ps2ClkFilter+1;
+			end if;
+			if ps2Clk = '0' and ps2ClkFilter=0 then
+				ps2ClkFiltered <= '0';
+			end if;
+			if ps2Clk = '0' and ps2ClkFilter/=0 then
+				ps2ClkFilter <= ps2ClkFilter-1;
+			end if;
+		end if;
+	end process;
+
+	kbd_ctl: process( clk, func_reset )
+	-- 11 bits
+	-- start(0) b0 b1 b2 b3 b4 b5 b6 b7 parity(odd) stop(1)
+	begin
+		if rising_edge(clk) then
+
+			ps2PrevClk <= ps2ClkFiltered;
+
+			if n_kbWR = '0' and kbWriteTimer<25000 then
+				ps2WriteClkCount<= 0;
+				kbWRParity <= '1';
+				kbWriteTimer<=kbWriteTimer+1;
+				-- wait
+			elsif n_kbWR = '0' and kbWriteTimer<50000 then
+				ps2ClkOut <= '0';
+				kbWriteTimer<=kbWriteTimer+1;
+			elsif n_kbWR = '0' and kbWriteTimer<75000 then
+				ps2DataOut <= '0';
+				kbWriteTimer<=kbWriteTimer+1;
+			elsif n_kbWR = '0' and kbWriteTimer=75000 then
+				ps2ClkOut <= '1';
+				kbWriteTimer<=kbWriteTimer+1;
+			elsif n_kbWR = '0' and kbWriteTimer<76000 then
+				kbWriteTimer<=kbWriteTimer+1;
+			elsif  n_kbWR = '1' and ps2PrevClk = '1' and ps2ClkFiltered='0' then -- start of high-to-low cleaned ps2 clock
+				kbWatchdogTimer<=0;
+				if ps2ClkCount=0 then -- start
+					ps2Byte <= (others =>'0');
+					ps2ClkCount<=ps2ClkCount+1;
+				elsif ps2ClkCount<9 then -- data
+					ps2Byte <= ps2Data & ps2Byte(7 downto 1);
+					ps2ClkCount<=ps2ClkCount+1;
+				elsif ps2ClkCount=9 then -- parity - use this time to decode
+					if (ps2Byte<132) then
+						ps2ConvertedDS <= kbUnshifted (to_integer(unsigned(ps2Byte)));
+					else
+						ps2ConvertedDS <= t(7,7);
+					end if;
+					ps2ClkCount<=ps2ClkCount+1;
+				else -- stop bit - use this time to store
+					-- FN1-FN10 keys return values 0x11-0x1A. They are not presented as ASCII codes through
+					-- the virtual UART but instead toggle the FNkeys, FNtoggledKeys outputs.
+					-- F11, F12 are not included because we need code 0x1B for ESC
+					-- TODO rework this fn key stuff.. the convertedDS codes are NOT as noted here! Should
+                                        -- probably comment this out for now..
+--					if ps2ConvertedDS>x"10" and ps2ConvertedDS<x"1B" then
+--						if ps2PreviousByte /= x"F0" then
+--							FNtoggledKeysSig(to_integer(unsigned(ps2ConvertedDS))-16#10#) <= FNtoggledKeysSig(to_integer(unsigned(ps2ConvertedDS))-16#10#);
+--							FNKeysSig(to_integer(unsigned(ps2ConvertedDS))-16#10#) <= '1';
+--						else
+--							FNKeysSig(to_integer(unsigned(ps2ConvertedDS))-16#10#) <= '0';
+--						end if;
+					-- Self-test passed (after power-up).
+					-- Send SET-LEDs command to establish SCROLL, CAPS AND NUM
+--					elsif ps2Byte = x"AA" then
+					if ps2Byte = x"AA" then
+							ps2WriteByte <= x"ED";
+							ps2WriteByte2(0) <= ps2Scroll;
+							ps2WriteByte2(1) <= ps2Num;
+							ps2WriteByte2(2) <= ps2Caps;
+							ps2WriteByte2(7 downto 3) <= "00000";
+							n_kbWR <= '0';
+							kbWriteTimer<=0;
+					-- SCROLL-LOCK pressed - set flags and
+					-- update LEDs
+					elsif ps2Byte = x"7E" then
+						if ps2PreviousByte /= x"F0" then
+							ps2Scroll <= not ps2Scroll;
+							ps2WriteByte <= x"ED";
+							ps2WriteByte2(0) <= not ps2Scroll;
+							ps2WriteByte2(1) <= ps2Num;
+							ps2WriteByte2(2) <= ps2Caps;
+							ps2WriteByte2(7 downto 3) <= "00000";
+							n_kbWR <= '0';
+							kbWriteTimer<=0;
+						end if;
+					-- NUM-LOCK pressed - set flags and
+					-- update LEDs
+					elsif ps2Byte = x"77" then
+						if ps2PreviousByte /= x"F0" then
+							ps2Num <= not ps2Num;
+							ps2WriteByte <= x"ED";
+							ps2WriteByte2(0) <= ps2Scroll;
+							ps2WriteByte2(1) <= not ps2Num;
+							ps2WriteByte2(2) <= ps2Caps;
+							ps2WriteByte2(7 downto 3) <= "00000";
+							n_kbWR <= '0';
+							kbWriteTimer<=0;
+						end if;
+					-- CAPS-LOCK pressed - set flags and
+					-- update LEDs
+					elsif ps2Byte = x"58" then
+						if ps2PreviousByte /= x"F0" then
+							ps2Caps <= not ps2Caps;
+							ps2WriteByte <= x"ED";
+							ps2WriteByte2(0) <= ps2Scroll;
+							ps2WriteByte2(1) <= ps2Num;
+							ps2WriteByte2(2) <= not ps2Caps;
+							ps2WriteByte2(7 downto 3) <= "00000";
+							n_kbWR <= '0';
+							kbWriteTimer<=0;
+						end if;
+					-- ACK (from SET-LEDs)
+					elsif ps2Byte = x"FA" then
+						if ps2WriteByte /= x"FF" then
+							n_kbWR <= '0';
+							kbWriteTimer<=0;
+						end if;
+					-- ASCII key press - store it in the kbBuffer.
+                                        elsif ps2ConvertedDS /= t(7,7) then
+						if ps2PreviousByte = x"F0" then
+                                                  -- RELEASE key so CLEAR bit in kmap
+                                                  kmap(kbdDrive) <= kmap(kbdDrive) and (not kbdMask);
+                                                else
+                                                  -- PRESS key so SET bit in kmap
+                                                  kmap(kbdDrive) <= kmap(kbdDrive) or kbdMask;
+                                                end if;
+					end if;
+					ps2PreviousByte<=ps2Byte;
+					ps2ClkCount<=0;
+				end if;
+
+			-- write to keyboard
+			elsif  n_kbWR = '0' and ps2PrevClk = '1' and  ps2ClkFiltered='0' then -- start of high-to-low cleaned ps2 clock
+				kbWatchdogTimer<=0;
+				if ps2WriteClkCount <8 then
+					if (ps2WriteByte(ps2WriteClkCount)='1') then
+						ps2DataOut <= '1';
+						kbWRParity <= not kbWRParity;
+					else
+						ps2DataOut <= '0';
+					end if;
+					ps2WriteClkCount<=ps2WriteClkCount+1;
+				elsif ps2WriteClkCount = 8 then
+					ps2DataOut <= kbWRParity;
+					ps2WriteClkCount<=ps2WriteClkCount+1;
+				elsif ps2WriteClkCount = 9 then
+					ps2WriteClkCount<=ps2WriteClkCount+1;
+					ps2DataOut <= '1';
+				elsif ps2WriteClkCount = 10 then
+					ps2WriteByte <= ps2WriteByte2;
+					ps2WriteByte2 <= x"FF";
+					n_kbWR<= '1';
+					ps2WriteClkCount <= 0;
+					ps2DataOut <= '1';
+
+				end if;
+			else
+				-- COMMUNICATION ERROR
+				-- if no edge then increment the timer
+				-- if a large time has elapsed since the last pulse was read then
+				-- re-sync the keyboard
+				if kbWatchdogTimer>30000000 then
+					kbWatchdogTimer<=0;
+					ps2ClkCount<=0;
+					if n_kbWR = '0' then
+							ps2WriteByte <= x"ED";
+							ps2WriteByte2(0) <= ps2Scroll;
+							ps2WriteByte2(1) <= ps2Num;
+							ps2WriteByte2(2) <= ps2Caps;
+							ps2WriteByte2(7 downto 3) <= "00000";
+							kbWriteTimer<=0;
+					end if;
+				else
+					kbWatchdogTimer<=kbWatchdogTimer+1;
+				end if;
+			end if;
+
+		end if;
+	end process;
+
+end rtl;
