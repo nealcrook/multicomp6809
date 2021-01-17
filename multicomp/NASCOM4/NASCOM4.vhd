@@ -355,7 +355,7 @@ architecture struct of NASCOM4 is
 
     signal stall_a                : std_logic;
     signal stall_s                : std_logic;
-    signal stall_cnt              : integer range 0 to 16;
+    signal stall_cnt              : integer range 0 to 255;
     signal n_WAIT                 : std_logic;
     signal cpuClock               : std_logic := '1';
     signal n_MREQ                 : std_logic := '1';
@@ -446,6 +446,12 @@ architecture struct of NASCOM4 is
     signal iopwr19Prot0f2k        : std_logic; -- bit 0 Protect NAS-SYS
     signal ioprd19                : std_logic_vector(7 downto 0);
     signal sRamProtect            : std_logic;
+
+    ------------------------------------------------------------------
+    -- Port 1A: Memory stalls
+    -- N means N+1 stalls
+
+    signal iopwr1aStalls          : std_logic_vector(7 downto 0);
 
     ------------------------------------------------------------------
     -- MAP80 VFC disk control
@@ -668,6 +674,7 @@ begin
         iopwr00NasNMI    <= '0';
         iopwr00NasKbdClk <= '0';
         iopwr00NasKbdRst <= '0';
+        iopwr1aStalls <= x"20"; -- aim is to match 4MHz NASCOM by default
 
         -- Decode bootmode to get initial state of port3 stuff and video select
         if (bootmode = 1) then
@@ -740,6 +747,10 @@ begin
           iopwr19ProtBf4k <= cpuDataOut(3);
           iopwr19ProtAf4k <= cpuDataOut(2);
           iopwr19Prot0f2k <= cpuDataOut(0);
+        end if;
+
+        if cpuAddress(7 downto 0) = x"1a" and n_IORQ = '0' and n_WR = '0' then
+          iopwr1aStalls <= cpuDataOut(7 downto 0);
         end if;
 
         if cpuAddress(7 downto 0) = x"e4" and n_IORQ = '0' and n_WR = '0' then
@@ -1118,17 +1129,18 @@ end generate;
         stall_s <= '0';
       elsif rising_edge(clk) then
         if (stall_a = '1') then
-          if stall_cnt = 3 then
+          if stall_s = '1' then
             stall_cnt <= 0;
           else
             stall_cnt <= stall_cnt + 1;
           end if;
 
-          if stall_cnt = 2 then
+          if stall_cnt = iopwr1aStalls then
             stall_s <= '1';
           else
             stall_s <= '0';
           end if;
+
         end if;
       end if;
     end process;
