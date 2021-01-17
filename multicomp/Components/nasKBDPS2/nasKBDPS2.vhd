@@ -157,21 +157,7 @@ architecture rtl of nasKBDPS2 is
 	  return std_logic_vector(to_unsigned(drive*8 + sense,6)); -- 6-bit value
 	end t;
 
-	-- scan-code-to-ASCII for UK KEYBOARD MAPPING (except for shift-3 = "#")
-	-- Read it like this: row 4,col 9 represents scan code 0x49. From a map
-	-- of the PS/2 keyboard scan codes this is the ". >" key so the unshifted
-	-- table as has 0x2E (ASCII .) and the shifted table has 0x3E (ASCII >)
-	-- Do not need a lookup for CTRL because this is simply the ASCII code
-	-- with bits 6,5 cleared.
-	-- A value of 0 represents either an unused keycode or a keycode like
-	-- SHIFT that is processed separately (not looked up in the table).
-	-- The FN keys do not generate ASCII values to the virtual UART here.
-	-- Rather, they are used to generate direct output signals. The key
-	-- codes in the table for the function keys are the values 0x11-0x1C
-	-- which cannot be generated directly by any keypress and so do not
-	-- conflict with normal operation.
-
-	-- scan code set 2 (8-bit hex)
+	-- scan code set 2 (8-bit hex) from (eg) https://wiki.osdev.org/PS/2_Keyboard
 	--
 	--                       PRESS                         RELEASE
 	-- easy stuff            00                            F0 00
@@ -182,7 +168,8 @@ architecture rtl of nasKBDPS2 is
 	-- simple E0 prefix      E0 ??                         E0 F0 ??
 	--
 	-- applies to these:
-	-- l-WINDOWS, r-ALT r-WINDOWS MENU r-CTRL INSERT HOME PgUP DELETE END PgDOWN UP-ARR LEFT-ARR DOWN-ARR RIGH-ARR KP/ KPENTER
+	-- l-WINDOWS, r-ALT r-WINDOWS MENU r-CTRL INSERT HOME PgUP DELETE END PgDOWN UP-ARR LEFT-ARR DOWN-ARR RIGH-ARR KP/  KPENTER
+	-- 0x1f       0x11  0x27           0x14   0x70   0x6c 0x7d 0x71   0x69 0x7a  0x75   0x6b     0x72     0x74     0x4a 0x5a
 	--
 	-- final fiddly ones:
 	--
@@ -195,10 +182,31 @@ architecture rtl of nasKBDPS2 is
         -- TODO could I eliminate repeating keys here? Not very easily..
 
 	-- Read the table like this: SPACE is PS/2 keyboard code 92. On the NASCOM it is on drive line 7, sense line 4 and is coded
-	-- here as t(7,4) which is converted into a 6-bit value (See function t above). Shift is treated/encoded like any other key.
-        -- For keys that have no corresponding key on the NASCOM, the value 7,7 is coded.
-        -- Special keys:
-        -- NASCOM GRA = TAB
+	-- here as t(7,4) which is converted into a 6-bit value by function t (see definition, above). Shift is treated/encoded like
+        -- any other key. Legal drive values are 0-7. Legal sense values are 0-6. The illegal value 7,7 is used to represent a key
+        -- that has no corresponding key on the NASCOM keyboard (it is ignored). The function keys F1-F12 do not affect the NASCOM
+        -- keyboard but their DEPRESSION creates a hardware strobe (release is ignored)
+        --
+        -- F1    05   t(0,7)
+        -- F2    06     1,7
+        -- F3    04     2,7
+        -- F4    0c     3,7
+        -- F5    03     4,7
+        -- F6    0b     5,7
+        -- F7    83     0,7
+        -- F8    0a     1,7
+        -- F9    01     2,7
+        -- F10   09     3,7
+        -- F11   78     4,7
+        -- F12   07     5,6
+        --
+        -- converted codes repeat so need to decode the scan code[7:0] to choose low half from high half
+        -- low if !b7 & !bb4 & ( (b3 & b2) | (!b2 & b1 & b0) | (!b3 & b2 & (!b1 | !b0))
+        --
+        -- leaves codes (7,7) for NO KEY and (6,7) for SOME OTHER SPECIAL THING (currently unused)
+        --
+        -- [NAC HACK 2021Jan17] ^^none of that's implemented yet.
+
 	constant kbUnshifted : kbDataArray :=
 	(
 	--  0        1        2        3        4        5        6        7        8        9        A        B        C        D        E        F
@@ -213,7 +221,7 @@ architecture rtl of nasKBDPS2 is
 	--       ,        k        i        o        0        9                          .        /        l        ;        p        -
 	t(7,7),  t(4,1),  t(3,0),  t(4,5),  t(5,5),  t(6,2),  t(5,2),  t(7,7),  t(7,7),  t(5,1),  t(6,1),  t(4,0),  t(5,0),  t(6,5),  t(0,2),  t(7,7), -- 4
 	--                '                 [        =                          CAPLOCK  r-SHIFT  ENTER    ]                 #~
-	t(7,7),  t(7,7),  t(0,5),  t(7,7),  t(6,6),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(0,4),  t(0,1),  t(7,6),  t(7,7),  t(0,6),  t(7,7),  t(7,7), -- 5
+	t(7,7),  t(7,7),  t(6,0),  t(7,7),  t(6,6),  t(0,5),  t(7,7),  t(7,7),  t(7,7),  t(0,4),  t(0,1),  t(7,6),  t(7,7),  t(0,6),  t(7,7),  t(7,7), -- 5
 	--       \|                                           BACKSP                     KP1               KP4      KP7
 	t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(0,0),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7), -- 6
 	-- KP0   KP.      KP2      KP5      KP6      KP8      ESC      NUMLCK   F11      KP+      KP3      KP-      KP*      KP9      SCRLCK
