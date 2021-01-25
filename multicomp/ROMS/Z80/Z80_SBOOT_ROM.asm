@@ -210,67 +210,19 @@ LCMD1:  call    SDRD512
 
 ;;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Exit: disable this ROM and jump to a new location to continue execution.
-;;; This requires execution of an "OUT" then a "JP" but we can't execute the OUT
-;;; from ROM or the ROM will disappear from under our feet. Solution is to build
-;;; a 5-byte code fragment in RAM and then jump to it. The code fragment is
-;;; placed on the stack, and therefore in workspace RAM. This leaves a secondary
-;;; problem: for some boot scripts, the OUT also disable the workspace RAM,
-;;; causing the destination code to vanish (NAS-SYS workspace vanishes at the
-;;; same time but we don't care about that). The solution to this secondary
-;;; problem is to check the data value that the OUT will write to REMAP: if it
-;;; will disable the workspace RAM, do that that first (while still executing
-;;; from ROM) so that the underlying external RAM is exposed. As a result,
-;;; the code will be created in RAM that will not disappear during its
-;;; execution.
+;;; This requires execution of an "OUT" then a "JP". It should not be possible
+;;; to execute the OUT from ROM, because the ROM will disappear from the address
+;;; space before the JMP and its arguments can be fetched. However, the logic
+;;; that disables the SBootROM has a counter so that the disable does not take
+;;; effect straight away, but keeps the ROM enabled until after the JP and its
+;;; arguments -- *requires" the particular code sequence below, else the timing
+;;; will be incorrect and Bad Things will happen.
 ;;;
 ;;; entry: A  contains the value to be output to port REMAP
 ;;;        HL contains the destination address
 ;;; exit:  Never returns. Continues execution at HL
-;;;
-;;; For a destination of DH, DL (destination high,low bytes) the code fragment
-;;; looks like this:
-;;; d3 18      OUT (REMAP), A
-;;; c3 DL DH   JP DHDL
-;;; xx         ??
-;;;
-;;; the trailing xx is not executed; building code on the stack means
-;;; that it has to be an even number of bytes. Use "PUSH BC", to put
-;;; stuff on the stack: C goes in the low address, B in the high.
 
-OPOUT:  EQU     $d3             ; OUT (n), A
-OPJP:   EQU     $c3             ; JP nnnn
-
-EXIT:   ld      b, a            ; preserve value for REMAP port
-        and     $10             ; just keep workspace RAM enable
-        ld      c, a            ; preserve workspace RAM enable
-        in      a, (REMAP)
-        and     $ef             ; clear out workspace RAM enable
-        or      c               ; and merge in the new value
-        out     (REMAP), a
-
-        ;; if the workspace RAM was disabled, any stack contents and
-        ;; NAS-SYS workspace have vanished. However, we still have
-        ;; valid (external) RAM so either way so we can write out
-        ;; the code frament that we want to execute
-
-        ld      a, b            ;recover original value for REMAP
-
-        ld      c, h
-        push    bc              ; DH xx
-        ld      b, l
-        ld      c, OPJP
-        push    bc              ; JP DL
-        ld      b, REMAP        ; Port 0x18
-        ld      c, OPOUT
-        push    bc              ; OUT (REMAP) A
-
-        ;; jump to code fragment at SP -- is there a simpler way?
-        ;; assumption is that the stack will be re-initialised by
-        ;; the destination code.
-        or      a               ; clear carry
-        ld      h, 0
-        ld      l, 0
-        adc     hl, sp
+EXIT:   out     (REMAP), a
         jp      (hl)            ; go and never come back
 
 
