@@ -15,6 +15,58 @@
 -- Add dedicated profile string in ROM for loading and running external
 --   memory test from David Allday.
 -- Make sure input-only pins can have internal pullups
+--
+-- Next..
+-- add cursor key support to keyboard
+-- add fn key support to keyboard, with clear-down
+-- add new "reason" register and add reset/soft-reset bits there
+-- add nibble of POR-address register for use by ROM
+-- remove bootmode bits
+-- existing reset pin needs to set a bit in the reason register
+-- new soft-reset needs to set a bit in the reason register
+-- write to reason register OR NMI needs to clear bits in
+-- reason register, back to kbd. --
+--
+-- Write protect register should not be affected by reset.
+-- Mapping register should not be affected by reset, except
+-- for enabling SBROM (which makes it the reset destination
+-- address).
+--
+-- Revise SBROM function:
+-- 1/ if hard reset from button or from kbd, set up mapping
+-- and protection to default values and
+-- 1a/ if reason code is 0 (button or kbd F1) run the boot
+-- menu
+-- 1b/ if reason code is non-zero (NMI is already gated out)
+-- run the associated profile
+-- 2/ if soft reset from pin or from kbd, read the last
+-- startup address from the nibble bit and jump there,
+-- disabling SBROM on the way (see below)
+--
+-- Allow the image loader to load exact image sizes
+-- (maybe??) so that loading the memory test doesn't
+-- result in stack corruption
+
+-- "javino store" for rt-angle push buttons with footprint
+-- "jc electronic components" for rocker push button with
+-- LED. But then need break-off strip on edge of PCB.
+-- RESET/SDACTIVE SOFT/DRIVE NMI/HALT
+--
+-- Need a soft reset of the kbd to avoid the
+-- reported input letter after menu boot.. or
+-- a delay: the menu items that load lots of stuff do
+-- not suffer from the problem. Maybe: make the clear
+-- reason code also clear the keyboard map; that would
+-- fix the problem.
+
+-- NEXT STEPS
+--> done the SBootROM control
+--> Next, need to remove the reset and implement
+-- the cold/warm reset in SBootROM code
+-- define a new input bit and bodge some buttons on the PCB for these 3 functions
+
+
+
 -----------------------------------------------------
 
 
@@ -67,7 +119,9 @@
 -- * I/O port 10-17 - NEW SDcard controller
 -- * I/O port 18    - NEW controls paging of ROM/RAM/VDU
 -- * I/O port 19    - NEW controls RAM write-protect
--- * I/O port 1A    - NEW ??? last profile?
+-- * I/O port 1A    - NEW memory stall control
+-- * I/O port 1B    - NEW ??por high nibble (controlled by SBROM)
+-- * I/O port 1C    - NEW ??reason register (controlled by reset/fn keys)
 -- * I/O port E0-E3 - EXTERNAL WD2797 Floppy Disk Controller
 -- * I/O port E4    - VFC FDC drive select etc.
 -- * I/O port E6    - VFC "parallel" keyboard (maybe; from PS/2 keyboard)
@@ -94,7 +148,7 @@
 -- source allowing tape loading.. but then, would want to use this to do the
 -- ROM load as well, and not use the integrated SDcard controller.
 --
--- "Special boot ROM" (SBR) needs to appear at 0 after reset, but it will be
+-- "Special boot ROM" (SBROM) needs to appear at 0 after reset, but it will be
 -- much simpler to code it (especially as it is only 1Kbytes) if it can make
 -- use of NAS-SYS I/O routines. This can be achieved by remapping it to a
 -- different address and decoding the NAS-SYS ROM at zero; the SPR can then
@@ -104,14 +158,14 @@
 -- it for the 1st op-code fetch. In that case, the Port 3 bits mean this:
 
 -- B3          0: enable NAS-SYS 1: enable NAS-SYS at 0
--- B2          0: disable SBR    1: enable SBR at $1000
--- When SBR is enabled at reset, control passes to it rather
+-- B2          0: disable SBROM  1: enable SBROM at $1000
+-- When SBROM is enabled at reset, control passes to it rather
 -- than to NAS-SYS
--- -> this is achieved by decoding the SBR for the first M1 cycle
--- after reset. The SBR must start with a jump to $1003.
+-- -> this is achieved by decoding the SBROM for the first M1 cycle
+-- after reset. The SBROM must start with a jump to $1003.
 -- -> need to put sbootRom higher than nasRom in "bus isolation" code.
 --
--- Function of SBR
+-- Function of SBROM
 -- eventually: Very crude FAT32 support - read-only.
 -- for now: just use SDcard 512-byte blocks directly.
 -- Read jumpers
@@ -434,6 +488,8 @@ architecture struct of NASCOM4 is
     signal iopwr18NasVidRam       : std_logic; -- bit 0
     signal ioprd18                : std_logic_vector(7 downto 0);
 
+    signal SBootRomState          : std_logic_vector(2 downto 0);
+
     ------------------------------------------------------------------
     -- Port 19: RAM write protect
     -- Ef8k means: from E000 for 8K
@@ -666,6 +722,49 @@ begin
 -- ____________________________________________________________________________________
 -- INPUT/OUTPUT DEVICES GO HERE
 
+
+    -- Control for SBootROM
+    -- Enable at reset
+    -- Enable on write 1 to port18 bit(2)
+    -- Delayed disable on write 0 to port18 bit(2)
+    -- The delay is designed so that, if the following code executes from the
+    -- SBootROM and the OUT sets bit(2) to 0, the ROM will remain enabled until
+    -- the JMP and its operands have been read from the SBootROM:
+    --    OUT (port18), A
+    --    JP  (HL)
+    iopwr18SBootRom <= SBootRomState(2);
+
+    proc_sboot: process(clk, n_reset_clean)
+    begin
+      if n_reset_clean='0' then
+        SBootRomState <= "100"; -- MSB is the ROM enable
+      elsif rising_edge(clk) then
+        case SBootRomState is
+          when "100" =>
+            if cpuAddress(7 downto 0) = x"18" and n_IORQ = '0' and n_WR = '0' and cpuDataOut(2) = '0' then
+              -- Start the process of disabling the ROM
+              SBootRomState <= "101";
+            end if;
+
+          when "101" =>
+            if n_MREQ = '0' and n_RD = '0' and n_WAIT = '1' then
+              -- The JP (HL) instruction fetch.. complete the process of disabling the ROM
+              SBootRomState <= "000";
+            end if;
+
+          when "000" =>
+            if cpuAddress(7 downto 0) = x"18" and n_IORQ = '0' and n_WR = '0' and cpuDataOut(2) = '1' then
+              -- Enable the ROM
+              SBootRomState <= "100";
+            end if;
+
+          when others =>
+            state <= "100";
+        end case;
+      end if;
+    end process;
+
+
     -- Miscellaneous I/O port write
     proc_iowr: process(clk, n_reset_clean, bootmode)
     begin
@@ -682,7 +781,7 @@ begin
           video_map80vfc       <= '1';
           iopwr18MAP80AutoBoot <= '1';
           iopwr18NasWsRam      <= '0';
-          iopwr18SBootRom      <= '0';
+--          iopwr18SBootRom      <= '0';
           iopwr18NasSysRom     <= '0';
           iopwr18NasVidRam     <= '0';
         else
@@ -691,9 +790,9 @@ begin
           iopwr18MAP80AutoBoot <= '0';
           iopwr18NasWsRam      <= '1';
           if bootmode = 2 or bootmode = 3 then
-            iopwr18SBootRom    <= '1';
+--            iopwr18SBootRom    <= '1';
           else
-            iopwr18SBootRom    <= '0';
+--            iopwr18SBootRom    <= '0';
           end if;
           iopwr18NasSysRom     <= '1';
           iopwr18NasVidRam     <= '1';
@@ -735,7 +834,7 @@ begin
           iopwr18MAP80AutoBoot <= cpuDataOut(5);
           iopwr18NasWsRam      <= cpuDataOut(4);
           iopwr18NasSysRom     <= cpuDataOut(3);
-          iopwr18SBootRom      <= cpuDataOut(2);
+--          iopwr18SBootRom      <= cpuDataOut(2);
           iopwr18NasVidHigh    <= cpuDataOut(1);
           iopwr18NasVidRam     <= cpuDataOut(0);
         end if;

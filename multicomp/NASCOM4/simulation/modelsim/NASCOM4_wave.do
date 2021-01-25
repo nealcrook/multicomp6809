@@ -12,6 +12,8 @@ add wave -noupdate /nascom4/n_WAIT
 add wave -noupdate /nascom4/n_M1
 add wave -noupdate /nascom4/n_RD
 add wave -noupdate /nascom4/n_WR
+add wave -noupdate -expand /nascom4/SBootRomState
+add wave -noupdate /nascom4/iopwr18SBootRom
 add wave -noupdate -radix hexadecimal /nascom4/sRamData
 add wave -noupdate -radix hexadecimal /nascom4/sRamAddress
 add wave -noupdate /nascom4/n_sRamWE
@@ -62,12 +64,11 @@ add wave -noupdate /nascom4/reset_jump
 add wave -noupdate /nascom4/post_reset_rd_cnt
 add wave -noupdate /nascom4/iopwr18MAP80AutoBoot
 add wave -noupdate /nascom4/iopwr18NasSysRom
-add wave -noupdate /nascom4/iopwr18SBootRom
 add wave -noupdate /nascom4/iopwr18NasVidHigh
 add wave -noupdate /nascom4/iopwr18NasVidRam
 add wave -noupdate /nascom4/ioprd18
 TreeUpdate [SetDefaultTree]
-WaveRestoreCursors {RET {31667427 ps} 1} {{Cursor 2} {766932931 ps} 0}
+WaveRestoreCursors {RET {31667427 ps} 1} {{Cursor 2} {40780000 ps} 0}
 quietly wave cursor active 2
 configure wave -namecolwidth 271
 configure wave -valuecolwidth 100
@@ -83,4 +84,4 @@ configure wave -griddelta 40
 configure wave -timeline 0
 configure wave -timelineunits ps
 update
-WaveRestoreZoom {754611427 ps} {779254435 ps}
+WaveRestoreZoom {3412660 ps} {4136176 ps}
