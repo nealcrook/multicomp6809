@@ -63,14 +63,20 @@ MBUFF:  EQU     $c80
 ;;; loading the memory test program, because that loads at $c80)
 PBUFF: EQU     $800
 
-;;; I/O ports
-REMAP:  EQU     $18
-PROTECT:EQU     $19
+;;; I/O ports (special for NASCOM 4)
 SDDATA: EQU     $10
 SDCTRL: EQU     $11
 SDLBA0: EQU     $12
 SDLBA1: EQU     $13
 SDLBA2: EQU     $14
+REMAP:  EQU     $18
+PROTECT:EQU     $19
+MWAITS: EQU     $1A
+PORPAGE:EQU     $1B
+REASON: EQU     $1C
+;;; I/O ports VFC
+VIDMAP: EQU     $ee             ;write any data, select 80-col VFC output
+VIDNAS: EQU     $ef             ;write any data, select 48-col NASCOM output
 
 ;;; SDcard commands
 SDWR:   EQU     $1
@@ -85,20 +91,44 @@ SBSTART:
         jp      CSUM            ;portable entry point to CSUM utility
         jp      SD2MEM          ;portable entry point to SD2MEM utility
 
-REENTER:ld      sp,$1000        ;like NAS-SYS
+;;; Entry point after reset. No stack, and the NASCOM 4 I/O ports are
+;;; in an unknown state.
+REENTER:in      a, (REASON)
+        out     (REASON), a     ;clear reason register TODO not yet implemented
+        and     $80             ;warm reset?
+        jr      z, COLD
+
+;;; Warm reset. Retain all of the existing NASCOM 4 register state
+;;; and the current video output.
+        ld      l,0
+        in      a, (PORPAGE)
+        ld      h, a            ;where we started last time
+        in      a, (REMAP)      ;what was enabled
+        and     $fb             ;will disable SBootROM
+        jp      EXIT            ;go and never come back
+
+;;; Cold reset. To allow warm reset, the NASCOM 4 ports
+;;; are not reset, so start by setting them to a polite state.
+;;; and selecting the NASCOM video output.
+;;; This path through the code has NO STACK
+COLD:   out     (VIDNAS), a     ;select NASCOM video output
+        ld      a, $1d
+        out     (REMAP), a      ;make NAS-SYS accessible
+        xor     a
+        out     (PROTECT), a    ;make whole address space writeable
+        out     (PORPAGE), a    ;reset to 0 (NAS-SYS)
+
+;;; Initialise stack and NAS-SYS, so that the RST calls are usable
+        ld      sp,$1000        ;like NAS-SYS
         call    STMON           ;initialise NAS-SYS
 
-        in      a,(REMAP)       ;get bootmode
-
-;;; TODO one of the bootmode codes will mean "go and start profile 0"
-;;; and another will mean "start the menu". For now, we always start
-;;; the menu.
+;;; TODO there will be some auto-cold-start options from
+;;; the reason register (from the PS/2 keyboard FN keys).
 
 ;;; Load and display menu. Menu starts at block 0 and can be xple
 ;;; blocks. It is terminated with a 0. Assume it is well-formed
 ;;; and so keep incrementing block numbers until we get a "0".
-
-        xor a
+        xor     a
         out     (SDLBA2),a      ;high block address is ALWAYS 0
 
         ld      d,a             ;d=0
@@ -215,15 +245,18 @@ LCMD1:  call    SDRD512
 ;;; space before the JMP and its arguments can be fetched. However, the logic
 ;;; that disables the SBootROM has a counter so that the disable does not take
 ;;; effect straight away, but keeps the ROM enabled until after the JP and its
-;;; arguments -- *requires" the particular code sequence below, else the timing
-;;; will be incorrect and Bad Things will happen.
+;;; arguments -- *requires" the particular out/jp sequence below, else the
+;;; timing will be incorrect and Bad Things will happen. This routine also
+;;; writes the high byte of hl to the PORPAGE register for use in warm reset
 ;;;
 ;;; entry: A  contains the value to be output to port REMAP
 ;;;        HL contains the destination address
 ;;; exit:  Never returns. Continues execution at HL
 
-EXIT:   out     (REMAP), a
-        jp      (hl)            ; go and never come back
+EXIT:   ld      c, PORPAGE
+        out     (c), h          ;store page for use in warm start
+        out     (REMAP), a
+        jp      (hl)            ;go and never come back
 
 
 ;;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
