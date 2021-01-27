@@ -1,47 +1,18 @@
 -- TODO/BUGS
--- Add a warm-start bit set by the load process so that a subsequent
---   button reset does not repeat it. Eg: an i/o port bit that is
---   initialised at powerup but is not reset. OR readback of eg NMI button
---   state at reset. BUT then would need to know the state of the
---   mmap bits and the write protect. Might be better to have a "last
---   profile" register then can restart without going through the menu
 -- Consider changing ROMs to be a single model with an initialisation file
 --   and put them in a generic folder.
 -- Change char gen to an initialised RAM and add control port for writes
--- Programmable wait state generator??
 -- Review compilation warnings and fix
--- Emulate NASCOM keyboard via PS/2?
 -- Do gate-count estimate for adding GM813 memory-mapper
--- Add dedicated profile string in ROM for loading and running external
---   memory test from David Allday.
 -- Make sure input-only pins can have internal pullups
 --
 -- Next..
 -- add cursor key support to keyboard
 -- add fn key support to keyboard, with clear-down
--- add new "reason" register and add reset/soft-reset bits there
--- add nibble of POR-address register for use by ROM
--- remove bootmode bits
 -- existing reset pin needs to set a bit in the reason register
 -- new soft-reset needs to set a bit in the reason register
 -- write to reason register OR NMI needs to clear bits in
--- reason register, back to kbd. --
---
--- Write protect register should not be affected by reset.
--- Mapping register should not be affected by reset, except
--- for enabling SBROM (which makes it the reset destination
--- address).
---
--- Revise SBROM function:
--- 1/ if hard reset from button or from kbd, set up mapping
--- and protection to default values and
--- 1a/ if reason code is 0 (button or kbd F1) run the boot
--- menu
--- 1b/ if reason code is non-zero (NMI is already gated out)
--- run the associated profile
--- 2/ if soft reset from pin or from kbd, read the last
--- startup address from the nibble bit and jump there,
--- disabling SBROM on the way (see below)
+-- reason register, back to kbd.
 --
 -- Allow the image loader to load exact image sizes
 -- (maybe??) so that loading the memory test doesn't
@@ -60,11 +31,10 @@
 -- fix the problem.
 
 -- NEXT STEPS
---> done the SBootROM control
---> Next, need to remove the reset and implement
--- the cold/warm reset in SBootROM code
--- define a new input bit and bodge some buttons on the PCB for these 3 functions
-
+-- modify kbd to generate cursor and FN keys
+-- bodge on push-buttons for cold/warm/nmi and
+-- add debounce and cleardown and reason code.
+-- BUG: cannot warm-start PASCAL: it HALTs. Why?
 
 
 -----------------------------------------------------
@@ -89,16 +59,20 @@
 --
 -- Memory and I/O map:
 -- * 2KROM "NAS-SYS3" at location 0.
---   - can be re-written (TBD how) to contain other monitors
---   - can be paged out via write to port 3
+--   - can be paged out via I/O write, allowing it to be replaced
+--     or patched or breakpointed
 -- * 1K video RAM at location 0x800
---   - can be paged out via write to port 3
+--   - can be paged out via I/O write
 --   - can be decoded at 0xF800 instead, for NASCOM CP/M
 -- * 1K ws RAM at location 0xc00
+--   - can be paged out via I/O write
 -- * 1K "Special Boot ROM" at location 0x1000.
---   - can be paged out via write to port 3
---   - if enabled after reset, jump-on-reset circuit
---     starts execution from this ROM
+--   - always enabled at reset, and takes control through
+--     jump-on-reset circuit
+--   - can be paged out via I/O write; delayed disable allows the
+--     code that disables it to be contained in the ROM
+-- * Write-protect register allows memory regions to appear
+--   ROM-like
 -- * 2K MAP80 VFC ROM.
 --   - can be decoded at the start of any 4Kbyte block
 --     or disabled, via write to port 0xEC.
@@ -108,20 +82,22 @@
 -- * 4K bytes character generator ROM.
 --   - 256 characters, each 8 pixels wide by 16 rows.
 --   - can be re-written (TBD how)
--- * 512Kbyte RAM EXTERNAL
---   - mapped as 4x64Kbyte or 8x32Kbyte pages, controlled
---     through port 0xFE like two MAP80 256Kbyte RAM cards.
+-- * 512/1024Kbyte RAM EXTERNAL
+--   - mapped as 64Kbyte 32Kbyte pages, controlled
+--     through port 0xFE like two/four MAP80 256Kbyte RAM cards.
+-- * SDcard interface with high-level block read/write (no bit-banging)
+--   allows ROM images to be loaded on reset under the control of the
+--   Special Boot ROM.
 --
 -- * I/O port 0     - keyboard and single-step control
 -- * I/O port 1,2   - 6402 compatible UART
--- * I/O port 3     - NEW controls paging of ROM/RAM/VDU -> will move to 18
 -- * I/O port 4-7   - EXTERNAL Z80 PIO
 -- * I/O port 10-17 - NEW SDcard controller
 -- * I/O port 18    - NEW controls paging of ROM/RAM/VDU
 -- * I/O port 19    - NEW controls RAM write-protect
 -- * I/O port 1A    - NEW memory stall control
--- * I/O port 1B    - NEW ??por high nibble (controlled by SBROM)
--- * I/O port 1C    - NEW ??reason register (controlled by reset/fn keys)
+-- * I/O port 1B    - NEW por high nibble (controlled by SBROM)
+-- * I/O port 1C    - NEW reason register (controlled by reset/fn keys)
 -- * I/O port E0-E3 - EXTERNAL WD2797 Floppy Disk Controller
 -- * I/O port E4    - VFC FDC drive select etc.
 -- * I/O port E6    - VFC "parallel" keyboard (maybe; from PS/2 keyboard)
@@ -129,16 +105,16 @@
 -- * I/O port EC    - VFC mapping register (write-only)
 -- * I/O port EE    - VFC write to select VFC video on output
 -- * I/O port EF    - VFC write to select NASCOM video on output
-
 -- * I/O port FE    - MAP80 256KRAM paging/memory mapping (write-only)
 
 
 -- Connection off-chip to:
 -- * VGA video drive
 -- * Serial in/out and optional serial clock in (via level translators)
--- * Keyboard connector (via level translators)
+-- * NASCOM-compatible Keyboard connector (via level translators)
+-- * PS/2 keyboard connector (not authentic but more available)
 -- * 256Kbyte RAM (TBD device)
--- * 256Kbyte FLASH (TBD device) TBD how programmed/bootstrapped
+-- * SDcard for loading "ROM" images
 -- * I/O bus for PIO, FDC
 -- * Data-bus buffer/level translator with control signals
 -- * FDC drive select, data ready/intrq, fm/mfm select
@@ -148,65 +124,30 @@
 -- source allowing tape loading.. but then, would want to use this to do the
 -- ROM load as well, and not use the integrated SDcard controller.
 --
--- "Special boot ROM" (SBROM) needs to appear at 0 after reset, but it will be
--- much simpler to code it (especially as it is only 1Kbytes) if it can make
--- use of NAS-SYS I/O routines. This can be achieved by remapping it to a
--- different address and decoding the NAS-SYS ROM at zero; the SPR can then
--- call the monitor initialisation routine.
--- How to manage it?
--- Decode and assemble it at $1000. After reset, it it's enabled, decode
--- it for the 1st op-code fetch. In that case, the Port 3 bits mean this:
-
--- B3          0: enable NAS-SYS 1: enable NAS-SYS at 0
--- B2          0: disable SBROM  1: enable SBROM at $1000
--- When SBROM is enabled at reset, control passes to it rather
--- than to NAS-SYS
--- -> this is achieved by decoding the SBROM for the first M1 cycle
--- after reset. The SBROM must start with a jump to $1003.
--- -> need to put sbootRom higher than nasRom in "bus isolation" code.
+-- The "Special boot ROM" (SBootROM) is decoded at address $1000. It is always
+-- enabled at reset but can be paged out later. It takes control through a bit
+-- of jump-on-reset logic (rather like a real NASCOM2). It looks at a "reason"
+-- register to choose between a cold reset and a warm reset. In the case of a
+-- warm reset it tries to touch as little hardware as possible and restarts to
+-- the entry point from the last cold reset, paging itself out on the way.
+-- In the case of a cold reset, it initialises NAS-SYS (so that it can use the
+-- NAS-SYS restarts and other I/O routines) and presents a boot menu that is
+-- read from SDcard. There are upto 26 menu items, selected using letters A-Z.
+-- Each menu item runs a small script (also stored on SDcard) called a "profile".
+-- A profile can load images and modify memory and I/O and terminates by
+-- writing to the mapping register (usually to disable SBootROM) and jumping
+-- somwhere. The SDcard contents is managed on a PC using a script make_sdcard_image.
 --
--- Function of SBROM
--- eventually: Very crude FAT32 support - read-only.
--- for now: just use SDcard 512-byte blocks directly.
--- Read jumpers
--- if bootmode2: read profile 2 from SDcard: usually ROM-based NASCOM
--- if bootmode3: read profile 3 from SDcard: usually menu
---
--- menu displays text on screen and invites selection of a profile
--- from a separate file.
--- format of profile file?
--- ROMIMAGES file like for NASCAS
--- profile is very simple script, and must be small enough that it
--- can be loaded into the workspace RAM. Tokens:
--- W write to address: W1234=5678 means write 0x5678 to address 0x1234
--- P write to port: P34=03 means write 0x03 to port 0x34
--- G go: G1000=40 means write 40 to port 3 then jump to 0x1000
--- I image: I1234 means specify image start as block 0x1234 on SDcard
--- L load: L1000=14 means load image to address 0x1000 for 0x14 sectors (10Kbytes).
--- CR/LF characters are ignored/skipped.
--- Any detected error causes a HALT. The script is executed until the first
--- error, upto a maximum of 512 characters (1 SDcard block). The file can be
--- bigger, eg to contain comments.
---
--- Example: load BASIC, ZEAP and NAS-PEN, map out ROM, write-protect memory,
--- restart NAS-SYS.
--- I000000,LE000=2000,I4000,LD000=1000,I5000,LB800=80,P03=45,G0=FF
---
--- (the port data values here for P and G commands are NOT correct!)
--- Need some way to determine that the final FF has no following hex characters
--- just use space/cr/lf/00. Maybe I should use a space separator instead of comma
--- can then simply skip space/cr/lf.
---
--- could restrict the images to 4K boundaries to reduce the calculations
--- required.
+-- The format of the profile is documented in make_sdcard_image and also in
+-- the source code for the SBootROM.
 
 
 -- I/O assignment/reassignment:
 
 -- Current         New
 -- gpio0(2)        in, NMI button
--- gpio0(1)        in, bootmode1
--- gpio0(0)        in, bootmode0
+-- gpio0(1)        in, warm/cold reset (actually using VFUFFD0 pin currently)
+-- gpio0(0)        in,
 --
 -- n_LED7          out, DRIVE - [NAC HACK 2020Nov25] not yet coded.
 -- n_LED9          out, HALT
@@ -247,7 +188,6 @@
 -- Work out how to do shared video access to char gen:
 -- add debug signals to show reads of video/chargen RAM
 ------
--- Implement write-protect register
 -- Add write port to char gen.. how to decode? Whole of VFC space?
 -- Code synchroniser and pulse generator for NMI push button
 -- Work out what's needed for FDC miscellaneous control
@@ -255,7 +195,6 @@
 -- slow-down for I/O cycles. Allow operation at a lower clock speed.
 -- Work out external pin mapping.
 -- Consider Arduino interface; 1 or 2 external SDcards..
--- Implement PS/2 keyboard interface?
 
 -- The pin assignments here are designed to match up with James Moxham's
 -- multicomp PCB. The support for devices on that PCB is summaried below:
@@ -283,8 +222,7 @@ use  IEEE.STD_LOGIC_ARITH.all;
 use  IEEE.STD_LOGIC_UNSIGNED.all;
 
 entity NASCOM4 is
-    generic( constant RTLSIM_UART : boolean := FALSE;
-             constant DEFAULT_BOOTMODE : std_logic_vector(1 downto 0) := "10" -- "10" for real build
+    generic( constant RTLSIM_UART : boolean := FALSE
     );
     port(
 	-- these are connected on the base FPGA board
@@ -297,9 +235,8 @@ entity NASCOM4 is
         n_LED9        : out std_logic := '1';  -- HALT
 
         -- External pull-up so this defaults to 1. When pulled to gnd
-        -- this swaps the address decodes so that the Serial A port is
-        -- decoded at $FFD0 and the VDU at $FFD2.
-        vduffd0         : in std_logic;  -- [NAC HACK 2020Dec04] unused
+        -- SBootROM will do a COLD reset. Otherwise, warm reset
+        vduffd0         : in std_logic;
 
         sRamData        : inout std_logic_vector(7 downto 0);
         sRamAddress     : out std_logic_vector(18 downto 0); -- 18:0 -> 512KByte
@@ -337,7 +274,7 @@ entity NASCOM4 is
         -- bit 2: CE          (FPGA PIN 42)
         -- bit 1: SCLK        (FPGA PIN 41)
         -- bit 0: I/O (Data)  (FPGA PIN 40)
-        gpio0       : in std_logic_vector(2 downto 0); --[NAC HACK 2020Nov25] (1..0) now used for bootmode
+        gpio0       : in std_logic_vector(2 downto 0); --[NAC HACK 2020Nov25] was bootmode now unused
         -- 8 GPIO mapped to "group B" connector. Pin 1..8 of that connector
         -- assigned to bit 0..7 of gpio2.
         gpio2       : inout std_logic_vector(7 downto 0);
@@ -356,7 +293,6 @@ architecture struct of NASCOM4 is
     signal n_WR                   : std_logic;
     signal n_RD                   : std_logic;
     signal hold                   : std_logic;
-    signal state                  : std_logic_vector(2 downto 0);
     signal cpuAddress             : std_logic_vector(15 downto 0);
     signal cpuDataOut             : std_logic_vector(7 downto 0);
     signal cpuDataIn              : std_logic_vector(7 downto 0);
@@ -448,13 +384,13 @@ architecture struct of NASCOM4 is
 
     ------------------------------------------------------------------
     -- Port 18: new for FPGA implementation
-    --              Write                                     Read
-    -- B7          ignored                                    bootmode1
-    -- B6          ignored                                    bootmode0
+    --             WRITE                                      READ
+    -- B7          unused                                     0
+    -- B6          unused                                     0
     -- B5          MAP80 VFC autoboot                         readback
     -- B4          1: enable NASCOM WS RAM                    readback
     -- B3          0: disable NAS-SYS  1: enable NAS-SYS      readback
-    -- B2          0: disable boot ROM 1: enable boot ROM     readback
+    -- B2          0: disable SBootROM 1: enable SBootROM     readback
     -- B1          0: VRAM@800, 1:VRAM@?? (for CP/M)          readback
     -- B0          1: enable NASCOM VRAM                      readback
     --
@@ -464,21 +400,10 @@ architecture struct of NASCOM4 is
     -- autoboot=1 : after reset, the ROM is enabled; writing a 1
     --              disables the ROM.
     --
-    -- The bootmode bits determine the reset state of autoboot, and
-    -- therefore whether the ROM is enabled or disabled after reset.
-    --
     -- Implementation:
     -- * register bit iopwrECRomEnable is reset to a 0.
     -- * ROM enable is autoboot XOR iopwrECRomEnable
     --
-    -- The boot ROM is 1Kbytes decoded at address 0x1000.
-    -- When it is enabled at reset, it is selected for the first
-    -- three read cycles (which had better be a "JP 1003"). Decoding
-    -- it away from location 0 allows the boot ROM to call STMON to
-    -- to initialise NAS-SYS and then to make use of the the NAS-SYS
-    -- I/O and other routines. The usual function of the boot
-    -- ROM is to load ROM images into RAM, and then write-protect
-    -- the RAM, to give the appearance of a ROM-laden NASCOM.
 
     signal iopwr18MAP80AutoBoot   : std_logic; -- bit 5
     signal iopwr18NasWsRam        : std_logic; -- bit 4
@@ -488,7 +413,7 @@ architecture struct of NASCOM4 is
     signal iopwr18NasVidRam       : std_logic; -- bit 0
     signal ioprd18                : std_logic_vector(7 downto 0);
 
-    signal SBootRomState          : std_logic_vector(2 downto 0);
+    signal SBootRomState          : std_logic_vector(1 downto 0);
 
     ------------------------------------------------------------------
     -- Port 19: RAM write protect
@@ -505,12 +430,29 @@ architecture struct of NASCOM4 is
 
     ------------------------------------------------------------------
     -- Port 1A: Memory stalls
-    -- N means N+1 stalls
+    -- Write-only. N means N+1 stalls
 
     signal iopwr1aStalls          : std_logic_vector(7 downto 0);
 
     ------------------------------------------------------------------
-    -- MAP80 VFC disk control
+    -- Port 1B: PORPage
+    -- Read/Write with no hardware side-effect. Managed by SBootROM
+
+    signal iopwr1bPOR             : std_logic_vector(7 downto 0) := x"00";
+    signal ioprd1b                : std_logic_vector(7 downto 0);
+
+    ------------------------------------------------------------------
+    -- Port 1C: Reason
+    -- Read-only bits to distinguish hard from soft reset, either from push
+    -- buttons or from the PS/2 keyboard FN keys
+    -- TODO not yet implemented
+    -- TODO need a write-any-data-to-clear (already done in the SBootROM
+    -- but has no effect here yet).
+
+    signal ioprd1c                : std_logic_vector(7 downto 0);
+
+    ------------------------------------------------------------------
+    -- Port E4: MAP80 VFC disk control
     signal portE4wr               : std_logic_vector(7 downto 0);
     signal portE4rd               : std_logic_vector(7 downto 0) := x"00";
 
@@ -550,47 +492,10 @@ architecture struct of NASCOM4 is
     signal n_NMI                  : std_logic;
     signal nmi_state              : std_logic_vector(2 downto 0);
 
-
-    -- [NAC HACK 2020Nov22] Bootmode pins should be primary inputs
-    -- The 2 bootmode bits are set by front-panel switch and are decoded to generate
-    -- the initial state of the "low level" control bits writeable from this register.
-    -- They also provide the initial state of the MAP80 VFC LINK4 "autoboot" jumper
-    -- and the MAP80 video select
-    --
-    -- bootmode1  bootmode0
-    --     0          0       Raw NASCOM (NAS-SYS only)
-    --     0          1       MAP VFC    (CP/M)
-    --     1          0       Special boot ROM, mode 0 - usually NASCOM + ZEAP + BASIC
-    --     1          1       Special boot ROM, mode 1 - usually NASCOM CP/M
-    --
-    -- The special boot ROM allows stuff to be loaded into RAM and then protected to
-    -- make it look like ROM. Typically, it terminates by jumping through a tiny
-    -- code stub in RAM whose function is to write to the port to disable the
-    -- ROM and then to jump to some destination address (eg, NAS-SYS).
-    -- Once the special boot ROM is executing, it need not "honour" the bootmode;
-    -- it can do anything.
-    -- Any number of "profiles" can be provided via the boot ROM. For example:
-    -- start NASCOM + ZEAP + BASIC
-    -- start NASCOM + BASIC + POLYDOS
-    -- start NASCOM + BASIC + NAS-DOS
-    -- start NASCOM CP/M
-    -- start T4 + BASIC
-    --                     Port 18 b4:b0           MAP80 VFC video select
-    -- bootmode=0           01001                   NASCOM video
-    -- bootmode=1           10000                   MAP80 video
-    -- bootmode=2           01101                   NASCOM video
-    -- bootmode=3           01101                   NASCOM video
-    signal bootmode               : std_logic_vector(1 downto 0) := DEFAULT_BOOTMODE;
-
 begin
 
     n_LED9 <= n_HALT;
     n_LED7 <= not iopwr00NasDrive;
-
--- [NAC HACK 2020Nov25] change sim script to set the pins accordingly
---    bootmode(1) <= gpio0(1);
---    bootmode(0) <= gpio0(0);
-
 
 -- ____________________________________________________________________________________
 -- CPU CHOICE GOES HERE
@@ -603,7 +508,7 @@ begin
             clk_n   => cpuClock, -- or just clk??
             reset_n => n_reset_clean,
             wait_n  => n_WAIT,
-            int_n   => '1', -- TODO from external I/O sub-system
+            int_n   => '1',   -- TODO from external I/O sub-system
             nmi_n   => n_NMI, -- from single-step logic
             busrq_n => '1',   -- unused
             halt_n  => n_HALT,
@@ -661,7 +566,6 @@ begin
     -- PageSel(5) is unused. The MAP80 documentation seems contradictory
     -- about whether 1MByte or 2MByte is the maximum capacity but it
     -- "only" shows configuration options for upto 4 cards.
-
 
     proc_sramadr: process(cpuAddress, iopwrFEPageSel, iopwrFEUpper32k, iopwrFE32kPages)
     begin
@@ -722,94 +626,61 @@ begin
 -- ____________________________________________________________________________________
 -- INPUT/OUTPUT DEVICES GO HERE
 
-
     -- Control for SBootROM
     -- Enable at reset
-    -- Enable on write 1 to port18 bit(2)
+    -- Enable on write 1 to port18 bit(1)
     -- Delayed disable on write 0 to port18 bit(2)
     -- The delay is designed so that, if the following code executes from the
     -- SBootROM and the OUT sets bit(2) to 0, the ROM will remain enabled until
     -- the JMP and its operands have been read from the SBootROM:
     --    OUT (port18), A
     --    JP  (HL)
-    iopwr18SBootRom <= SBootRomState(2);
+    iopwr18SBootRom <= SBootRomState(1);
 
     proc_sboot: process(clk, n_reset_clean)
     begin
       if n_reset_clean='0' then
-        SBootRomState <= "100"; -- MSB is the ROM enable
+        SBootRomState <= "10"; -- MSB is the ROM enable
       elsif rising_edge(clk) then
         case SBootRomState is
-          when "100" =>
+          when "10" =>
             if cpuAddress(7 downto 0) = x"18" and n_IORQ = '0' and n_WR = '0' and cpuDataOut(2) = '0' then
               -- Start the process of disabling the ROM
-              SBootRomState <= "101";
+              SBootRomState <= "11";
             end if;
 
-          when "101" =>
+          when "11" =>
             if n_MREQ = '0' and n_RD = '0' and n_WAIT = '1' then
               -- The JP (HL) instruction fetch.. complete the process of disabling the ROM
-              SBootRomState <= "000";
+              SBootRomState <= "00";
             end if;
 
-          when "000" =>
+          when "00" =>
             if cpuAddress(7 downto 0) = x"18" and n_IORQ = '0' and n_WR = '0' and cpuDataOut(2) = '1' then
               -- Enable the ROM
-              SBootRomState <= "100";
+              SBootRomState <= "10";
             end if;
 
           when others =>
-            state <= "100";
+            SBootRomState <= "10";
         end case;
       end if;
     end process;
 
 
     -- Miscellaneous I/O port write
-    proc_iowr: process(clk, n_reset_clean, bootmode)
+    proc_iowr_rst: process(clk, n_reset_clean)
     begin
-      if (n_reset_clean='0') then
+      if n_reset_clean='0' then
         iopwr00NasDrive  <= '0';
         iopwr00NasNMI    <= '0';
         iopwr00NasKbdClk <= '0';
         iopwr00NasKbdRst <= '0';
-        iopwr1aStalls <= x"20"; -- aim is to match 4MHz NASCOM by default
 
-        -- Decode bootmode to get initial state of port3 stuff and video select
-        if (bootmode = 1) then
-          -- MAP80 VFC CP/M boot
-          video_map80vfc       <= '1';
-          iopwr18MAP80AutoBoot <= '1';
-          iopwr18NasWsRam      <= '0';
---          iopwr18SBootRom      <= '0';
-          iopwr18NasSysRom     <= '0';
-          iopwr18NasVidRam     <= '0';
-        else
-          -- Native NASCOM or Special Boot ROM
-          video_map80vfc       <= '0';
-          iopwr18MAP80AutoBoot <= '0';
-          iopwr18NasWsRam      <= '1';
-          if bootmode = 2 or bootmode = 3 then
---            iopwr18SBootRom    <= '1';
-          else
---            iopwr18SBootRom    <= '0';
-          end if;
-          iopwr18NasSysRom     <= '1';
-          iopwr18NasVidRam     <= '1';
-        end if;
-
-        -- This will be high for NASCOM CP/M but that requires other stuff
-        -- to be loaded by the SBootRom so that ROM can also do the port
-        -- write to remap this.
-        iopwr18NasVidHigh    <= '0';
-
-        -- After reset, whole address space is writeable
-        iopwr19ProtEf8k <= '0';
-        iopwr19ProtDf4k <= '0';
-        iopwr19ProtCf4k <= '0';
-        iopwr19ProtBf4k <= '0';
-        iopwr19ProtAf4k <= '0';
-        iopwr19Prot0f2k <= '0';
+        -- Originally I tried to NOT reset this, so that it would be
+        -- maintained across soft reset, but I got very weird behaviour
+        -- on silicon, even though it seemed to work fine in simulation.
+        iopwr1aStalls <= x"20";
 
         portE4wr <= x"00";
         portE8wr <= x"00";
@@ -830,24 +701,6 @@ begin
           iopwr00NasKbdClk <= cpuDataOut(0);
         end if;
 
-        if cpuAddress(7 downto 0) = x"18" and n_IORQ = '0' and n_WR = '0' then
-          iopwr18MAP80AutoBoot <= cpuDataOut(5);
-          iopwr18NasWsRam      <= cpuDataOut(4);
-          iopwr18NasSysRom     <= cpuDataOut(3);
---          iopwr18SBootRom      <= cpuDataOut(2);
-          iopwr18NasVidHigh    <= cpuDataOut(1);
-          iopwr18NasVidRam     <= cpuDataOut(0);
-        end if;
-
-        if cpuAddress(7 downto 0) = x"19" and n_IORQ = '0' and n_WR = '0' then
-          iopwr19ProtEf8k <= cpuDataOut(6);
-          iopwr19ProtDf4k <= cpuDataOut(5);
-          iopwr19ProtCf4k <= cpuDataOut(4);
-          iopwr19ProtBf4k <= cpuDataOut(3);
-          iopwr19ProtAf4k <= cpuDataOut(2);
-          iopwr19Prot0f2k <= cpuDataOut(0);
-        end if;
-
         if cpuAddress(7 downto 0) = x"1a" and n_IORQ = '0' and n_WR = '0' then
           iopwr1aStalls <= cpuDataOut(7 downto 0);
         end if;
@@ -866,6 +719,44 @@ begin
           iopwrECRamEnable  <= cpuDataOut(0);
         end if;
 
+        if cpuAddress(7 downto 0) = x"fe" and n_IORQ = '0' and n_WR = '0' then
+          iopwrFE32kPages   <= cpuDataOut(7);
+          iopwrFEUpper32k   <= cpuDataOut(6);
+          iopwrFEPageSel    <= cpuDataOut(5 downto 0);
+        end if;
+
+      end if;
+    end process;
+
+
+    -- Miscellaneous I/O port write that are NOT reset, so that a reset
+    -- with the "warm" bit set can retain as much of the previous state
+    -- as possible.
+    proc_iowr: process(clk)
+    begin
+      if rising_edge(clk) then
+        if cpuAddress(7 downto 0) = x"18" and n_IORQ = '0' and n_WR = '0' then
+          iopwr18MAP80AutoBoot <= cpuDataOut(5);
+          iopwr18NasWsRam      <= cpuDataOut(4);
+          iopwr18NasSysRom     <= cpuDataOut(3);
+          -- bit (2) is handled elsewhere
+          iopwr18NasVidHigh    <= cpuDataOut(1);
+          iopwr18NasVidRam     <= cpuDataOut(0);
+        end if;
+
+        if cpuAddress(7 downto 0) = x"19" and n_IORQ = '0' and n_WR = '0' then
+          iopwr19ProtEf8k <= cpuDataOut(6);
+          iopwr19ProtDf4k <= cpuDataOut(5);
+          iopwr19ProtCf4k <= cpuDataOut(4);
+          iopwr19ProtBf4k <= cpuDataOut(3);
+          iopwr19ProtAf4k <= cpuDataOut(2);
+          iopwr19Prot0f2k <= cpuDataOut(0);
+        end if;
+
+        if cpuAddress(7 downto 0) = x"1b" and n_IORQ = '0' and n_WR = '0' then
+          iopwr1bPOR <= cpuDataOut(7 downto 0);
+        end if;
+
         if cpuAddress(7 downto 0) = x"ee" and n_IORQ = '0' and n_WR = '0' then
           video_map80vfc <= '1';
         end if;
@@ -874,21 +765,24 @@ begin
           video_map80vfc <= '0';
         end if;
 
-        if cpuAddress(7 downto 0) = x"fe" and n_IORQ = '0' and n_WR = '0' then
-          iopwrFE32kPages   <= cpuDataOut(7);
-          iopwrFEUpper32k   <= cpuDataOut(6);
-          iopwrFEPageSel    <= cpuDataOut(5 downto 0);
-        end if;
       end if;
     end process;
 
     -- Readback for port18
-    ioprd18 <= bootmode(1 downto 0) & iopwr18MAP80AutoBoot & iopwr18NasWsRam
+    ioprd18 <= "00" & iopwr18MAP80AutoBoot & iopwr18NasWsRam
           & iopwr18NasSysRom & iopwr18SBootRom & iopwr18NasVidHigh & iopwr18NasVidRam;
 
     -- Readback for port19
     ioprd19 <= '0' & iopwr19ProtEf8k & iopwr19ProtDf4k & iopwr19ProtCf4k & iopwr19ProtBf4k
           & iopwr19ProtAf4k & '0' & iopwr19Prot0f2k;
+
+    -- Readback for port1b
+    ioprd1b <= iopwr1bPOR;
+
+    -- Readback for port1c
+    -- TODO add other reason bits
+    ioprd1c <= vduffd0 & "0000000";
+
 
     -- [NAC HACK 2020Nov16] here, I drive data for any IO request -- will need changing for external IO read
     -- [NAC HACK 2020Nov16] and for interrupt ack cycle
@@ -909,6 +803,10 @@ begin
         nasLocalIODataOut  <= ioprd18;
       elsif cpuAddress(7 downto 0) = x"19" then
         nasLocalIODataOut  <= ioprd19;
+      elsif cpuAddress(7 downto 0) = x"1b" then
+        nasLocalIODataOut  <= ioprd1b;
+      elsif cpuAddress(7 downto 0) = x"1c" then
+        nasLocalIODataOut  <= ioprd1c;
       elsif cpuAddress(7 downto 0) = x"e4" then
         nasLocalIODataOut  <= porte4rd;
       elsif cpuAddress(7 downto 0) = x"e6" then
