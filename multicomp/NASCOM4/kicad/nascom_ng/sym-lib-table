@@ -1,0 +1,5 @@
+(sym_lib_table
+  (lib (name CPU1)(type Legacy)(uri ${KIPRJMOD}/library/CPU.lib)(options "")(descr ""))
+  (lib (name Memory_RAM1)(type Legacy)(uri ${KIPRJMOD}/library/Memory_RAM.lib)(options "")(descr ""))
+  (lib (name myLib)(type Legacy)(uri ${KIPRJMOD}/library/myLib.lib)(options "")(descr ""))
+)

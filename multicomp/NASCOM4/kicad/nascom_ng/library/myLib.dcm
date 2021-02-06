@@ -1,0 +1,15 @@
+EESchema-DOCLIB  Version 2.0
+#
+$CMP Conn_02x14_Even_Odd
+D Generic connector, double row, 02x14, odd/even pin numbering scheme (row 1 odd numbers, row 2 even numbers), script generated (kicad-library-utils/schlib/autogen/connector/)
+K connector
+F ~
+$ENDCMP
+#
+$CMP WD2797
+D Floppy disk controller, DIP-40
+K Floppy disk controller
+F http://pdf.datasheetcatalog.com/datasheets2/12/1229802_1.pdf
+$ENDCMP
+#
+#End Doc Library
