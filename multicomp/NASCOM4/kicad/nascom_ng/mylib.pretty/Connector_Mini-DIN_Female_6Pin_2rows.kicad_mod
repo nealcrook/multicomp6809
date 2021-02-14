@@ -1,4 +1,4 @@
-(module Connector_Mini-DIN_Female_6Pin_2rows (layer F.Cu) (tedit 5FEDDBEA)
+(module Connector_Mini-DIN_Female_6Pin_2rows (layer F.Cu) (tedit 6025B80A)
   (descr "A footprint for the generic 6 pin Mini-DIN through hole connector with shell.")
   (tags "mini din 6pin connector socket")
   (fp_text reference REF** (at -1.27 -6.35) (layer F.SilkS)

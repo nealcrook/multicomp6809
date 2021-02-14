@@ -14,10 +14,10 @@ Comment3 ""
 Comment4 ""
 $EndDescr
 $Comp
-L Connector:DB15_Female_HighDensity J5
+L Connector:DB15_Female_HighDensity J17
 U 1 1 5FD8C4EA
 P 2950 1750
-F 0 "J5" H 2950 2617 50  0000 C CNN
+F 0 "J17" H 2950 2617 50  0000 C CNN
 F 1 "DB15_Female_HighDensity" H 2950 2526 50  0000 C CNN
 F 2 "Connector_Dsub:DSUB-15-HD_Female_Horizontal_P2.29x1.98mm_EdgePinOffset3.03mm_Housed_MountingHolesOffset4.94mm" H 2000 2150 50  0001 C CNN
 F 3 " ~" H 2000 2150 50  0001 C CNN
@@ -25,10 +25,10 @@ F 3 " ~" H 2000 2150 50  0001 C CNN
 	1    0    0    -1  
 $EndComp
 $Comp
-L Device:R R1
+L Device:R R25
 U 1 1 5FD8D7B7
 P 1850 1350
-F 0 "R1" V 1750 1350 50  0000 C CNN
+F 0 "R25" V 1750 1350 50  0000 C CNN
 F 1 "R" V 1850 1350 50  0000 C CNN
 F 2 "Resistor_THT:R_Axial_DIN0204_L3.6mm_D1.6mm_P7.62mm_Horizontal" V 1780 1350 50  0001 C CNN
 F 3 "~" H 1850 1350 50  0001 C CNN
@@ -36,10 +36,10 @@ F 3 "~" H 1850 1350 50  0001 C CNN
 	0    1    1    0   
 $EndComp
 $Comp
-L Device:R R2
+L Device:R R24
 U 1 1 5FD8DEB7
 P 1850 1550
-F 0 "R2" V 1750 1550 50  0000 C CNN
+F 0 "R24" V 1750 1550 50  0000 C CNN
 F 1 "R" V 1850 1550 50  0000 C CNN
 F 2 "Resistor_THT:R_Axial_DIN0204_L3.6mm_D1.6mm_P7.62mm_Horizontal" V 1780 1550 50  0001 C CNN
 F 3 "~" H 1850 1550 50  0001 C CNN
@@ -47,10 +47,10 @@ F 3 "~" H 1850 1550 50  0001 C CNN
 	0    1    1    0   
 $EndComp
 $Comp
-L Device:R R3
+L Device:R R23
 U 1 1 5FD8E0C3
 P 1850 1750
-F 0 "R3" V 1750 1750 50  0000 C CNN
+F 0 "R23" V 1750 1750 50  0000 C CNN
 F 1 "R" V 1850 1750 50  0000 C CNN
 F 2 "Resistor_THT:R_Axial_DIN0204_L3.6mm_D1.6mm_P7.62mm_Horizontal" V 1780 1750 50  0001 C CNN
 F 3 "~" H 1850 1750 50  0001 C CNN
@@ -150,10 +150,10 @@ F 3 "" H 2450 1250 50  0001 C CNN
 	1    0    0    -1  
 $EndComp
 $Comp
-L Connector:DB15_Female_HighDensity J6
+L Connector:DB15_Female_HighDensity J18
 U 1 1 5FD94BC5
 P 6150 1750
-F 0 "J6" H 6150 2617 50  0000 C CNN
+F 0 "J18" H 6150 2617 50  0000 C CNN
 F 1 "DB15_Female_HighDensity" H 6150 2526 50  0000 C CNN
 F 2 "Connector_Dsub:DSUB-15-HD_Female_Horizontal_P2.29x1.98mm_EdgePinOffset3.03mm_Housed_MountingHolesOffset4.94mm" H 5200 2150 50  0001 C CNN
 F 3 " ~" H 5200 2150 50  0001 C CNN
@@ -161,10 +161,10 @@ F 3 " ~" H 5200 2150 50  0001 C CNN
 	1    0    0    -1  
 $EndComp
 $Comp
-L Device:R R4
+L Device:R R28
 U 1 1 5FD94BCF
 P 5050 1350
-F 0 "R4" V 4950 1350 50  0000 C CNN
+F 0 "R28" V 4950 1350 50  0000 C CNN
 F 1 "R" V 5050 1350 50  0000 C CNN
 F 2 "Resistor_THT:R_Axial_DIN0204_L3.6mm_D1.6mm_P7.62mm_Horizontal" V 4980 1350 50  0001 C CNN
 F 3 "~" H 5050 1350 50  0001 C CNN
@@ -172,10 +172,10 @@ F 3 "~" H 5050 1350 50  0001 C CNN
 	0    1    1    0   
 $EndComp
 $Comp
-L Device:R R5
+L Device:R R27
 U 1 1 5FD94BD9
 P 5050 1550
-F 0 "R5" V 4950 1550 50  0000 C CNN
+F 0 "R27" V 4950 1550 50  0000 C CNN
 F 1 "R" V 5050 1550 50  0000 C CNN
 F 2 "Resistor_THT:R_Axial_DIN0204_L3.6mm_D1.6mm_P7.62mm_Horizontal" V 4980 1550 50  0001 C CNN
 F 3 "~" H 5050 1550 50  0001 C CNN
@@ -183,10 +183,10 @@ F 3 "~" H 5050 1550 50  0001 C CNN
 	0    1    1    0   
 $EndComp
 $Comp
-L Device:R R6
+L Device:R R26
 U 1 1 5FD94BE3
 P 5050 1750
-F 0 "R6" V 4950 1750 50  0000 C CNN
+F 0 "R26" V 4950 1750 50  0000 C CNN
 F 1 "R" V 5050 1750 50  0000 C CNN
 F 2 "Resistor_THT:R_Axial_DIN0204_L3.6mm_D1.6mm_P7.62mm_Horizontal" V 4980 1750 50  0001 C CNN
 F 3 "~" H 5050 1750 50  0001 C CNN
@@ -334,10 +334,10 @@ Wire Wire Line
 Wire Wire Line
 	8650 1900 8500 1900
 $Comp
-L Device:R R19
+L Device:R R17
 U 1 1 60792D3D
 P 8350 3450
-F 0 "R19" H 8420 3496 50  0000 L CNN
+F 0 "R17" H 8420 3496 50  0000 L CNN
 F 1 "10k" H 8420 3405 50  0000 L CNN
 F 2 "Resistor_THT:R_Axial_DIN0204_L3.6mm_D1.6mm_P7.62mm_Horizontal" V 8280 3450 50  0001 C CNN
 F 3 "~" H 8350 3450 50  0001 C CNN
@@ -356,10 +356,10 @@ F 3 "~" H 8350 3950 50  0001 C CNN
 	0    1    1    0   
 $EndComp
 $Comp
-L Device:R R20
+L Device:R R18
 U 1 1 607938E7
 P 8650 3450
-F 0 "R20" H 8720 3496 50  0000 L CNN
+F 0 "R18" H 8720 3496 50  0000 L CNN
 F 1 "10k" H 8720 3405 50  0000 L CNN
 F 2 "Resistor_THT:R_Axial_DIN0204_L3.6mm_D1.6mm_P7.62mm_Horizontal" V 8580 3450 50  0001 C CNN
 F 3 "~" H 8650 3450 50  0001 C CNN
@@ -444,10 +444,10 @@ Connection ~ 8350 3150
 Wire Wire Line
 	8350 3150 8350 3300
 $Comp
-L Connector:Conn_01x03_Male J10
+L Connector:Conn_01x03_Male J13
 U 1 1 607AD886
 P 9650 2950
-F 0 "J10" V 9712 3094 50  0000 L CNN
+F 0 "J13" V 9712 3094 50  0000 L CNN
 F 1 "Conn_01x03_Male" V 9900 3000 50  0000 L CNN
 F 2 "Connector_PinHeader_2.54mm:PinHeader_1x03_P2.54mm_Vertical" H 9650 2950 50  0001 C CNN
 F 3 "~" H 9650 2950 50  0001 C CNN
@@ -493,8 +493,8 @@ L Connector_Generic:Conn_02x08_Odd_Even PL?
 U 1 1 60D96959
 P 1550 3850
 AR Path="/5FC877BB/60D96959" Ref="PL?"  Part="1" 
-AR Path="/5FC85C78/60D96959" Ref="PL3"  Part="1" 
-F 0 "PL3" H 1600 4367 50  0000 C CNN
+AR Path="/5FC85C78/60D96959" Ref="PL2"  Part="1" 
+F 0 "PL2" H 1600 4367 50  0000 C CNN
 F 1 "Conn_02x08_Odd_Even" H 1600 4276 50  0000 C CNN
 F 2 "Connector_IDC:IDC-Header_2x08_P2.54mm_Vertical" H 1550 3850 50  0001 C CNN
 F 3 "~" H 1550 3850 50  0001 C CNN
@@ -506,8 +506,8 @@ L Connector_Generic:Conn_02x08_Odd_Even J?
 U 1 1 60D9695F
 P 5000 3850
 AR Path="/5FC877BB/60D9695F" Ref="J?"  Part="1" 
-AR Path="/5FC85C78/60D9695F" Ref="PL2"  Part="1" 
-F 0 "PL2" H 5050 4367 50  0000 C CNN
+AR Path="/5FC85C78/60D9695F" Ref="PL1"  Part="1" 
+F 0 "PL1" H 5050 4367 50  0000 C CNN
 F 1 "Conn_02x08_Odd_Even" H 5050 4276 50  0000 C CNN
 F 2 "Connector_IDC:IDC-Header_2x08_P2.54mm_Vertical" H 5000 3850 50  0001 C CNN
 F 3 "~" H 5000 3850 50  0001 C CNN
@@ -520,8 +520,8 @@ U 1 1 60D96965
 P 2100 6600
 AR Path="/5FC86EA5/60D96965" Ref="U?"  Part="1" 
 AR Path="/5FC877BB/60D96965" Ref="U?"  Part="1" 
-AR Path="/5FC85C78/60D96965" Ref="U10"  Part="1" 
-F 0 "U10" H 2250 7350 50  0000 C CNN
+AR Path="/5FC85C78/60D96965" Ref="U8"  Part="1" 
+F 0 "U8" H 2250 7350 50  0000 C CNN
 F 1 "74HCT244" H 2400 7250 50  0000 C CNN
 F 2 "Package_DIP:DIP-20_W7.62mm" H 2100 6600 50  0001 C CNN
 F 3 "https://assets.nexperia.com/documents/data-sheet/74HC_HCT244.pdf" H 2100 6600 50  0001 C CNN
@@ -648,7 +648,7 @@ Wire Wire Line
 	1450 7000 1200 7000
 Connection ~ 1450 7000
 Text GLabel 1200 7000 0    50   Input ~ 0
-PIN59_PORT0RD
+PIN87_PORT0RD
 $Comp
 L power:GND #PWR?
 U 1 1 60D969AA
@@ -800,10 +800,10 @@ NoConn ~ 4800 4150
 NoConn ~ 5300 4150
 NoConn ~ 5300 4250
 $Comp
-L Connector_Generic:Conn_01x06 J8
+L Connector_Generic:Conn_01x06 J12
 U 1 1 602BDB1D
 P 8850 1600
-F 0 "J8" H 8930 1592 50  0000 L CNN
+F 0 "J12" H 8930 1592 50  0000 L CNN
 F 1 "Conn_01x06" H 8930 1501 50  0000 L CNN
 F 2 "mylib:uSDcard_breakout_1x06_P2.54mm" H 8850 1600 50  0001 C CNN
 F 3 "~" H 8850 1600 50  0001 C CNN
@@ -819,10 +819,10 @@ D6_5V
 Wire Wire Line
 	2600 6500 2850 6500
 $Comp
-L myLib:Mini-DIN_6pins_ver2 J9
+L myLib:Mini-DIN_6pins_ver2 J14
 U 1 1 604A5287
 P 9300 3700
-F 0 "J9" H 9300 4035 50  0000 C CNN
+F 0 "J14" H 9300 4035 50  0000 C CNN
 F 1 "Mini-DIN_6pins_ver2" H 9300 3944 50  0000 C CNN
 F 2 "mylib:Connector_Mini-DIN_Female_6Pin_2rows" H 9300 3720 50  0001 C CNN
 F 3 "" H 9300 3720 50  0000 C CNN

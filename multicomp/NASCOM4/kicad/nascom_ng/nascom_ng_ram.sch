@@ -14,10 +14,10 @@ Comment3 ""
 Comment4 ""
 $EndDescr
 $Comp
-L Memory_RAM:AS6C4008-55PCN U4
+L Memory_RAM:AS6C4008-55PCN U9
 U 1 1 60208A1B
 P 2050 2100
-F 0 "U4" H 2200 3300 50  0000 C CNN
+F 0 "U9" H 2200 3300 50  0000 C CNN
 F 1 "AS6C4008-55PCN" H 2500 3200 50  0000 C CNN
 F 2 "Package_DIP:DIP-32_W15.24mm" H 2050 2200 50  0001 C CNN
 F 3 "https://www.alliancememory.com/wp-content/uploads/pdf/AS6C4008.pdf" H 2050 2200 50  0001 C CNN
@@ -171,10 +171,10 @@ Wire Wire Line
 Wire Wire Line
 	2050 3200 2050 3300
 $Comp
-L Memory_RAM:AS6C4008-55PCN U5
+L Memory_RAM:AS6C4008-55PCN U7
 U 1 1 602149FB
 P 4800 2100
-F 0 "U5" H 4950 3300 50  0000 C CNN
+F 0 "U7" H 4950 3300 50  0000 C CNN
 F 1 "AS6C4008-55PCN" H 5250 3200 50  0000 C CNN
 F 2 "Package_DIP:DIP-32_W15.24mm" H 4800 2200 50  0001 C CNN
 F 3 "https://www.alliancememory.com/wp-content/uploads/pdf/AS6C4008.pdf" H 4800 2200 50  0001 C CNN
@@ -343,10 +343,10 @@ F 3 "http://www.ti.com/lit/gpn/sn74LS245" H 2050 5100 50  0001 C CNN
 	1    0    0    -1  
 $EndComp
 $Comp
-L 74xx:74HCT244 U7
+L 74xx:74HCT244 U16
 U 1 1 602F6AF7
 P 4800 5100
-F 0 "U7" H 4950 5850 50  0000 C CNN
+F 0 "U16" H 4950 5850 50  0000 C CNN
 F 1 "74LVC244" H 5100 5750 50  0000 C CNN
 F 2 "Package_DIP:DIP-20_W7.62mm" H 4800 5100 50  0001 C CNN
 F 3 "https://assets.nexperia.com/documents/data-sheet/74HC_HCT244.pdf" H 4800 5100 50  0001 C CNN
@@ -484,12 +484,12 @@ Connection ~ 4150 5600
 Wire Wire Line
 	4150 5600 4150 5500
 Wire Wire Line
-	5300 4600 5550 4600
-Text GLabel 5550 4600 2    50   Input ~ 0
+	7850 5300 8100 5300
+Text GLabel 8100 5300 2    50   Input ~ 0
 A0_5V
 Wire Wire Line
-	5300 4700 5550 4700
-Text GLabel 5550 4700 2    50   Input ~ 0
+	7850 5200 8100 5200
+Text GLabel 8100 5200 2    50   Input ~ 0
 A1_5V
 Wire Wire Line
 	5300 4800 5550 4800
@@ -498,22 +498,22 @@ Wire Wire Line
 Wire Wire Line
 	5300 5200 5550 5200
 Wire Wire Line
-	4300 5300 4050 5300
+	4300 5300 4200 5300
 Wire Wire Line
-	4300 5200 4050 5200
+	4300 5200 4200 5200
 Wire Wire Line
-	4300 5000 4050 5000
+	4300 5000 4200 5000
 Wire Wire Line
-	4300 4900 4050 4900
+	4300 4900 4200 4900
 Wire Wire Line
-	4300 4800 4050 4800
+	4300 4800 4200 4800
 Wire Wire Line
-	4300 4700 4050 4700
-Text GLabel 4050 4700 0    50   Input ~ 0
+	6850 5200 6750 5200
+Text GLabel 6750 5200 0    50   Input ~ 0
 PIN125_A1
 Wire Wire Line
-	4300 4600 4050 4600
-Text GLabel 4050 4600 0    50   Input ~ 0
+	6850 5300 6750 5300
+Text GLabel 6750 5300 0    50   Input ~ 0
 PIN121_A0
 Wire Wire Line
 	1550 5500 1300 5500
@@ -528,10 +528,10 @@ Wire Wire Line
 Wire Wire Line
 	1450 5650 1300 5650
 $Comp
-L 74xx:74HCT244 U11
+L 74xx:74HCT244 U5
 U 1 1 60A0A01A
 P 7350 5100
-F 0 "U11" H 7500 5850 50  0000 C CNN
+F 0 "U5" H 7500 5850 50  0000 C CNN
 F 1 "74LVC244" H 7650 5750 50  0000 C CNN
 F 2 "Package_DIP:DIP-20_W7.62mm" H 7350 5100 50  0001 C CNN
 F 3 "https://assets.nexperia.com/documents/data-sheet/74HC_HCT244.pdf" H 7350 5100 50  0001 C CNN
@@ -579,26 +579,26 @@ Connection ~ 6700 5600
 Wire Wire Line
 	6700 5600 6700 5500
 Wire Wire Line
-	7850 4600 8100 4600
-Text GLabel 8100 4600 2    50   Input ~ 0
+	8300 4250 8450 4250
+Text GLabel 8450 4250 2    50   Input ~ 0
 CLK4_5V
 Wire Wire Line
-	7850 4700 8100 4700
-Text GLabel 8100 4700 2    50   Input ~ 0
+	5750 4250 5900 4250
+Text GLabel 5900 4250 2    50   Input ~ 0
 CLK1_5V
 Wire Wire Line
-	6850 4700 6800 4700
-Text GLabel 6800 4700 0    50   Input ~ 0
-PIN51_CLK1
+	4300 4700 4200 4700
+Text GLabel 4200 4700 0    50   Input ~ 0
+PIN67_CLK1
 Wire Wire Line
-	6850 4600 6800 4600
-Text GLabel 6800 4600 0    50   Input ~ 0
-PIN53_CLK4
+	6850 4600 6750 4600
+Text GLabel 6750 4600 0    50   Input ~ 0
+PIN69_CLK4
 $Comp
-L 74xx:74HCT244 U12
+L 74xx:74HCT244 U4
 U 1 1 60A1EF8A
 P 9900 5100
-F 0 "U12" H 10050 5850 50  0000 C CNN
+F 0 "U4" H 10050 5850 50  0000 C CNN
 F 1 "74LVC244" H 10200 5750 50  0000 C CNN
 F 2 "Package_DIP:DIP-20_W7.62mm" H 9900 5100 50  0001 C CNN
 F 3 "https://assets.nexperia.com/documents/data-sheet/74HC_HCT244.pdf" H 9900 5100 50  0001 C CNN
@@ -648,7 +648,7 @@ Wire Wire Line
 Wire Wire Line
 	7850 4800 8100 4800
 Text GLabel 8100 4800 2    50   Input ~ 0
-~PIN57_INT
+~PIN97_INT
 Wire Wire Line
 	10400 4700 10650 4700
 Wire Wire Line
@@ -658,7 +658,7 @@ Wire Wire Line
 Text GLabel 6750 4800 0    50   Input ~ 0
 ~INT_5V
 Wire Wire Line
-	4300 5100 4050 5100
+	4300 5100 4200 5100
 Text GLabel 5550 4800 2    50   Input ~ 0
 ~RD_5V
 Text GLabel 5550 4900 2    50   Input ~ 0
@@ -675,18 +675,18 @@ Text GLabel 5550 5300 2    50   Input ~ 0
 ~PIO_CS_5V
 Text GLabel 5550 5100 2    50   Input ~ 0
 ~FDC_CS_5V
-Text GLabel 4050 4800 0    50   Input ~ 0
-~PIN42_RD
-Text GLabel 4050 4900 0    50   Input ~ 0
-~PIN40_WR
-Text GLabel 4050 5000 0    50   Input ~ 0
-~PIN86_IORQ
-Text GLabel 4050 5200 0    50   Input ~ 0
-~PIN47_M1
-Text GLabel 4050 5300 0    50   Input ~ 0
-~PIN48_PIO_CS
-Text GLabel 4050 5100 0    50   Input ~ 0
-~PIN87_FDC_CS
+Text GLabel 4200 4800 0    50   Input ~ 0
+~PIN59_RD
+Text GLabel 4200 4900 0    50   Input ~ 0
+~PIN60_WR
+Text GLabel 4200 5000 0    50   Input ~ 0
+~PIN63_IORQ
+Text GLabel 4200 5200 0    50   Input ~ 0
+~PIN57_M1
+Text GLabel 4200 5300 0    50   Input ~ 0
+~PIN58_PIO_CS
+Text GLabel 4200 5100 0    50   Input ~ 0
+~PIN64_FDC_CS
 Wire Wire Line
 	10400 4600 10650 4600
 Text GLabel 9300 4600 0    50   Input ~ 0
@@ -698,20 +698,20 @@ RX_5V
 Text GLabel 10650 4700 2    50   Input ~ 0
 PIN101_RX
 Wire Wire Line
-	6850 4900 6800 4900
+	6850 4900 6750 4900
 Wire Wire Line
 	7850 4900 8100 4900
-Text GLabel 6800 4900 0    50   Input ~ 0
-~PIN55_CTC_CS
+Text GLabel 6750 4900 0    50   Input ~ 0
+~PIN71_CTC_CS
 Text GLabel 8100 4900 2    50   Input ~ 0
 ~CTC_CS_5V
 Wire Wire Line
-	6850 5000 6800 5000
-Text GLabel 6800 5000 0    50   Input ~ 0
+	9400 5200 9350 5200
+Text GLabel 9350 5200 0    50   Input ~ 0
 PIN7_TAPE_DRIVE
 Wire Wire Line
-	7850 5000 8100 5000
-Text GLabel 8100 5000 2    50   Input ~ 0
+	10400 5200 10650 5200
+Text GLabel 10650 5200 2    50   Input ~ 0
 TAPE_DRIVE_5V
 Wire Wire Line
 	9400 4800 9300 4800
@@ -724,26 +724,24 @@ RXBAUDCLK_5V
 Wire Wire Line
 	10400 4800 10650 4800
 Text GLabel 10650 4800 2    50   Input ~ 0
-PIN60_TXBAUDCLK
+PIN94_TXBAUDCLK
 Wire Wire Line
 	10400 4900 10650 4900
 Text GLabel 10650 4900 2    50   Input ~ 0
-PIN52_RXBAUDCLK
+PIN93_RXBAUDCLK
 Wire Wire Line
 	7850 5100 8100 5100
 Text GLabel 8100 5100 2    50   Input ~ 0
 PORTE4_WR_5V
 Wire Wire Line
-	6850 5100 6800 5100
-Text GLabel 6800 5100 0    50   Input ~ 0
-PIN58_PORTE4_WR
+	6850 5100 6750 5100
+Text GLabel 6750 5100 0    50   Input ~ 0
+PIN70_PORTE4_WR
 Wire Wire Line
-	6850 5200 6800 5200
-Text GLabel 6800 5200 0    50   Input ~ 0
-~PIN43_IO_RESET
-Wire Wire Line
-	7850 5200 8100 5200
-Text GLabel 8100 5200 2    50   Input ~ 0
+	6850 4700 6750 4700
+Text GLabel 6750 4700 0    50   Input ~ 0
+~PIN72_IO_RESET
+Text GLabel 8100 4700 2    50   Input ~ 0
 ~IO_RESET_5V
 Wire Wire Line
 	10400 5000 10650 5000
@@ -758,8 +756,8 @@ L Device:C C?
 U 1 1 6013003B
 P 6800 1350
 AR Path="/62588EF4/6013003B" Ref="C?"  Part="1" 
-AR Path="/5FC86EA5/6013003B" Ref="C7"  Part="1" 
-F 0 "C7" H 6915 1396 50  0000 L CNN
+AR Path="/5FC86EA5/6013003B" Ref="C6"  Part="1" 
+F 0 "C6" H 6915 1396 50  0000 L CNN
 F 1 "0.1u" H 6915 1305 50  0000 L CNN
 F 2 "Capacitor_THT:C_Disc_D3.0mm_W2.0mm_P2.50mm" H 6838 1200 50  0001 C CNN
 F 3 "~" H 6800 1350 50  0001 C CNN
@@ -771,8 +769,8 @@ L Device:C C?
 U 1 1 60130041
 P 7200 1350
 AR Path="/62588EF4/60130041" Ref="C?"  Part="1" 
-AR Path="/5FC86EA5/60130041" Ref="C8"  Part="1" 
-F 0 "C8" H 7315 1396 50  0000 L CNN
+AR Path="/5FC86EA5/60130041" Ref="C9"  Part="1" 
+F 0 "C9" H 7315 1396 50  0000 L CNN
 F 1 "0.1u" H 7315 1305 50  0000 L CNN
 F 2 "Capacitor_THT:C_Disc_D3.0mm_W2.0mm_P2.50mm" H 7238 1200 50  0001 C CNN
 F 3 "~" H 7200 1350 50  0001 C CNN
@@ -784,8 +782,8 @@ L Device:C C?
 U 1 1 60130047
 P 7600 1350
 AR Path="/62588EF4/60130047" Ref="C?"  Part="1" 
-AR Path="/5FC86EA5/60130047" Ref="C9"  Part="1" 
-F 0 "C9" H 7715 1396 50  0000 L CNN
+AR Path="/5FC86EA5/60130047" Ref="C3"  Part="1" 
+F 0 "C3" H 7715 1396 50  0000 L CNN
 F 1 "0.1u" H 7715 1305 50  0000 L CNN
 F 2 "Capacitor_THT:C_Disc_D3.0mm_W2.0mm_P2.50mm" H 7638 1200 50  0001 C CNN
 F 3 "~" H 7600 1350 50  0001 C CNN
@@ -797,8 +795,8 @@ L Device:C C?
 U 1 1 6013004D
 P 8000 1350
 AR Path="/62588EF4/6013004D" Ref="C?"  Part="1" 
-AR Path="/5FC86EA5/6013004D" Ref="C10"  Part="1" 
-F 0 "C10" H 8115 1396 50  0000 L CNN
+AR Path="/5FC86EA5/6013004D" Ref="C20"  Part="1" 
+F 0 "C20" H 8115 1396 50  0000 L CNN
 F 1 "0.1u" H 8115 1305 50  0000 L CNN
 F 2 "Capacitor_THT:C_Disc_D3.0mm_W2.0mm_P2.50mm" H 8038 1200 50  0001 C CNN
 F 3 "~" H 8000 1350 50  0001 C CNN
@@ -810,8 +808,8 @@ L Device:C C?
 U 1 1 60130053
 P 8400 1350
 AR Path="/62588EF4/60130053" Ref="C?"  Part="1" 
-AR Path="/5FC86EA5/60130053" Ref="C11"  Part="1" 
-F 0 "C11" H 8515 1396 50  0000 L CNN
+AR Path="/5FC86EA5/60130053" Ref="C13"  Part="1" 
+F 0 "C13" H 8515 1396 50  0000 L CNN
 F 1 "0.1u" H 8515 1305 50  0000 L CNN
 F 2 "Capacitor_THT:C_Disc_D3.0mm_W2.0mm_P2.50mm" H 8438 1200 50  0001 C CNN
 F 3 "~" H 8400 1350 50  0001 C CNN
@@ -823,8 +821,8 @@ L Device:C C?
 U 1 1 60130059
 P 8800 1350
 AR Path="/62588EF4/60130059" Ref="C?"  Part="1" 
-AR Path="/5FC86EA5/60130059" Ref="C12"  Part="1" 
-F 0 "C12" H 8915 1396 50  0000 L CNN
+AR Path="/5FC86EA5/60130059" Ref="C27"  Part="1" 
+F 0 "C27" H 8915 1396 50  0000 L CNN
 F 1 "0.1u" H 8915 1305 50  0000 L CNN
 F 2 "Capacitor_THT:C_Disc_D3.0mm_W2.0mm_P2.50mm" H 8838 1200 50  0001 C CNN
 F 3 "~" H 8800 1350 50  0001 C CNN
@@ -836,8 +834,8 @@ L Device:C C?
 U 1 1 6013005F
 P 9200 1350
 AR Path="/62588EF4/6013005F" Ref="C?"  Part="1" 
-AR Path="/5FC86EA5/6013005F" Ref="C13"  Part="1" 
-F 0 "C13" H 9315 1396 50  0000 L CNN
+AR Path="/5FC86EA5/6013005F" Ref="C5"  Part="1" 
+F 0 "C5" H 9315 1396 50  0000 L CNN
 F 1 "0.1u" H 9315 1305 50  0000 L CNN
 F 2 "Capacitor_THT:C_Disc_D3.0mm_W2.0mm_P2.50mm" H 9238 1200 50  0001 C CNN
 F 3 "~" H 9200 1350 50  0001 C CNN
@@ -849,8 +847,8 @@ L Device:C C?
 U 1 1 60130065
 P 9600 1350
 AR Path="/62588EF4/60130065" Ref="C?"  Part="1" 
-AR Path="/5FC86EA5/60130065" Ref="C14"  Part="1" 
-F 0 "C14" H 9715 1396 50  0000 L CNN
+AR Path="/5FC86EA5/60130065" Ref="C16"  Part="1" 
+F 0 "C16" H 9715 1396 50  0000 L CNN
 F 1 "0.1u" H 9715 1305 50  0000 L CNN
 F 2 "Capacitor_THT:C_Disc_D3.0mm_W2.0mm_P2.50mm" H 9638 1200 50  0001 C CNN
 F 3 "~" H 9600 1350 50  0001 C CNN
@@ -961,10 +959,10 @@ F 3 "" H 6800 1050 50  0001 C CNN
 	1    0    0    -1  
 $EndComp
 $Comp
-L Device:CP_Small C31
+L Device:CP_Small C26
 U 1 1 6013C2F5
 P 10000 1350
-F 0 "C31" H 10088 1396 50  0000 L CNN
+F 0 "C26" H 10088 1396 50  0000 L CNN
 F 1 "10u" H 10088 1305 50  0000 L CNN
 F 2 "Capacitor_THT:CP_Radial_D5.0mm_P2.50mm" H 10000 1350 50  0001 C CNN
 F 3 "~" H 10000 1350 50  0001 C CNN
@@ -984,10 +982,10 @@ Connection ~ 9600 1550
 Wire Wire Line
 	5300 5000 5550 5000
 $Comp
-L Device:R R26
+L Device:R R1
 U 1 1 601BB8EF
 P 1450 4350
-F 0 "R26" H 1520 4396 50  0000 L CNN
+F 0 "R1" H 1520 4396 50  0000 L CNN
 F 1 "10k" H 1520 4305 50  0000 L CNN
 F 2 "Resistor_THT:R_Axial_DIN0204_L3.6mm_D1.6mm_P7.62mm_Horizontal" V 1380 4350 50  0001 C CNN
 F 3 "~" H 1450 4350 50  0001 C CNN
@@ -1007,37 +1005,71 @@ Text Notes 4250 6400 0    50   ~ 0
 Text Notes 7100 6950 0    98   ~ 20
 RAM, data-bus buffer (and level translator)\nmisc. level-translators/buffers
 Wire Wire Line
-	9400 5100 9300 5100
-Text GLabel 9300 5100 0    50   Input ~ 0
+	4300 4600 4200 4600
+Text GLabel 4200 4600 0    50   Input ~ 0
 INTRQ_5V
 Wire Wire Line
-	9400 5200 9300 5200
-Text GLabel 9300 5200 0    50   Input ~ 0
+	6850 5000 6750 5000
+Text GLabel 6750 5000 0    50   Input ~ 0
 DRQ_5V
 Wire Wire Line
-	10400 5100 10650 5100
-Text GLabel 10650 5100 2    50   Input ~ 0
-PIN91_IN_INTRQ
+	5300 4600 5550 4600
+Text GLabel 5550 4600 2    50   Input ~ 0
+PIN88_IN_INTRQ
 Wire Wire Line
-	10400 5200 10650 5200
-Text GLabel 10650 5200 2    50   Input ~ 0
-PIN90_IN_DRQ
+	7850 5000 8100 5000
+Text GLabel 8100 5000 2    50   Input ~ 0
+PIN91_IN_DRQ
 Wire Wire Line
 	10400 5300 10650 5300
 Text GLabel 10650 5300 2    50   Input ~ 0
-~PIN64_KBDRST
+~PIN99_KBDRST
 Wire Wire Line
 	9400 5300 9300 5300
 Text GLabel 9300 5300 0    50   Input ~ 0
 ~KBDRST_5V
 Wire Wire Line
-	6850 5300 6800 5300
-Text GLabel 6800 5300 0    50   Input ~ 0
+	9400 5100 9350 5100
+Text GLabel 9350 5100 0    50   Input ~ 0
 ~KBDCLK_5V
 Wire Wire Line
-	7850 5300 8100 5300
-Text GLabel 8100 5300 2    50   Input ~ 0
-~PIN63_KBDCLK
+	10400 5100 10650 5100
+Text GLabel 10650 5100 2    50   Input ~ 0
+~PIN100_KBDCLK
 Wire Wire Line
 	9300 4600 9400 4600
+$Comp
+L Device:R R6
+U 1 1 602F32C1
+P 8150 4250
+F 0 "R6" V 8250 4300 50  0000 L CNN
+F 1 "33R" V 8250 4100 50  0000 L CNN
+F 2 "Resistor_THT:R_Axial_DIN0204_L3.6mm_D1.6mm_P7.62mm_Horizontal" V 8080 4250 50  0001 C CNN
+F 3 "~" H 8150 4250 50  0001 C CNN
+	1    8150 4250
+	0    -1   -1   0   
+$EndComp
+Wire Wire Line
+	7850 4600 7850 4250
+Wire Wire Line
+	7850 4250 8000 4250
+$Comp
+L Device:R R19
+U 1 1 6033DFDB
+P 5600 4250
+F 0 "R19" V 5700 4300 50  0000 L CNN
+F 1 "33R" V 5700 4100 50  0000 L CNN
+F 2 "Resistor_THT:R_Axial_DIN0204_L3.6mm_D1.6mm_P7.62mm_Horizontal" V 5530 4250 50  0001 C CNN
+F 3 "~" H 5600 4250 50  0001 C CNN
+	1    5600 4250
+	0    -1   -1   0   
+$EndComp
+Wire Wire Line
+	5350 4700 5350 4250
+Wire Wire Line
+	5350 4250 5450 4250
+Wire Wire Line
+	7850 4700 8100 4700
+Wire Wire Line
+	5300 4700 5350 4700
 $EndSCHEMATC

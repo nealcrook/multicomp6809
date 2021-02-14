@@ -40,10 +40,10 @@ Wire Wire Line
 Wire Wire Line
 	1250 1750 1050 1750
 $Comp
-L Device:CTRIM C1
+L Device:CTRIM C21
 U 1 1 5FDBD149
 P 1500 2850
-F 0 "C1" H 1616 2896 50  0000 L CNN
+F 0 "C21" H 1616 2896 50  0000 L CNN
 F 1 "5-65p" H 1616 2805 50  0000 L CNN
 F 2 "mylib:Trimmer_Vishay_BFC2808_Fig2" H 1500 2850 50  0001 C CNN
 F 3 "~" H 1500 2850 50  0001 C CNN
@@ -51,10 +51,10 @@ F 3 "~" H 1500 2850 50  0001 C CNN
 	1    0    0    -1  
 $EndComp
 $Comp
-L Device:R_POT_TRIM RV2
+L Device:R_POT_TRIM RV1
 U 1 1 5FDC16B1
 P 1300 3100
-F 0 "RV2" H 1230 3146 50  0000 R CNN
+F 0 "RV1" H 1230 3146 50  0000 R CNN
 F 1 "10k" H 1230 3055 50  0000 R CNN
 F 2 "Potentiometer_THT:Potentiometer_Bourns_3296W_Vertical" H 1300 3100 50  0001 C CNN
 F 3 "~" H 1300 3100 50  0001 C CNN
@@ -62,10 +62,10 @@ F 3 "~" H 1300 3100 50  0001 C CNN
 	1    0    0    -1  
 $EndComp
 $Comp
-L Device:R_POT_TRIM RV1
+L Device:R_POT_TRIM RV2
 U 1 1 5FDC092A
 P 750 3100
-F 0 "RV1" H 680 3146 50  0000 R CNN
+F 0 "RV2" H 680 3146 50  0000 R CNN
 F 1 "50k" H 680 3055 50  0000 R CNN
 F 2 "Potentiometer_THT:Potentiometer_Bourns_3296W_Vertical" H 750 3100 50  0001 C CNN
 F 3 "~" H 750 3100 50  0001 C CNN
@@ -77,10 +77,10 @@ Wire Wire Line
 Wire Wire Line
 	1000 3100 1000 3400
 $Comp
-L 74xx:74LS06 U3
+L 74xx:74LS06 U15
 U 4 1 5FDE526C
 P 3750 900
-F 0 "U3" H 3750 1217 50  0000 C CNN
+F 0 "U15" H 3750 1217 50  0000 C CNN
 F 1 "74LS06" H 3750 1126 50  0000 C CNN
 F 2 "Package_DIP:DIP-14_W7.62mm" H 3750 900 50  0001 C CNN
 F 3 "http://www.ti.com/lit/gpn/sn74LS06" H 3750 900 50  0001 C CNN
@@ -88,10 +88,10 @@ F 3 "http://www.ti.com/lit/gpn/sn74LS06" H 3750 900 50  0001 C CNN
 	1    0    0    -1  
 $EndComp
 $Comp
-L 74xx:74LS06 U3
+L 74xx:74LS06 U15
 U 2 1 5FDE5AC9
 P 3750 1400
-F 0 "U3" H 3750 1717 50  0000 C CNN
+F 0 "U15" H 3750 1717 50  0000 C CNN
 F 1 "74LS06" H 3750 1626 50  0000 C CNN
 F 2 "Package_DIP:DIP-14_W7.62mm" H 3750 1400 50  0001 C CNN
 F 3 "http://www.ti.com/lit/gpn/sn74LS06" H 3750 1400 50  0001 C CNN
@@ -99,10 +99,10 @@ F 3 "http://www.ti.com/lit/gpn/sn74LS06" H 3750 1400 50  0001 C CNN
 	1    0    0    -1  
 $EndComp
 $Comp
-L 74xx:74LS06 U3
+L 74xx:74LS06 U15
 U 5 1 5FDF4A1B
 P 4200 1200
-F 0 "U3" H 4200 1517 50  0000 C CNN
+F 0 "U15" H 4200 1517 50  0000 C CNN
 F 1 "74LS06" H 4200 1426 50  0000 C CNN
 F 2 "Package_DIP:DIP-14_W7.62mm" H 4200 1200 50  0001 C CNN
 F 3 "http://www.ti.com/lit/gpn/sn74LS06" H 4200 1200 50  0001 C CNN
@@ -110,10 +110,10 @@ F 3 "http://www.ti.com/lit/gpn/sn74LS06" H 4200 1200 50  0001 C CNN
 	1    0    0    -1  
 $EndComp
 $Comp
-L 74xx:74LS06 U3
+L 74xx:74LS06 U15
 U 1 1 5FDF4A21
 P 4200 1700
-F 0 "U3" H 4200 2017 50  0000 C CNN
+F 0 "U15" H 4200 2017 50  0000 C CNN
 F 1 "74LS06" H 4200 1926 50  0000 C CNN
 F 2 "Package_DIP:DIP-14_W7.62mm" H 4200 1700 50  0001 C CNN
 F 3 "http://www.ti.com/lit/gpn/sn74LS06" H 4200 1700 50  0001 C CNN
@@ -121,10 +121,10 @@ F 3 "http://www.ti.com/lit/gpn/sn74LS06" H 4200 1700 50  0001 C CNN
 	1    0    0    -1  
 $EndComp
 $Comp
-L 74xx:74LS06 U3
+L 74xx:74LS06 U15
 U 6 1 5FDF79CF
 P 3750 1900
-F 0 "U3" H 3750 2217 50  0000 C CNN
+F 0 "U15" H 3750 2217 50  0000 C CNN
 F 1 "74LS06" H 3750 2126 50  0000 C CNN
 F 2 "Package_DIP:DIP-14_W7.62mm" H 3750 1900 50  0001 C CNN
 F 3 "http://www.ti.com/lit/gpn/sn74LS06" H 3750 1900 50  0001 C CNN
@@ -152,10 +152,10 @@ Wire Wire Line
 Wire Wire Line
 	3400 2200 2800 2200
 $Comp
-L 74xx:74LS06 U3
+L 74xx:74LS06 U15
 U 3 1 5FE06C51
 P 4200 2200
-F 0 "U3" H 4200 2517 50  0000 C CNN
+F 0 "U15" H 4200 2517 50  0000 C CNN
 F 1 "74LS06" H 4200 2426 50  0000 C CNN
 F 2 "Package_DIP:DIP-14_W7.62mm" H 4200 2200 50  0001 C CNN
 F 3 "http://www.ti.com/lit/gpn/sn74LS06" H 4200 2200 50  0001 C CNN
@@ -269,10 +269,10 @@ Wire Notes Line
 Text Notes 4700 700  0    50   ~ 0
 Out to FDD
 $Comp
-L Device:C C2
+L Device:C C22
 U 1 1 604E3959
 P 3750 2500
-F 0 "C2" V 3498 2500 50  0000 C CNN
+F 0 "C22" V 3498 2500 50  0000 C CNN
 F 1 "0.22u" V 3589 2500 50  0000 C CNN
 F 2 "Capacitor_THT:C_Disc_D7.5mm_W2.5mm_P5.00mm" H 3788 2350 50  0001 C CNN
 F 3 "~" H 3750 2500 50  0001 C CNN
@@ -284,10 +284,10 @@ Wire Wire Line
 Wire Wire Line
 	1800 4000 1100 4000
 $Comp
-L myLib:WD2797 U2
+L myLib:WD2797 U13
 U 1 1 5FDA4DC2
 P 2300 3500
-F 0 "U2" H 2500 5350 50  0000 C CNN
+F 0 "U13" H 2500 5350 50  0000 C CNN
 F 1 "WD2797" H 2600 5250 50  0000 C CNN
 F 2 "Package_DIP:DIP-40_W15.24mm" H 2950 1850 50  0001 C CNN
 F 3 "http://pdf.datasheetcatalog.com/datasheets2/12/1229802_1.pdf" H 2300 4300 50  0001 C CNN
@@ -295,10 +295,10 @@ F 3 "http://pdf.datasheetcatalog.com/datasheets2/12/1229802_1.pdf" H 2300 4300 5
 	1    0    0    -1  
 $EndComp
 $Comp
-L Device:R R16
+L Device:R R20
 U 1 1 60503BB8
 P 4000 2650
-F 0 "R16" H 4070 2696 50  0000 L CNN
+F 0 "R20" H 4070 2696 50  0000 L CNN
 F 1 "10k" H 4070 2605 50  0000 L CNN
 F 2 "Resistor_THT:R_Axial_DIN0204_L3.6mm_D1.6mm_P7.62mm_Horizontal" V 3930 2650 50  0001 C CNN
 F 3 "~" H 4000 2650 50  0001 C CNN
@@ -306,10 +306,10 @@ F 3 "~" H 4000 2650 50  0001 C CNN
 	1    0    0    -1  
 $EndComp
 $Comp
-L Device:D D4
+L Device:D D7
 U 1 1 60504369
 P 4300 2650
-F 0 "D4" V 4254 2730 50  0000 L CNN
+F 0 "D7" V 4254 2730 50  0000 L CNN
 F 1 "1N4148" V 4345 2730 50  0000 L CNN
 F 2 "Diode_THT:D_DO-35_SOD27_P7.62mm_Horizontal" H 4300 2650 50  0001 C CNN
 F 3 "~" H 4300 2650 50  0001 C CNN
@@ -344,10 +344,10 @@ F 3 "" H 4000 2950 50  0001 C CNN
 	1    0    0    -1  
 $EndComp
 $Comp
-L 74xx:74LS123 U9
+L 74xx:74LS123 U10
 U 2 1 60556F3C
 P 6600 3500
-F 0 "U9" H 6600 3967 50  0000 C CNN
+F 0 "U10" H 6600 3967 50  0000 C CNN
 F 1 "74HCT123" H 6600 3876 50  0000 C CNN
 F 2 "Package_DIP:DIP-16_W7.62mm" H 6600 3500 50  0001 C CNN
 F 3 "http://www.ti.com/lit/gpn/sn74LS123" H 6600 3500 50  0001 C CNN
@@ -355,10 +355,10 @@ F 3 "http://www.ti.com/lit/gpn/sn74LS123" H 6600 3500 50  0001 C CNN
 	1    0    0    -1  
 $EndComp
 $Comp
-L 74xx:74LS123 U9
+L 74xx:74LS123 U10
 U 1 1 6055749A
 P 6650 5100
-F 0 "U9" H 6650 5567 50  0000 C CNN
+F 0 "U10" H 6650 5567 50  0000 C CNN
 F 1 "74HCT123" H 6650 5476 50  0000 C CNN
 F 2 "Package_DIP:DIP-16_W7.62mm" H 6650 5100 50  0001 C CNN
 F 3 "http://www.ti.com/lit/gpn/sn74LS123" H 6650 5100 50  0001 C CNN
@@ -366,10 +366,10 @@ F 3 "http://www.ti.com/lit/gpn/sn74LS123" H 6650 5100 50  0001 C CNN
 	1    0    0    -1  
 $EndComp
 $Comp
-L Device:R R17
+L Device:R R11
 U 1 1 605EA318
 P 5650 3200
-F 0 "R17" H 5720 3246 50  0000 L CNN
+F 0 "R11" H 5720 3246 50  0000 L CNN
 F 1 "5k6" H 5720 3155 50  0000 L CNN
 F 2 "Resistor_THT:R_Axial_DIN0204_L3.6mm_D1.6mm_P7.62mm_Horizontal" V 5580 3200 50  0001 C CNN
 F 3 "~" H 5650 3200 50  0001 C CNN
@@ -377,10 +377,10 @@ F 3 "~" H 5650 3200 50  0001 C CNN
 	1    0    0    -1  
 $EndComp
 $Comp
-L Device:C C3
+L Device:C C14
 U 1 1 605EA818
 P 5650 3650
-F 0 "C3" H 5535 3604 50  0000 R CNN
+F 0 "C14" H 5535 3604 50  0000 R CNN
 F 1 "33p" H 5535 3695 50  0000 R CNN
 F 2 "Capacitor_THT:C_Disc_D3.0mm_W2.0mm_P2.50mm" H 5688 3500 50  0001 C CNN
 F 3 "~" H 5650 3650 50  0001 C CNN
@@ -393,10 +393,10 @@ Connection ~ 5650 3400
 Wire Wire Line
 	5650 3400 5650 3500
 $Comp
-L Device:R R18
+L Device:R R16
 U 1 1 606242BC
 P 5650 4700
-F 0 "R18" H 5720 4746 50  0000 L CNN
+F 0 "R16" H 5720 4746 50  0000 L CNN
 F 1 "100k" H 5720 4655 50  0000 L CNN
 F 2 "Resistor_THT:R_Axial_DIN0204_L3.6mm_D1.6mm_P7.62mm_Horizontal" V 5580 4700 50  0001 C CNN
 F 3 "~" H 5650 4700 50  0001 C CNN
@@ -424,10 +424,10 @@ Wire Wire Line
 Wire Wire Line
 	5650 4900 6150 4900
 $Comp
-L Device:CP_Small C4
+L Device:CP_Small C10
 U 1 1 6064BFF0
 P 5650 5100
-F 0 "C4" H 5738 5146 50  0000 L CNN
+F 0 "C10" H 5738 5146 50  0000 L CNN
 F 1 "1u" H 5738 5055 50  0000 L CNN
 F 2 "Capacitor_THT:CP_Radial_Tantal_D4.5mm_P5.00mm" H 5650 5100 50  0001 C CNN
 F 3 "~" H 5650 5100 50  0001 C CNN
@@ -621,10 +621,10 @@ Connection ~ 750  2900
 Wire Wire Line
 	1800 3400 1800 3200
 $Comp
-L 74xx:74LS174 U15
+L 74xx:74LS174 U14
 U 1 1 610616AA
 P 1800 6250
-F 0 "U15" H 2000 6900 50  0000 C CNN
+F 0 "U14" H 2000 6900 50  0000 C CNN
 F 1 "74LS174" H 2050 6800 50  0000 C CNN
 F 2 "Package_DIP:DIP-16_W7.62mm" H 1800 6250 50  0001 C CNN
 F 3 "http://www.ti.com/lit/gpn/sn74LS174" H 1800 6250 50  0001 C CNN
@@ -672,10 +672,10 @@ F 3 "" H 1800 7050 50  0001 C CNN
 	1    0    0    -1  
 $EndComp
 $Comp
-L 74xx:74LS38 U14
+L 74xx:74LS38 U17
 U 1 1 610A063A
 P 3150 5950
-F 0 "U14" H 3150 6275 50  0000 C CNN
+F 0 "U17" H 3150 6275 50  0000 C CNN
 F 1 "74LS38" H 3150 6184 50  0000 C CNN
 F 2 "Package_DIP:DIP-14_W7.62mm" H 3150 5950 50  0001 C CNN
 F 3 "http://www.ti.com/lit/gpn/sn74LS38" H 3150 5950 50  0001 C CNN
@@ -683,10 +683,10 @@ F 3 "http://www.ti.com/lit/gpn/sn74LS38" H 3150 5950 50  0001 C CNN
 	1    0    0    -1  
 $EndComp
 $Comp
-L 74xx:74LS38 U14
+L 74xx:74LS38 U17
 U 2 1 610A27E5
 P 3150 6450
-F 0 "U14" H 3150 6775 50  0000 C CNN
+F 0 "U17" H 3150 6775 50  0000 C CNN
 F 1 "74LS38" H 3150 6684 50  0000 C CNN
 F 2 "Package_DIP:DIP-14_W7.62mm" H 3150 6450 50  0001 C CNN
 F 3 "http://www.ti.com/lit/gpn/sn74LS38" H 3150 6450 50  0001 C CNN
@@ -694,10 +694,10 @@ F 3 "http://www.ti.com/lit/gpn/sn74LS38" H 3150 6450 50  0001 C CNN
 	1    0    0    -1  
 $EndComp
 $Comp
-L 74xx:74LS38 U14
+L 74xx:74LS38 U17
 U 3 1 610A40AC
 P 3150 6950
-F 0 "U14" H 3150 7275 50  0000 C CNN
+F 0 "U17" H 3150 7275 50  0000 C CNN
 F 1 "74LS38" H 3150 7184 50  0000 C CNN
 F 2 "Package_DIP:DIP-14_W7.62mm" H 3150 6950 50  0001 C CNN
 F 3 "http://www.ti.com/lit/gpn/sn74LS38" H 3150 6950 50  0001 C CNN
@@ -705,10 +705,10 @@ F 3 "http://www.ti.com/lit/gpn/sn74LS38" H 3150 6950 50  0001 C CNN
 	1    0    0    -1  
 $EndComp
 $Comp
-L 74xx:74LS38 U14
+L 74xx:74LS38 U17
 U 4 1 610A57AD
 P 3150 7450
-F 0 "U14" H 3150 7775 50  0000 C CNN
+F 0 "U17" H 3150 7775 50  0000 C CNN
 F 1 "74LS38" H 3150 7684 50  0000 C CNN
 F 2 "Package_DIP:DIP-14_W7.62mm" H 3150 7450 50  0001 C CNN
 F 3 "http://www.ti.com/lit/gpn/sn74LS38" H 3150 7450 50  0001 C CNN
@@ -726,10 +726,10 @@ Wire Wire Line
 Text Label 4250 7250 0    50   ~ 0
 ISLT3
 $Comp
-L Connector_Generic:Conn_02x02_Odd_Even J11
+L Connector_Generic:Conn_02x02_Odd_Even J10
 U 1 1 610E3E5E
 P 3650 7450
-F 0 "J11" H 3700 7667 50  0000 C CNN
+F 0 "J10" H 3700 7667 50  0000 C CNN
 F 1 "Conn_02x02_Odd_Even" H 3700 7576 50  0000 C CNN
 F 2 "Connector_PinHeader_2.54mm:PinHeader_2x02_P2.54mm_Vertical" H 3650 7450 50  0001 C CNN
 F 3 "~" H 3650 7450 50  0001 C CNN
@@ -773,10 +773,10 @@ INTRQ_5V
 Text GLabel 3050 5000 2    50   Input ~ 0
 DRQ_5V
 $Comp
-L Connector_Generic:Conn_02x02_Odd_Even J13
+L Connector_Generic:Conn_02x02_Odd_Even J4
 U 1 1 6176BCD8
 P 3300 4400
-F 0 "J13" H 3350 4617 50  0000 C CNN
+F 0 "J4" H 3350 4617 50  0000 C CNN
 F 1 "Conn_02x02_Odd_Even" H 3350 4526 50  0000 C CNN
 F 2 "Connector_PinHeader_2.54mm:PinHeader_2x02_P2.54mm_Vertical" H 3300 4400 50  0001 C CNN
 F 3 "~" H 3300 4400 50  0001 C CNN
@@ -793,13 +793,6 @@ Wire Wire Line
 	3000 4500 3100 4500
 Wire Wire Line
 	3600 4400 3700 4400
-Wire Wire Line
-	3700 4400 3700 4500
-Wire Wire Line
-	3600 4500 3700 4500
-Connection ~ 3700 4500
-Wire Wire Line
-	3700 4500 3700 4550
 $Comp
 L power:GND #PWR0137
 U 1 1 617C7DDC
@@ -811,8 +804,8 @@ F 3 "" H 3700 4550 50  0001 C CNN
 	1    3700 4550
 	1    0    0    -1  
 $EndComp
-Text Notes 3200 4100 0    50   ~ 0
-"L9 (WRPRECOMP)"
+Text Notes 3100 4150 0    50   ~ 0
+Write precompensation\nNo link: always\n1-2: never\n1-3: for track>43
 Text Notes 3450 7200 0    50   ~ 0
 "L5 (DISK READY)"
 Text Label 4700 1700 0    50   ~ 0
@@ -913,10 +906,10 @@ Connection ~ 7850 800
 Wire Wire Line
 	7300 800  7850 800 
 $Comp
-L Device:R R15
+L Device:R R13
 U 1 1 6045D4CF
 P 7300 950
-F 0 "R15" H 7370 996 50  0000 L CNN
+F 0 "R13" H 7370 996 50  0000 L CNN
 F 1 "150R" H 7370 905 50  0000 L CNN
 F 2 "Resistor_THT:R_Axial_DIN0204_L3.6mm_D1.6mm_P7.62mm_Horizontal" V 7230 950 50  0001 C CNN
 F 3 "~" H 7300 950 50  0001 C CNN
@@ -924,10 +917,10 @@ F 3 "~" H 7300 950 50  0001 C CNN
 	1    0    0    -1  
 $EndComp
 $Comp
-L Device:R R14
+L Device:R R15
 U 1 1 6045D192
 P 6950 950
-F 0 "R14" H 7020 996 50  0000 L CNN
+F 0 "R15" H 7020 996 50  0000 L CNN
 F 1 "150R" H 7020 905 50  0000 L CNN
 F 2 "Resistor_THT:R_Axial_DIN0204_L3.6mm_D1.6mm_P7.62mm_Horizontal" V 6880 950 50  0001 C CNN
 F 3 "~" H 6950 950 50  0001 C CNN
@@ -945,10 +938,10 @@ Connection ~ 6250 1200
 Wire Wire Line
 	6250 1100 6250 1200
 $Comp
-L Device:R R12
+L Device:R R14
 U 1 1 6042B008
 P 6250 950
-F 0 "R12" H 6320 996 50  0000 L CNN
+F 0 "R14" H 6320 996 50  0000 L CNN
 F 1 "150R" H 6320 905 50  0000 L CNN
 F 2 "Resistor_THT:R_Axial_DIN0204_L3.6mm_D1.6mm_P7.62mm_Horizontal" V 6180 950 50  0001 C CNN
 F 3 "~" H 6250 950 50  0001 C CNN
@@ -958,10 +951,10 @@ $EndComp
 Wire Wire Line
 	7350 1200 6250 1200
 $Comp
-L Device:R R13
+L Device:R R12
 U 1 1 6042B3CF
 P 6600 950
-F 0 "R13" H 6670 996 50  0000 L CNN
+F 0 "R12" H 6670 996 50  0000 L CNN
 F 1 "150R" H 6670 905 50  0000 L CNN
 F 2 "Resistor_THT:R_Axial_DIN0204_L3.6mm_D1.6mm_P7.62mm_Horizontal" V 6530 950 50  0001 C CNN
 F 3 "~" H 6600 950 50  0001 C CNN
@@ -986,10 +979,10 @@ F 3 "" H 7850 700 50  0001 C CNN
 	1    0    0    -1  
 $EndComp
 $Comp
-L 74xx:74LS367 U8
+L 74xx:74LS367 U11
 U 1 1 603EEEFA
 P 7850 1600
-F 0 "U8" H 7950 2250 50  0000 C CNN
+F 0 "U11" H 7950 2250 50  0000 C CNN
 F 1 "74LS367" H 8050 2150 50  0000 C CNN
 F 2 "Package_DIP:DIP-16_W7.62mm" H 7850 1600 50  0001 C CNN
 F 3 "http://www.ti.com/lit/gpn/sn74LS367" H 7850 1600 50  0001 C CNN
@@ -1038,7 +1031,7 @@ READY
 Text GLabel 2800 900  0    50   Input ~ 0
 DRIVE_ENABLE
 Text Notes 8600 5550 0    50   ~ 0
-DRIVE              PIN 6            PIN 34\nTeac FD-55       Drive select 3    READY\nPertec FD250      Drive select 3    unused\nMicropolis 1015   READY            Drive select 3\n\nUse jumpers to route READY or to select internal\nREADY generation
+DRIVE              PIN 6            PIN 34\nTeac FD-55       Drive select 3    READY\nPertec FD250      Drive select 3    unused\nMicropolis 1015   READY            Drive select 3\n\nUse "L5 (DISK READY)" to route READY or to select internal\nREADY generation
 NoConn ~ 9650 2800
 NoConn ~ 9650 2900
 Text Label 9850 4400 0    50   ~ 0
@@ -1197,10 +1190,10 @@ Wire Wire Line
 Wire Wire Line
 	9150 2800 8950 2800
 $Comp
-L Connector_Generic:Conn_02x17_Odd_Even J7
+L Connector_Generic:Conn_02x17_Odd_Even J8
 U 1 1 5FDA5F50
 P 9350 3600
-F 0 "J7" H 9400 4617 50  0000 C CNN
+F 0 "J8" H 9400 4617 50  0000 C CNN
 F 1 "Conn_02x17_Odd_Even" H 9400 4526 50  0000 C CNN
 F 2 "Connector_IDC:IDC-Header_2x17_P2.54mm_Vertical" H 9350 3600 50  0001 C CNN
 F 3 "~" H 9350 3600 50  0001 C CNN
@@ -1273,4 +1266,7 @@ Text Notes 3200 2450 0    20   ~ 0
 EPCOS DC film 5mm pitch
 Text Notes 7100 6950 0    98   ~ 20
 Floppy Disk Controller, connector and\n(most of the) support circuitry.
+Wire Wire Line
+	3700 4400 3700 4550
+NoConn ~ 3600 4500
 $EndSCHEMATC
