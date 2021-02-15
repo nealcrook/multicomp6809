@@ -14,10 +14,10 @@ Comment3 ""
 Comment4 ""
 $EndDescr
 $Comp
-L Connector_Generic:Conn_02x08_Odd_Even PL2 
+L Connector_Generic:Conn_02x08_Odd_Even PL1 
 U 1 1 60827083
 P 2700 1800
-F 0 "PL2" H 2750 2317 50 0000 C CNN 
+F 0 "PL1" H 2750 2317 50 0000 C CNN 
 F 1 "Conn_02x08_Odd_Even" H 2750 2226 50  0000 C CNN
 F 2 "" H 2700 1800 50  0001 C CNN
 F 3 "~" H 2700 1800 50  0001 C CNN
@@ -25,10 +25,10 @@ F 3 "~" H 2700 1800 50  0001 C CNN
 	1    0    0    -1  
 $EndComp
 $Comp
-L Connector_Generic:Conn_02x08_Odd_Even J4 
+L Connector_Generic:Conn_02x08_Odd_Even J5 
 U 1 1 6082737D
 P 2700 3200
-F 0 "J4" H 2750 3717 50 0000 C CNN 
+F 0 "J5" H 2750 3717 50 0000 C CNN 
 F 1 "Conn_02x08_Odd_Even" H 2750 3626 50  0000 C CNN
 F 2 "" H 2700 3200 50  0001 C CNN
 F 3 "~" H 2700 3200 50  0001 C CNN

@@ -444,10 +444,10 @@ Connection ~ 8350 3150
 Wire Wire Line
 	8350 3150 8350 3300
 $Comp
-L Connector:Conn_01x03_Male J13
+L Connector:Conn_01x03_Male J12
 U 1 1 607AD886
 P 9650 2950
-F 0 "J13" V 9712 3094 50  0000 L CNN
+F 0 "J12" V 9712 3094 50  0000 L CNN
 F 1 "Conn_01x03_Male" V 9900 3000 50  0000 L CNN
 F 2 "Connector_PinHeader_2.54mm:PinHeader_1x03_P2.54mm_Vertical" H 9650 2950 50  0001 C CNN
 F 3 "~" H 9650 2950 50  0001 C CNN
@@ -493,8 +493,8 @@ L Connector_Generic:Conn_02x08_Odd_Even PL?
 U 1 1 60D96959
 P 1550 3850
 AR Path="/5FC877BB/60D96959" Ref="PL?"  Part="1" 
-AR Path="/5FC85C78/60D96959" Ref="PL2"  Part="1" 
-F 0 "PL2" H 1600 4367 50  0000 C CNN
+AR Path="/5FC85C78/60D96959" Ref="PL3"  Part="1" 
+F 0 "PL3" H 1600 4367 50  0000 C CNN
 F 1 "Conn_02x08_Odd_Even" H 1600 4276 50  0000 C CNN
 F 2 "Connector_IDC:IDC-Header_2x08_P2.54mm_Vertical" H 1550 3850 50  0001 C CNN
 F 3 "~" H 1550 3850 50  0001 C CNN
@@ -506,8 +506,8 @@ L Connector_Generic:Conn_02x08_Odd_Even J?
 U 1 1 60D9695F
 P 5000 3850
 AR Path="/5FC877BB/60D9695F" Ref="J?"  Part="1" 
-AR Path="/5FC85C78/60D9695F" Ref="PL1"  Part="1" 
-F 0 "PL1" H 5050 4367 50  0000 C CNN
+AR Path="/5FC85C78/60D9695F" Ref="PL2"  Part="1" 
+F 0 "PL2" H 5050 4367 50  0000 C CNN
 F 1 "Conn_02x08_Odd_Even" H 5050 4276 50  0000 C CNN
 F 2 "Connector_IDC:IDC-Header_2x08_P2.54mm_Vertical" H 5000 3850 50  0001 C CNN
 F 3 "~" H 5000 3850 50  0001 C CNN
@@ -800,10 +800,10 @@ NoConn ~ 4800 4150
 NoConn ~ 5300 4150
 NoConn ~ 5300 4250
 $Comp
-L Connector_Generic:Conn_01x06 J12
+L Connector_Generic:Conn_01x06 J19
 U 1 1 602BDB1D
 P 8850 1600
-F 0 "J12" H 8930 1592 50  0000 L CNN
+F 0 "J19" H 8930 1592 50  0000 L CNN
 F 1 "Conn_01x06" H 8930 1501 50  0000 L CNN
 F 2 "mylib:uSDcard_breakout_1x06_P2.54mm" H 8850 1600 50  0001 C CNN
 F 3 "~" H 8850 1600 50  0001 C CNN
@@ -819,10 +819,10 @@ D6_5V
 Wire Wire Line
 	2600 6500 2850 6500
 $Comp
-L myLib:Mini-DIN_6pins_ver2 J14
+L myLib:Mini-DIN_6pins_ver2 J13
 U 1 1 604A5287
 P 9300 3700
-F 0 "J14" H 9300 4035 50  0000 C CNN
+F 0 "J13" H 9300 4035 50  0000 C CNN
 F 1 "Mini-DIN_6pins_ver2" H 9300 3944 50  0000 C CNN
 F 2 "mylib:Connector_Mini-DIN_Female_6Pin_2rows" H 9300 3720 50  0001 C CNN
 F 3 "" H 9300 3720 50  0000 C CNN

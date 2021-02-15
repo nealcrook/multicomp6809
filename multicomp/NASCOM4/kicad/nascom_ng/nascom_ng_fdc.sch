@@ -40,10 +40,10 @@ Wire Wire Line
 Wire Wire Line
 	1250 1750 1050 1750
 $Comp
-L Device:CTRIM C21
+L Device:CTRIM C25
 U 1 1 5FDBD149
 P 1500 2850
-F 0 "C21" H 1616 2896 50  0000 L CNN
+F 0 "C25" H 1616 2896 50  0000 L CNN
 F 1 "5-65p" H 1616 2805 50  0000 L CNN
 F 2 "mylib:Trimmer_Vishay_BFC2808_Fig2" H 1500 2850 50  0001 C CNN
 F 3 "~" H 1500 2850 50  0001 C CNN
@@ -269,10 +269,10 @@ Wire Notes Line
 Text Notes 4700 700  0    50   ~ 0
 Out to FDD
 $Comp
-L Device:C C22
+L Device:C C24
 U 1 1 604E3959
 P 3750 2500
-F 0 "C22" V 3498 2500 50  0000 C CNN
+F 0 "C24" V 3498 2500 50  0000 C CNN
 F 1 "0.22u" V 3589 2500 50  0000 C CNN
 F 2 "Capacitor_THT:C_Disc_D7.5mm_W2.5mm_P5.00mm" H 3788 2350 50  0001 C CNN
 F 3 "~" H 3750 2500 50  0001 C CNN
@@ -377,10 +377,10 @@ F 3 "~" H 5650 3200 50  0001 C CNN
 	1    0    0    -1  
 $EndComp
 $Comp
-L Device:C C14
+L Device:C C15
 U 1 1 605EA818
 P 5650 3650
-F 0 "C14" H 5535 3604 50  0000 R CNN
+F 0 "C15" H 5535 3604 50  0000 R CNN
 F 1 "33p" H 5535 3695 50  0000 R CNN
 F 2 "Capacitor_THT:C_Disc_D3.0mm_W2.0mm_P2.50mm" H 5688 3500 50  0001 C CNN
 F 3 "~" H 5650 3650 50  0001 C CNN
@@ -424,10 +424,10 @@ Wire Wire Line
 Wire Wire Line
 	5650 4900 6150 4900
 $Comp
-L Device:CP_Small C10
+L Device:CP_Small C12
 U 1 1 6064BFF0
 P 5650 5100
-F 0 "C10" H 5738 5146 50  0000 L CNN
+F 0 "C12" H 5738 5146 50  0000 L CNN
 F 1 "1u" H 5738 5055 50  0000 L CNN
 F 2 "Capacitor_THT:CP_Radial_Tantal_D4.5mm_P5.00mm" H 5650 5100 50  0001 C CNN
 F 3 "~" H 5650 5100 50  0001 C CNN
@@ -643,8 +643,6 @@ Text GLabel 1100 6250 0    50   Input ~ 0
 D4_5V
 Text GLabel 1100 6350 0    50   Input ~ 0
 D5_5V
-Text Notes 8950 6400 0    50   ~ 0
-TODO can I push all of this back into the FPGA
 Text GLabel 1100 6550 0    50   Input ~ 0
 PORTE4_WR_5V
 Text GLabel 1100 6750 0    50   Input ~ 0
@@ -773,10 +771,10 @@ INTRQ_5V
 Text GLabel 3050 5000 2    50   Input ~ 0
 DRQ_5V
 $Comp
-L Connector_Generic:Conn_02x02_Odd_Even J4
+L Connector_Generic:Conn_02x02_Odd_Even J5
 U 1 1 6176BCD8
 P 3300 4400
-F 0 "J4" H 3350 4617 50  0000 C CNN
+F 0 "J5" H 3350 4617 50  0000 C CNN
 F 1 "Conn_02x02_Odd_Even" H 3350 4526 50  0000 C CNN
 F 2 "Connector_PinHeader_2.54mm:PinHeader_2x02_P2.54mm_Vertical" H 3300 4400 50  0001 C CNN
 F 3 "~" H 3300 4400 50  0001 C CNN
@@ -1190,10 +1188,10 @@ Wire Wire Line
 Wire Wire Line
 	9150 2800 8950 2800
 $Comp
-L Connector_Generic:Conn_02x17_Odd_Even J8
+L Connector_Generic:Conn_02x17_Odd_Even J20
 U 1 1 5FDA5F50
 P 9350 3600
-F 0 "J8" H 9400 4617 50  0000 C CNN
+F 0 "J20" H 9400 4617 50  0000 C CNN
 F 1 "Conn_02x17_Odd_Even" H 9400 4526 50  0000 C CNN
 F 2 "Connector_IDC:IDC-Header_2x17_P2.54mm_Vertical" H 9350 3600 50  0001 C CNN
 F 3 "~" H 9350 3600 50  0001 C CNN

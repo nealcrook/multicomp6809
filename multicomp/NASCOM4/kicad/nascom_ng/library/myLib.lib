@@ -123,6 +123,19 @@ X P9 9 -350 -200 200 R 40 40 1 1 P
 ENDDRAW
 ENDDEF
 #
+# KiCad-sm-logo
+#
+DEF KiCad-sm-logo X 0 40 Y Y 1 F N
+F0 "X" -350 100 50 H V C CNN
+F1 "KiCad-sm-logo" 200 100 50 H V C CNN
+F2 "" 0 0 50 H I C CNN
+F3 "" 0 0 50 H I C CNN
+DRAW
+T 0 0 0 50 0 0 0 KiCad-sm-logo Normal 0 C C
+S -350 50 350 -50 0 1 0 N
+ENDDRAW
+ENDDEF
+#
 # Mini-DIN_6pins_ver2
 #
 DEF Mini-DIN_6pins_ver2 P 0 40 Y N 1 F N
@@ -169,6 +182,19 @@ X 4 4 -300 0 100 R 50 50 1 1 P
 X 5 5 300 100 100 L 50 50 1 1 P
 X ~ 6 -300 100 100 R 50 50 1 1 P
 X Shell 7 0 -200 66 U 50 50 1 1 P
+ENDDRAW
+ENDDEF
+#
+# NASCOM-logo
+#
+DEF NASCOM-logo X 0 40 Y Y 1 F N
+F0 "X" -350 100 50 H V C CNN
+F1 "NASCOM-logo" 200 100 50 H V C CNN
+F2 "" 0 0 50 H I C CNN
+F3 "" 0 0 50 H I C CNN
+DRAW
+T 0 0 0 50 0 0 0 NASCOM-ss-logo Normal 0 C C
+S -350 50 350 -50 0 1 0 N
 ENDDRAW
 ENDDEF
 #

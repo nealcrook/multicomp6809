@@ -358,28 +358,14 @@ Text Label 7150 1750 2    50   ~ 0
 Text Label 7150 1650 2    50   ~ 0
 ~PIO_BSTB
 $Comp
-L Connector_Generic:Conn_02x13_Odd_Even PL3
+L Connector_Generic:Conn_02x13_Odd_Even PL4
 U 1 1 60828C59
 P 7750 1850
-F 0 "PL3" H 7800 2667 50  0000 C CNN
+F 0 "PL4" H 7800 2667 50  0000 C CNN
 F 1 "Conn_02x13_Odd_Even" H 7800 2576 50  0000 C CNN
 F 2 "Connector_IDC:IDC-Header_2x13_P2.54mm_Vertical" H 7750 1850 50  0001 C CNN
 F 3 "~" H 7750 1850 50  0001 C CNN
 	1    7750 1850
-	1    0    0    -1  
-$EndComp
-$Comp
-L Connector_Generic:Conn_02x08_Odd_Even PL?
-U 1 1 60EDA1EF
-P 7750 5200
-AR Path="/5FC877BB/60EDA1EF" Ref="PL?"  Part="1" 
-AR Path="/5FC85C78/60EDA1EF" Ref="PL?"  Part="1" 
-AR Path="/5FC8753B/60EDA1EF" Ref="SKT6"  Part="1" 
-F 0 "SKT6" H 7800 5717 50  0000 C CNN
-F 1 "Conn_02x08_Odd_Even" H 7800 5626 50  0000 C CNN
-F 2 "Connector_IDC:IDC-Header_2x08_P2.54mm_Vertical" H 7750 5200 50  0001 C CNN
-F 3 "~" H 7750 5200 50  0001 C CNN
-	1    7750 5200
 	1    0    0    -1  
 $EndComp
 Wire Wire Line
@@ -629,4 +615,20 @@ Text Label 3550 3950 0    50   ~ 0
 PIO_EIO
 Text Notes 7050 6800 0    98   ~ 20
 Z80-PIO, Z80-CTC and their connectors
+Text Notes 7650 950  0    50   ~ 0
+"PORTS"
+$Comp
+L Connector_Generic:Conn_02x08_Odd_Even PL?
+U 1 1 60EDA1EF
+P 7750 5200
+AR Path="/5FC877BB/60EDA1EF" Ref="PL?"  Part="1" 
+AR Path="/5FC85C78/60EDA1EF" Ref="PL?"  Part="1" 
+AR Path="/5FC8753B/60EDA1EF" Ref="J4"  Part="1" 
+F 0 "J4" H 7800 5717 50  0000 C CNN
+F 1 "Conn_02x08_Odd_Even" H 7800 5626 50  0000 C CNN
+F 2 "Connector_IDC:IDC-Header_2x08_P2.54mm_Vertical" H 7750 5200 50  0001 C CNN
+F 3 "~" H 7750 5200 50  0001 C CNN
+	1    7750 5200
+	1    0    0    -1  
+$EndComp
 $EndSCHEMATC

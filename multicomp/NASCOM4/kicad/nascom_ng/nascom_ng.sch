@@ -5,8 +5,8 @@ $Descr A4 11693 8268
 encoding utf-8
 Sheet 1 6
 Title "NASCOM 4 - a NASCOM in an FPGA"
-Date ""
-Rev "PRE-A"
+Date "14-Feb-2021"
+Rev "A"
 Comp ""
 Comment1 ""
 Comment2 ""
@@ -110,10 +110,10 @@ Wire Wire Line
 Text GLabel 3700 5850 3    50   Input ~ 0
 PIN47_SEC_HSYNC
 $Comp
-L myLib:Conn_02x14_Even_Odd J5
+L myLib:Conn_02x14_Even_Odd J6
 U 1 1 5FEA6F67
 P 3300 1600
-F 0 "J5" V 3350 2300 50  0000 C CNN
+F 0 "J6" V 3350 2300 50  0000 C CNN
 F 1 "Conn_02x14_Even_Odd" V 3350 2900 50  0000 C CNN
 F 2 "Connector_PinSocket_2.54mm:PinSocket_2x14_P2.54mm_Vertical" H 3300 1600 50  0001 C CNN
 F 3 "~" H 3300 1600 50  0001 C CNN
@@ -211,10 +211,10 @@ Wire Wire Line
 Text GLabel 3900 1150 1    50   Input ~ 0
 PIN144_RST
 $Comp
-L myLib:Conn_02x14_Even_Odd J9
+L myLib:Conn_02x14_Even_Odd J8
 U 1 1 5FEAB151
 P 1950 3600
-F 0 "J9" H 2046 2812 50  0000 R CNN
+F 0 "J8" H 2046 2812 50  0000 R CNN
 F 1 "Conn_02x14_Even_Odd" H 2600 2700 50  0000 R CNN
 F 2 "Connector_PinSocket_2.54mm:PinSocket_2x14_P2.54mm_Vertical" H 1950 3600 50  0001 C CNN
 F 3 "~" H 1950 3600 50  0001 C CNN
@@ -300,10 +300,10 @@ Wire Wire Line
 Wire Wire Line
 	1650 4200 1600 4200
 $Comp
-L myLib:Conn_02x14_Even_Odd J6
+L myLib:Conn_02x14_Even_Odd J7
 U 1 1 5FEB71A3
 P 4900 3500
-F 0 "J6" H 4904 4180 50  0000 L CNN
+F 0 "J7" H 4904 4180 50  0000 L CNN
 F 1 "Conn_02x14_Even_Odd" H 4500 4300 50  0000 L CNN
 F 2 "Connector_PinSocket_2.54mm:PinSocket_2x14_P2.54mm_Vertical" H 4900 3500 50  0001 C CNN
 F 3 "~" H 4900 3500 50  0001 C CNN
@@ -590,8 +590,8 @@ Text Notes 6300 2100 1    50   ~ 0
 AS Socket
 Text Notes 5800 2050 1    50   ~ 0
 JTAG socket\n
-Text Notes 5900 6100 0    50   ~ 0
-Barrel\nPower\nConnector
+Text Notes 5850 6150 0    50   ~ 0
+Barrel\nPower\nConnector\n(5V)
 $Comp
 L Device:LED D1
 U 1 1 601B7AD7
@@ -791,7 +791,7 @@ Text GLabel 1500 3000 0    50   Input ~ 0
 Wire Wire Line
 	7450 5850 7650 5850
 Text Notes 950  6850 0    50   ~ 0
-TODO: gating of side select from FDC to imitate NASCOM FDC\nTODO resequence ref designators (backup first)\nAdd rev number, email, kikad logo, nascom logo, board name
+TODO: gating of side select from FDC to imitate NASCOM FDC\n
 Text Notes 4500 3450 2    50   ~ 0
 PIN17_CLK50
 NoConn ~ 4550 3400
@@ -831,10 +831,10 @@ F 3 "~" H 9200 1000 50  0001 C CNN
 	1    0    0    -1  
 $EndComp
 $Comp
-L Device:R R5
+L Device:R R1
 U 1 1 6000B7FC
 P 8650 1000
-F 0 "R5" V 8550 1000 50  0000 C CNN
+F 0 "R1" V 8550 1000 50  0000 C CNN
 F 1 "220R" V 8650 1000 50  0000 C CNN
 F 2 "Resistor_THT:R_Axial_DIN0204_L3.6mm_D1.6mm_P7.62mm_Horizontal" V 8580 1000 50  0001 C CNN
 F 3 "~" H 8650 1000 50  0001 C CNN
@@ -860,8 +860,8 @@ Text Notes 7150 750  0    50   ~ 0
 These duplicate the 4 LEDs on the FPGA board,\nwhich are also on pins 3, 7, 9 and 3V3 power.
 Text Notes 850  4750 0    50   ~ 0
 PIN73 is connected to an RC\nnetwork on the FPGA board\nand could be used for\npower-on reset
-Text Notes 900  900  0    50   ~ 0
-FPGA board mounts face-down. It overhangs\nthe edge of the main board in order to give\naccess to the programming headers.
+Text Notes 900  950  0    50   ~ 0
+EP2C5T144C8N mini board\nmounts face-down. It overhangs\nthe edge of the main board in order to give\naccess to the programming headers.
 Wire Notes Line
 	5350 6600 5350 450 
 Wire Notes Line
@@ -1019,8 +1019,8 @@ U 1 1 601658F1
 P 7850 5650
 AR Path="/5FC877BB/601658F1" Ref="PL?"  Part="1" 
 AR Path="/5FC85C78/601658F1" Ref="PL?"  Part="1" 
-AR Path="/601658F1" Ref="J7"  Part="1" 
-F 0 "J7" H 7850 6050 50  0000 C CNN
+AR Path="/601658F1" Ref="J11"  Part="1" 
+F 0 "J11" H 7850 6050 50  0000 C CNN
 F 1 "Conn_02x08_Odd_Even" H 7900 6150 50  0000 C CNN
 F 2 "Connector_IDC:IDC-Header_2x08_P2.54mm_Vertical" H 7850 5650 50  0001 C CNN
 F 3 "~" H 7850 5650 50  0001 C CNN
@@ -1180,10 +1180,10 @@ Wire Wire Line
 Connection ~ 4150 1850
 Connection ~ 2500 5750
 $Comp
-L myLib:Conn_02x14_Even_Odd J11
+L myLib:Conn_02x14_Even_Odd J9
 U 1 1 5FE8AA27
 P 3400 5400
-F 0 "J11" V 3450 4600 50  0000 C CNN
+F 0 "J9" V 3450 4600 50  0000 C CNN
 F 1 "Conn_02x14_Even_Odd" V 3450 3900 50  0000 C CNN
 F 2 "Connector_PinSocket_2.54mm:PinSocket_2x14_P2.54mm_Vertical" H 3400 5400 50  0001 C CNN
 F 3 "~" H 3400 5400 50  0001 C CNN
@@ -1230,4 +1230,28 @@ Connection ~ 9750 1350
 Wire Wire Line
 	9750 1700 9750 2050
 Connection ~ 9750 1700
+$Comp
+L myLib:NASCOM-logo X1
+U 1 1 602D8669
+P 8450 4100
+F 0 "X1" H 8150 4200 50  0000 C CNN
+F 1 "NASCOM-logo" H 8750 4200 50  0000 C CNN
+F 2 "mylib:nascom_logo_tiny" H 8450 4100 50  0001 C CNN
+F 3 "" H 8450 4100 50  0001 C CNN
+	1    8450 4100
+	1    0    0    -1  
+$EndComp
+$Comp
+L myLib:KiCad-sm-logo X2
+U 1 1 602EF72E
+P 8450 4300
+F 0 "X2" H 8150 4400 50  0000 C CNN
+F 1 "KiCad-sm-logo" H 8800 4400 50  0000 C CNN
+F 2 "mylib:KiCad-Logo_5mm_SolderMask" H 8450 4300 50  0001 C CNN
+F 3 "" H 8450 4300 50  0001 C CNN
+	1    8450 4300
+	1    0    0    -1  
+$EndComp
+Text Notes 850  7650 0    50   ~ 0
+PCB setup:\nSet grid to 1.0mm for edge cuts and holes\nSet grid to 25mils for routing; tracks are\n0.25mm with 0.2mm spacing.\nChange IC pads to oval,\n1.6mm x 1.439mm to get 2 tracks through.
 $EndSCHEMATC
