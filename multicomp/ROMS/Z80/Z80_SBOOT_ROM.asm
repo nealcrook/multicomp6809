@@ -23,6 +23,9 @@
 ;;; SDcard see: https://www.pjrc.com/tech/8051/ide/fat32.html
 ;;; but for now, just do low-level block access of a data structure created by
 ;;; the make_sdcard_image utility.
+;;;
+;;; With thanks to Mike Foster for some code tidy-up and cleaner ways of
+;;; doing stuff.
 
 ;;; NAS-SYS entry point for initialisation
 STMON:  EQU     $0d
@@ -312,18 +315,18 @@ GETCMD: ex      de,hl           ;now HL addresses the buffer
 GETARG:
         ld      a,(hl)
         cp      ' '
-        jr      z, GA1          ;no argument
+        ret     z               ;no argument -> we're done.
 
         inc     hl              ;point past command/delimiter
         ld      bc,0            ;accumulate argument in BC
 
         ;; if it's ' ' or '=', we're done (well-formed input guarantees
-        ;; this will not be true first time through
+        ;; this will not be true first time through)
 GETDIG: ld      a,(hl)          ;get it and don't point past (in case we're done)
         cp      ' '
-        jr      z, GA1
+        ret     z               ;we're done.
         cp      '='
-        jr      z, GA1
+        ret     z               ;we're done.
 
         ;; must be 0-9 or A-F, accumulate it: convert to number, shift bc left
         ;; 4 bits, merge value in, then go back for more.
@@ -363,8 +366,6 @@ GA2:    or      c
         inc     hl
         jr      GETDIG          ;go back for more
 
-GA1:    ret
-
 
 ;;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Read 512 bytes from SDcard to memory buffer.
@@ -376,7 +377,7 @@ GA1:    ret
 ;;;        AF corrupted
 ;;;
 
-SDRD512:push    de
+SDRD512: push   de
         push    bc
 
 ;;; Didn't need this in 6809 code but, in Z80 code, without this
@@ -396,27 +397,23 @@ SDINIT: in      a,(SDCTRL)
         xor     a               ;A=0
         out     (SDCTRL),a      ;READ
 
-        ld      b,0             ;0==256
-        ;; get first 256 bytes
-SDWAIT1:in      a,(SDCTRL)      ;get status
-        cp      $E0             ;read data available
-        jr      nz, SDWAIT1
-        in      a,(SDDATA)
-        ld      (hl),a
-        inc     hl
-        djnz    SDWAIT1
-        nop                     ;only here to allow debug/breakpoint
-        ;; get second 256 bytes (b=0 == 256)
-SDWAIT2:in      a,(SDCTRL)      ;get status
-        cp      $E0             ;read data available
-        jr      nz, SDWAIT2
-        in      a,(SDDATA)
-        ld      (hl),a
-        inc     hl
-        djnz    SDWAIT2
+        ld      b,a             ;0==256
+        call    SDWAIT          ;get first 256 bytes
+        ;; b=0 after first call so all ready to..
+        call    SDWAIT          ;get second 256 bytes
         pop     bc
         pop     de
         ret
+
+SDWAIT: in     a,(SDCTRL)      ;get status
+        cp      $E0             ;read data available
+        jr      nz, SDWAIT
+        in      a,(SDDATA)
+        ld      (hl),a
+        inc     hl
+        djnz    SDWAIT
+        ret
+
 
 ;;; ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;; Command-line utility: Calculate checksum of memory region
@@ -493,11 +490,13 @@ SD2MEM: ld      de,EARG         ;point de to error in case needed
         ld      b,c             ;block count low 8 bits in B
 SD1:    call    SDRD512
         inc     de
-        djnz    SD1
-        jr      MEX1            ;done
+        djnz    SD1             ;loop then fall-through at end
 
-
-EARG:   DB "Wrong number of arguments",0
+;;; clean return to NAS-SYS
+MEX1:   rst     SCAL
+        defb    ZCRLF
+        rst     SCAL
+        defb    ZMRET
 
 ;;; Exit with message. Can be used for successful or error/fatal
 ;;; exit. (DE) is null-terminated string (possibly 0-length).
@@ -511,10 +510,7 @@ MEXIT:  ld      a,(de)
         inc     de
         jr      MEXIT
 
-MEX1:   rst     SCAL
-        defb    ZCRLF
-        rst     SCAL
-        defb    ZMRET
+EARG:   DB "Wrong number of arguments",0
 
 ;;; pad ROM to 1Kbytes.
 SIZE:   EQU $ - SBSTART
