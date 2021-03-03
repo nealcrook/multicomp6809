@@ -29,6 +29,7 @@ STMON:  EQU     $0d
 
 ;;; NAS-SYS restarts
 RIN:    EQU     $8
+SCAL:   EQU     $18
 ROUT:   EQU     $30
 
 ;;; NAS-SYS SCAL codes
@@ -36,12 +37,6 @@ ZMRET:  EQU     $5b
 ZTBCD3: EQU     $66
 ZCRLF:  EQU     $6a
 ZERRM:  EQU     $6b
-
-;;; Macro for using SCAL
-SCAL:   MACRO FOO
-        RST 18H
-        DB FOO
-        ENDM
 
 ;;; NAS-SYS workspace
 ARGN:   EQU     $0c0b
@@ -70,9 +65,9 @@ SDLBA0: EQU     $12
 SDLBA1: EQU     $13
 SDLBA2: EQU     $14
 REMAP:  EQU     $18
-PROTECT:EQU     $19
+PROTECT: EQU     $19
 MWAITS: EQU     $1A
-PORPAGE:EQU     $1B
+PORPAGE: EQU     $1B
 REASON: EQU     $1C
 ;;; I/O ports VFC
 VIDMAP: EQU     $ee             ;write any data, select 80-col VFC output
@@ -83,7 +78,7 @@ SDWR:   EQU     $1
 SDRD:   EQU     $0
 
 ;;; Menu size (offset to profile 0)
-POFFSET:EQU     $8
+POFFSET: EQU     $8
 
 SBSTART:
         org     $1000
@@ -93,7 +88,7 @@ SBSTART:
 
 ;;; Entry point after reset. No stack, and the NASCOM 4 I/O ports are
 ;;; in an unknown state.
-REENTER:in      a, (REASON)
+REENTER: in     a, (REASON)
         out     (REASON), a     ;clear reason register TODO not yet implemented
         and     $80             ;warm reset?
         jr      z, COLD
@@ -153,8 +148,8 @@ MEN1:   ld      a,(hl)
         djnz    MEN1            ;upto 512 bytes
         inc     de              ;point to next block
         jr      MENNXT          ;read it to buffer
-MENDONE:
 
+MENDONE:
 
 ;;; Get profile selection from user. Profile selection is a letter
 ;;; A-Z pressed by the user (other keys ignored) and converted to
@@ -164,7 +159,7 @@ GETPRO: rst     RIN
         jr      c, GETPRO       ;too small
         cp      'Z'+1
         jr      nc, GETPRO      ;too big
-        sub     'A'-POFFSET
+        sub     'A' - POFFSET
 
 ;;; Load profile into memory buffer
         ld      d,0
@@ -217,7 +212,9 @@ ICMD:   push    hl
 GCMD:   ld      a,c             ;data
         jr      EXIT            ;go and never come back
 
-;;; Load image
+;;; Load image: Lxxxx=yyyy
+;;; Load yyyy blocks starting at block (specified by most recent I command) to memory
+;;; starting at xxxx.
 ;;; MUST PRESERVE DE
 ;;; HL=destination address
 ;;; BC=number of blocks. Guaranteed to be <256, so B=0.
@@ -280,7 +277,7 @@ GETCMD: ex      de,hl           ;now HL addresses the buffer
         ld      a,(hl)
         push    af              ;command letter
         call    GETARG          ;argument 1 is in BC
-        pop     af
+        pop     af              ;restore command letter
         push    bc              ;store argument 1
         push    af              ;keep AF at TOS
         call    GETARG          ;argument 2 is in BC (may be invalid)
@@ -288,7 +285,7 @@ GETCMD: ex      de,hl           ;now HL addresses the buffer
         pop     af              ;restore command letter
         inc     hl              ;point to start of next command
         ex      de,hl           ;now DE addresses the buffer
-        pop     hl              ;argument 1
+        pop     hl              ;argument 1 (from bc)
         ret
 
 
@@ -429,7 +426,7 @@ SDWAIT2:in      a,(SDCTRL)      ;get status
 ;;; Compute checksum of memory from ssss to eeee inclusive.
 ;;; Checksum is the sum of all bytes and is reported as a
 ;;; 16-bit value. Carry off the MSB is lost/ignored.
-CSUM:   ld      de,EARG
+CSUM:   ld      de,EARG         ;set de to error message in case needed
         ld      a,(ARGN)
         cp      3               ;expect 3 arguments
         jp      nz, MEXIT
@@ -454,7 +451,8 @@ C2:     ld      e,a             ;store lo accumulator
 CDONE:  ld      h,d             ;move sum from de to hl
         ld      l,e
 
-        SCAL    ZTBCD3          ;print hl
+        rst     SCAL
+        defb    ZTBCD3          ;print hl
         jr      MEX1
 
 ;;; End-To-Length: start address in (ARG2), end address in (ARG3).
@@ -481,11 +479,11 @@ E2LEN:  ld      de,(ARG2)       ;start address
 ;;; bbbb - block address on SDcard
 ;;; nn   - number of blocks (512-bytes per block)
 
-SD2MEM: ld      de,EARG
+SD2MEM: ld      de,EARG         ;point de to error in case needed
         ld      a,(ARGN)
         cp      4               ;expect 4 arguments
         jp      nz, MEXIT
-        ;; in case it's never been done
+        ;; in case it's never been done, make sure sdlba2=0
         xor     a
         out     (SDLBA2),a      ;high block address is ALWAYS 0
 
@@ -513,13 +511,14 @@ MEXIT:  ld      a,(de)
         inc     de
         jr      MEXIT
 
-MEX1:   SCAL    ZCRLF
-        SCAL    ZMRET
-
+MEX1:   rst     SCAL
+        defb    ZCRLF
+        rst     SCAL
+        defb    ZMRET
 
 ;;; pad ROM to 1Kbytes.
 SIZE:   EQU $ - SBSTART
 PAD1:   EQU $1400 - SIZE
         DS  PAD1, $ff
 
-	END
+;;; End.
