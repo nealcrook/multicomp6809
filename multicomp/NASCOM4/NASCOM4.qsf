@@ -205,6 +205,7 @@ set_global_assignment -name VHDL_FILE ../Components/Z80/T80_Reg.vhd
 set_global_assignment -name VHDL_FILE ../Components/SDCARD/sd_controller.vhd
 set_global_assignment -name VHDL_FILE ../Components/UART/bufferedUART6402.vhd
 set_global_assignment -name VHDL_FILE ../Components/nasKBDPS2/nasKBDPS2.vhd
+set_global_assignment -name VHDL_FILE ../Components/nasBridge/nasBridge.vhd
 set_global_assignment -name VHDL_FILE NASCOM4.vhd
 set_global_assignment -name SOURCE_FILE NASCOM4.qsf
 set_global_assignment -name CDF_FILE output_files/NASCOM4.cdf
@@ -214,6 +215,9 @@ set_global_assignment -name QIP_FILE ../RAMS/InternalRam4K.qip
 set_global_assignment -name QIP_FILE ../ROMS/Z80/Z80_NASSYS3_ROM.qip
 set_global_assignment -name QIP_FILE ../ROMS/Z80/Z80_MAP80VFC_ROM.qip
 set_global_assignment -name QIP_FILE ../ROMS/Z80/Z80_SBOOT_ROM.qip
+
+
+
 
 
 

@@ -1,8 +1,9 @@
 restart
 force clk 1 0, 0 10ns -repeat 20ns
 force n_reset 0
-# trigger cold reset sequence in SBootROM
-force vduffd0 0
+# 0: trigger cold reset sequence in SBootROM
+# 1: trigger warm reset sequence in SBootROM
+force vduffd0 1
 force sramData\[7\] 0
 force sramData\[6\] 0
 force sramData\[5\] 0

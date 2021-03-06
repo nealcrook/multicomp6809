@@ -35,7 +35,9 @@
 -- bodge on push-buttons for cold/warm/nmi and
 -- add debounce and cleardown and reason code.
 -- BUG: cannot warm-start PASCAL: it HALTs. Why?
-
+-- modify baud to be input or local, add slower divisors,
+-- control from new register at $1D
+-- add (programmable) support for 2 stop bits in the UART.
 
 -----------------------------------------------------
 
@@ -91,17 +93,20 @@
 --
 -- * I/O port 0     - keyboard and single-step control
 -- * I/O port 1,2   - 6402 compatible UART
--- * I/O port 4-7   - EXTERNAL Z80 PIO
--- * I/O port 10-17 - NEW SDcard controller
+-- * I/O port 4-7   - EXTERNAL Z80 PIO (matches NASCOM 1/2)
+-- * I/O port 8-B   - EXTERNAL Z80 CTC (matches NASCOM I/O board)
+-- * I/O port 10-14 - NEW SDcard controller
 -- * I/O port 18    - NEW controls paging of ROM/RAM/VDU
 -- * I/O port 19    - NEW controls RAM write-protect
 -- * I/O port 1A    - NEW memory stall control
--- * I/O port 1B    - NEW por high nibble (controlled by SBROM)
--- * I/O port 1C    - NEW reason register (controlled by reset/fn keys)
+-- * I/O port 1B    - NEW por high byte (controlled by SBROM)
+-- * I/O port 1C    - NEW reset reason (controlled by reset/fn keys)
 -- * I/O port E0-E3 - EXTERNAL WD2797 Floppy Disk Controller
 -- * I/O port E4    - VFC FDC drive select etc.
--- * I/O port E6    - VFC "parallel" keyboard (maybe; from PS/2 keyboard)
--- * I/O port E8    - VFC Alarm (beeper?) output - TBD to external buzzer?
+-- * I/O port E6    - VFC "parallel" keyboard (maybe; from PS/2 keyboard) - NOT IMPLEMENTED
+-- * I/O port E8    - VFC Alarm (beeper?) output - NOT IMPLEMENTED
+-- * I/O port EA    - VFC MC6845 register select - NOT IMPLEMENTED
+-- * I/O port EB    - VFC MC6845 data - NOT IMPLEMENTED
 -- * I/O port EC    - VFC mapping register (write-only)
 -- * I/O port EE    - VFC write to select VFC video on output
 -- * I/O port EF    - VFC write to select NASCOM video on output
@@ -336,6 +341,11 @@ architecture struct of NASCOM4 is
 
 --[NAC HACK 2020Nov15] new to be tidied/integrated
 
+    -- Event interface to PS/2 keyboard
+    signal KbdEvent               : std_logic;
+    signal KbdEventCode           : std_logic_vector(3 downto 0);
+    signal KbdClearEvent          : std_logic := '0';
+
     -- synchronise reset and generate control for jump-on-reset
     signal n_reset_s1             : std_logic;
     signal n_reset_s2             : std_logic;
@@ -343,9 +353,6 @@ architecture struct of NASCOM4 is
     signal post_reset_rd_cnt      : std_logic_vector(1 downto 0);
     signal reset_jump             : std_logic;
 
-    signal stall_a                : std_logic;
-    signal stall_s                : std_logic;
-    signal stall_cnt              : integer range 0 to 255;
     signal n_WAIT                 : std_logic;
     signal cpuClock               : std_logic := '1';
     signal n_MREQ                 : std_logic := '1';
@@ -354,6 +361,34 @@ architecture struct of NASCOM4 is
     signal n_M1                   : std_logic;
 
     signal n_memWr                : std_logic;
+
+
+    ------------------------------------------------------------------
+    -- To the outside world. Can go from here once I tidy up the
+    -- top-level ports list
+    signal clk4                   : std_logic;
+    signal clk1                   : std_logic;
+    signal io_reset_n             : std_logic;
+    signal pio_cs_n               : std_logic;
+    signal ctc_cs_n               : std_logic;
+    signal fdc_cs_n               : std_logic;
+    signal porte4_wr_n            : std_logic;
+    signal port00_rd_n            : std_logic;
+    signal BrM1_n                 : std_logic;
+    signal BrIORQ_n               : std_logic;
+    signal BrRD_n                 : std_logic;
+    signal BrWR_n                 : std_logic;
+    signal BrBufOE_n              : std_logic;
+    signal BrBufWr                : std_logic;
+
+    -- TODO these will be inputs and go to the read path of the E4 port
+    signal FdcIntr                : std_logic;
+    signal FdcDrq                 : std_logic;
+    signal FdcRdy_n               : std_logic;
+
+    -- internal signals for bridge
+    signal BridgeRdData           : std_logic_vector(7 downto 0);
+
 
     ------------------------------------------------------------------
     -- Port 0: NASCOM keyboard and NMI control
@@ -383,16 +418,18 @@ architecture struct of NASCOM4 is
     -- Port 10-17: Decoded for SDcard (only 10,11,12,13,14 used)
 
     ------------------------------------------------------------------
-    -- Port 18: new for FPGA implementation
-    --             WRITE                                      READ
-    -- B7          unused                                     0
-    -- B6          unused                                     0
-    -- B5          MAP80 VFC autoboot                         readback
-    -- B4          1: enable NASCOM WS RAM                    readback
-    -- B3          0: disable NAS-SYS  1: enable NAS-SYS      readback
-    -- B2          0: disable SBootROM 1: enable SBootROM     readback
-    -- B1          0: VRAM@800, 1:VRAM@?? (for CP/M)          readback
-    -- B0          1: enable NASCOM VRAM                      readback
+    -- Port 18: new for FPGA implementation (R/W)
+    -- NOT RESET to allow warm reset flow in SBROM
+    -- The initial states below allow a warm reset from SBROM in
+    -- RTL simulation.
+    -- B7          unused, read 0
+    -- B6          unused, read 0
+    -- B5          MAP80 VFC autoboot
+    -- B4          1: enable NASCOM WS RAM
+    -- B3          0: disable NAS-SYS  1: enable NAS-SYS
+    -- B2          0: disable SBootROM 1: enable SBootROM
+    -- B1          0: VRAM@800, 1:VRAM@F800 (for CP/M)
+    -- B0          1: enable NASCOM VRAM
     --
     -- The autoboot bit controls the VFC ROM enable:
     -- autoboot=0 : after reset, the ROM is disabled; writing a 1
@@ -403,14 +440,13 @@ architecture struct of NASCOM4 is
     -- Implementation:
     -- * register bit iopwrECRomEnable is reset to a 0.
     -- * ROM enable is autoboot XOR iopwrECRomEnable
-    --
 
-    signal iopwr18MAP80AutoBoot   : std_logic; -- bit 5
-    signal iopwr18NasWsRam        : std_logic; -- bit 4
-    signal iopwr18NasSysRom       : std_logic; -- bit 3
-    signal iopwr18SBootRom        : std_logic; -- bit 2
-    signal iopwr18NasVidHigh      : std_logic; -- bit 1
-    signal iopwr18NasVidRam       : std_logic; -- bit 0
+    signal iopwr18MAP80AutoBoot   : std_logic := '0'; -- bit 5
+    signal iopwr18NasWsRam        : std_logic := '1'; -- bit 4
+    signal iopwr18NasSysRom       : std_logic := '1'; -- bit 3
+    signal iopwr18SBootRom        : std_logic := '1'; -- bit 2
+    signal iopwr18NasVidHigh      : std_logic := '0'; -- bit 1
+    signal iopwr18NasVidRam       : std_logic := '1'; -- bit 0
     signal ioprd18                : std_logic_vector(7 downto 0);
 
     signal SBootRomState          : std_logic_vector(1 downto 0);
@@ -453,8 +489,8 @@ architecture struct of NASCOM4 is
 
     ------------------------------------------------------------------
     -- Port E4: MAP80 VFC disk control
-    signal portE4wr               : std_logic_vector(7 downto 0);
-    signal portE4rd               : std_logic_vector(7 downto 0) := x"00";
+    signal portE4wr               : std_logic_vector(7 downto 0);  -- TODO remove this is will be external
+    signal portE4rd               : std_logic_vector(7 downto 0) := x"00"; -- TODO connect FDC signals to this
 
     ------------------------------------------------------------------
     -- Port E6: MAP80 VFC parallel keyboard
@@ -680,7 +716,8 @@ begin
         -- Originally I tried to NOT reset this, so that it would be
         -- maintained across soft reset, but I got very weird behaviour
         -- on silicon, even though it seemed to work fine in simulation.
-        iopwr1aStalls <= x"20";
+--        iopwr1aStalls <= x"20";
+        iopwr1aStalls <= x"04";
 
         portE4wr <= x"00";
         portE8wr <= x"00";
@@ -957,17 +994,19 @@ end generate;
     io3 : entity work.nasKBDPS2
     port map(
             n_reset => n_reset_clean,
-            clk => clk,
+            clk     => clk,
 
-            ps2Clk => ps2Clk,
+            ps2Clk  => ps2Clk,
             ps2Data => ps2Data,
+
+            Event     => KbdEvent,
+            EventCode => KbdEventCode,
+            ClearEvent  => KbdClearEvent,
 
             kbdrst => iopwr00NasKbdRst,
             kbdclk => iopwr00NasKbdClk,
 
             kbddata => ioprd00 -- [NAC HACK 2021Jan13] need to combine with real NASCOM kbd data in from the outside
-            -- [NAC HACK 2021Jan11] to add: function key outputs
-
             );
 
 
@@ -991,6 +1030,50 @@ end generate;
             regAddr => cpuAddress(2 downto 0),
             driveLED => driveLED,
             clk => clk
+    );
+
+
+-- -----------------------------------------------------------------------------------
+-- BRIDGE TO EXTERNAL I/O BUS
+-- -----------------------------------------------------------------------------------
+
+    br1: entity work.nasBridge
+      port map(
+        n_reset => n_reset_clean,
+        clk     => clk,
+
+        iopwr1aStalls => iopwr1aStalls,
+
+        -- Z80 bus
+        addr    => cpuAddress(7 downto 0),
+        n_M1    => n_M1,
+        n_IORQ  => n_IORQ,
+        n_MREQ  => n_MREQ,
+        n_RD    => n_RD,
+        n_WR    => n_WR,
+        n_WAIT  => n_WAIT,       -- cycle length control for ALL accesses
+        cpuWrData  => cpuDataOut,     -- In  to   bridge
+        cpuRdData  => cpuDataIn,      -- In  to   bridge
+        BridgeRdData => BridgeRdData, -- Out from bridge - contributes to cpuRdData
+
+        -- To the outside world
+        clk4           => clk4,
+        clk1           => clk1,
+        pio_cs_n       => pio_cs_n,
+        ctc_cs_n       => ctc_cs_n,
+        fdc_cs_n       => fdc_cs_n,
+
+        porte4_wr_n    => porte4_wr_n,
+        port00_rd_n    => port00_rd_n,
+
+        BrReset_n      => io_reset_n,
+        BrM1_n         => BrM1_n,
+        BrIORQ_n       => BrIORQ_n,
+        BrRD_n         => BrRD_n,
+        BrWR_n         => BrWR_n,
+
+        BrBufOE_n      => BrBufOE_n,
+        BrBufWr        => BrBufWr
     );
 
 
@@ -1103,41 +1186,6 @@ end generate;
         -- reads has cleaner timing).
         if post_reset_rd_cnt = "11" and reset_jump = '1' then
           reset_jump <= '0';
-        end if;
-      end if;
-    end process;
-
--- wait-state generation
--- stall_a is asynchronous decode of the need for a stall state. It is a function of address and
--- n_MREQ, n_IORQ, n_RD, n_WR - whatever's needed. It needs to assert while n_MREQ or n_IORQ are
--- low. It is responsible for generating the 1st wait state. It is sampled to generate the
--- assertion of a synchronous signal, stall_s, which asserts for a fixed number of cycles.
--- These two are combined to generate n_WAIT.
-
-    -- need to include RD/WR otherwise we'll also stall RFSH cycles, which would be a shame.
-    stall_a <= '1' when n_MREQ = '0' and (n_RD = '0' or n_WR = '0') else '0';
-
-    n_WAIT <= '0' when stall_a = '1' and stall_s = '0' else '1';
-
-    stall_gen: process (clk, n_reset_clean)
-    begin
-      if n_reset_clean = '0' then
-        stall_cnt <= 0;
-        stall_s <= '0';
-      elsif rising_edge(clk) then
-        if (stall_a = '1') then
-          if stall_s = '1' then
-            stall_cnt <= 0;
-          else
-            stall_cnt <= stall_cnt + 1;
-          end if;
-
-          if stall_cnt = iopwr1aStalls then
-            stall_s <= '1';
-          else
-            stall_s <= '0';
-          end if;
-
         end if;
       end if;
     end process;
