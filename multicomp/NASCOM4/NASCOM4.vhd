@@ -254,7 +254,7 @@ entity NASCOM4 is
         txd1            : out std_logic;
         rts1            : out std_logic; -- [NAC HACK 2020Dec04] unused
 
-        rxd2		: in std_logic; -- [NAC HACK 2020Dec04] unused
+        rxd2		: in std_logic; -- [NAC HACK 2020Dec04] unused.. now used for CPU INT
         txd2		: out std_logic; -- [NAC HACK 2020Dec04] unused
         rts2		: out std_logic; -- [NAC HACK 2020Dec04] unused
 
@@ -372,7 +372,7 @@ architecture struct of NASCOM4 is
     signal pio_cs_n               : std_logic;
     signal ctc_cs_n               : std_logic;
     signal fdc_cs_n               : std_logic;
-    signal porte4_wr_n            : std_logic;
+    signal porte4_wr              : std_logic;
     signal port00_rd_n            : std_logic;
     signal BrM1_n                 : std_logic;
     signal BrIORQ_n               : std_logic;
@@ -544,7 +544,7 @@ begin
             clk_n   => cpuClock, -- or just clk??
             reset_n => n_reset_clean,
             wait_n  => n_WAIT,
-            int_n   => '1',   -- TODO from external I/O sub-system
+            int_n   => rxd2,   -- TODO from external I/O sub-system
             nmi_n   => n_NMI, -- from single-step logic
             busrq_n => '1',   -- unused
             halt_n  => n_HALT,
@@ -1063,7 +1063,7 @@ end generate;
         ctc_cs_n       => ctc_cs_n,
         fdc_cs_n       => fdc_cs_n,
 
-        porte4_wr_n    => porte4_wr_n,
+        porte4_wr      => porte4_wr,
         port00_rd_n    => port00_rd_n,
 
         BrReset_n      => io_reset_n,

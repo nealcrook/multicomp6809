@@ -52,6 +52,7 @@ add wave -noupdate /nascom4/br1/n_reset
 add wave -noupdate /nascom4/br1/clk
 add wave -noupdate /nascom4/br1/n_M1
 add wave -noupdate /nascom4/cpu1/RFSH_n
+add wave -noupdate /nascom4/cpu1/INT_n
 add wave -noupdate /nascom4/br1/n_IORQ
 add wave -noupdate /nascom4/br1/n_MREQ
 add wave -noupdate /nascom4/br1/n_RD
@@ -68,15 +69,18 @@ add wave -noupdate -radix hexadecimal /nascom4/br1/BridgeRdData
 add wave -noupdate /nascom4/br1/RetiPrefix
 add wave -noupdate /nascom4/br1/Reti
 add wave -noupdate -radix hexadecimal /nascom4/br1/addr
+add wave -noupdate /nascom4/br1/clkCount
+add wave -noupdate /nascom4/br1/clk4t1h
+add wave -noupdate /nascom4/br1/clk4t1l
+add wave -noupdate /nascom4/br1/clk4t2h
+add wave -noupdate /nascom4/br1/clk4t2l
 add wave -noupdate /nascom4/br1/clk4
 add wave -noupdate /nascom4/br1/clk1
-add wave -noupdate /nascom4/br1/clkCount
-add wave -noupdate /nascom4/br1/startCycle
 add wave -noupdate /nascom4/br1/pio_cs_n
 add wave -noupdate /nascom4/br1/ctc_cs_n
 add wave -noupdate /nascom4/br1/fdc_cs_n
-add wave -noupdate /nascom4/br1/porte4_wr_n
 add wave -noupdate /nascom4/br1/port00_rd_n
+add wave -noupdate /nascom4/br1/porte4_wr
 add wave -noupdate /nascom4/br1/BrReset_n
 add wave -noupdate /nascom4/br1/BrM1_n
 add wave -noupdate /nascom4/br1/BrIORQ_n
@@ -91,10 +95,11 @@ add wave -noupdate /nascom4/br1/e_pio_cs_n
 add wave -noupdate /nascom4/br1/e_ctc_cs_n
 add wave -noupdate /nascom4/br1/e_fdc_cs_n
 add wave -noupdate /nascom4/br1/e_port00_rd_n
-add wave -noupdate /nascom4/br1/e_porte4_wr_n
+add wave -noupdate /nascom4/br1/e_porte4_wr
+add wave -noupdate /nascom4/cpu1/INT_n
 TreeUpdate [SetDefaultTree]
-WaveRestoreCursors {RET {31667427 ps} 1} {{Cursor 2} {35255396 ps} 0}
-quietly wave cursor active 2
+WaveRestoreCursors {RET {31667427 ps} 1} {{Cursor 2} {2320000 ps} 0} {{Cursor 3} {4100000 ps} 0}
+quietly wave cursor active 3
 configure wave -namecolwidth 271
 configure wave -valuecolwidth 100
 configure wave -justifyvalue left
@@ -109,4 +114,4 @@ configure wave -griddelta 40
 configure wave -timeline 0
 configure wave -timelineunits ps
 update
-WaveRestoreZoom {35367974 ps} {36068932 ps}
+WaveRestoreZoom {27618872 ps} {56546376 ps}

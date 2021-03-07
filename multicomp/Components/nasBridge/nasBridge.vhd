@@ -10,14 +10,28 @@
 -- to stall I/O cycles, the WAIT generation for memory reads
 -- has been moved here to keep all the WAIT logic in one process.
 --
--- next:
--- do idle state of tracking state machine and decide how to
--- hand-off for control of I/O bus cycles in an efficient way
--- - also need to re-solve the problem of doing reset cycles
--- for the I/O bus while stalling, if necessary, an I/O cycle
--- from the processor.
-
-
+-- Next:
+-- Code the intack cycle - need way to generate one in test
+-- eg by connecting INT to an input port of the FPGA
+-- need to deliver a fake vector from here to prevent the
+-- program from crashing - unless I run the program in
+-- a different interrupt mode. Best to do it properly, then
+-- I can set up a jump table and ISR properly.
+-- Code the RETI cycle
+--
+-- Problems to solve:
+-- * Make sure that write data for CPU I/O write gets to the
+--   pins (may only be coded for memory operations)
+-- * Work out how to get read data back for reads and for
+--   intack: need the FPGA buffer in the correct direction
+--   and may need to register the data internally in order
+--   to keep the timing clean, then drive it back to the CPU
+--   using another leg in the existing read data MUX
+-- * Work out how to turn the bus around so that the bridge
+--   can drive data out and through the external I/O bus data
+--   buffer in order to make the RETI bytes visible to the
+--   PIO and CTC.
+--
 --
 -- Considerations:
 --
@@ -117,7 +131,7 @@ entity nasBridge is
         fdc_cs_n : out std_logic;
 
         -- Address and strobe decode
-        porte4_wr_n : out std_logic;
+        porte4_wr   : out std_logic;
         port00_rd_n : out std_logic;
 
         -- Bridge control signals like Z80
@@ -140,6 +154,12 @@ architecture rtl of nasBridge is
     type states is (
         reset,                           -- coded
         idle,                            -- coded
+
+        iot1, iot2,
+
+        m1t1, m1t2, m1t3,
+
+
         t1m1,  t2m1,  t3m1,  t4m1,       -- coded
         t1io,  t2io,  twio,  t3io,
         t1intack, t2intack, tw1intack, tw2intack, t3intack, t4intack,
@@ -156,7 +176,13 @@ architecture rtl of nasBridge is
     signal  clk4Sync: std_logic;
     signal  i_clk1: std_logic;
     signal  clkExtend: std_logic;
-    signal  startCycle: std_logic;
+    -- 4MHz clocks come in pairs: T1 H/L T2 H/L
+    -- these are decodes of the counter that can be used to do a synchronous
+    -- transition at any of these boundaries
+    signal  clk4t1h: std_logic;
+    signal  clk4t1l: std_logic;
+    signal  clk4t2h: std_logic;
+    signal  clk4t2l: std_logic;
 
     signal  stateCount: integer range 0 to 7 := 0;
 
@@ -168,7 +194,7 @@ architecture rtl of nasBridge is
     signal e_pio_cs_n: std_logic;
     signal e_ctc_cs_n: std_logic;
     signal e_fdc_cs_n: std_logic;
-    signal e_porte4_wr_n: std_logic;
+    signal e_porte4_wr : std_logic;
     signal e_port00_rd_n: std_logic;
 
     signal RetiPrefix : std_logic;
@@ -186,16 +212,23 @@ begin
     clk1 <= i_clk1;
     n_WAIT <= i_n_WAIT;
 
+    -- These decodes condition state machine transitions that need to align with 4MHz clock edges
+    clk4t1h       <= '1' when clkCount = 24 else '0';
+    clk4t1l       <= '1' when clkCount =  5 else '0';
+    clk4t2h       <= '1' when clkCount = 12 else '0'; -- happens 1/2 cycle later than 4MHz clock edge
+    clk4t2l       <= '1' when clkCount = 18 else '0'; -- happens 1/2 cycle later than 4MHz clock edge
+
+
     -- Internal async decodes of chip selects/strobes for I/O bus
     e_pio_cs_n    <= '0' when (n_RD = '0' or n_WR = '0') and addr(7 downto 2) = "000001"   else '1'; -- 04..07
     e_ctc_cs_n    <= '0' when (n_RD = '0' or n_WR = '0') and addr(7 downto 2) = "000010"   else '1'; -- 08..0B
     e_fdc_cs_n    <= '0' when (n_RD = '0' or n_WR = '0') and addr(7 downto 2) = "111000"   else '1'; -- E0..E3
     e_port00_rd_n <= '0' when (n_RD = '0'              ) and addr(7 downto 0) = "00000000" else '1'; -- 00
-    e_porte4_wr_n <= '0' when (              n_wr = '0') and addr(7 downto 0) = "11100100" else '1'; -- E4
+    e_porte4_wr   <= '1' when (              n_wr = '0') and addr(7 downto 0) = "11100100" else '0'; -- E4
 
     -- Addresses (I/O ports) that the bridge responds to
     bridgeIOCycle <= '1' when n_IORQ = '0' and (e_pio_cs_n = '0' or e_ctc_cs_n = '0' or
-                                                e_fdc_cs_n = '0' or e_porte4_wr_n = '0' or e_port00_rd_n = '0') else '0';
+                                                e_fdc_cs_n = '0' or e_porte4_wr = '1' or e_port00_rd_n = '0') else '0';
 
     -- Detect RETI; op-code pair $ED $4D
     -- The prefix byte $EF is detected synchronously, on the clock edge that ends the op-code fetch
@@ -249,8 +282,6 @@ begin
     end process;
 
 
-
-
     Extend: process (n_reset, clk)
     begin
         if n_reset = '0' then
@@ -274,22 +305,15 @@ begin
     -- Sad to say, the very first clk4 high time after reset is 1 cycle @50MHz
     -- too short, but I don't see an efficient way to fix this other than having
     -- the clock idle high at reset. It's ugly but will not cause a problem.
-    -- startCycle is used to kick off the state machine co-incident to the start
-    -- of a pair of 4MHz cycles.
+    -- clkCount is decoded elsewhere to provide decodes (clk4t1h etc.) that
+    -- enable state machine transitions that align to clk4 edges.
     ClkGen: process (n_reset, clk)
     begin
         if n_reset = '0' then
             clk4Sync <= '0';
             i_clk1 <= '0';
             clkCount <= 0;
-            startCycle <= '0';
         elsif rising_edge(clk) then
-            if clkCount = 23 then
-                startCycle <= '1';
-            else
-                startCycle <= '0';
-            end if;
-
             if clkCount = 24 then
                 clkCount <= 0;
                 i_clk1 <= not i_clk1;
@@ -322,7 +346,7 @@ begin
             fdc_cs_n <= '1';
 
             -- Address and strobe decode
-            porte4_wr_n <= '1';
+            porte4_wr   <= '0';
             port00_rd_n <= '1';
 
             -- Bridge control signals like Z80
@@ -344,45 +368,22 @@ begin
             stateCount <= 0;
 
         elsif rising_edge(clk) then
-
             case state is
 
                 when reset =>
-                    -- The CPU is already running and executing code at this point so it would be
-                    -- embarassing if it did an I/O cycle whilst we're still resetting the slow
-                    -- external bus. We either need to hold off CPU execution or start monitoring
-                    -- the CPU bus now but remembering that we're not 'ready' yet - which will involve
-                    -- doing the reset sequence from within the idle cycle rather than it having its
-                    -- own state sequence.
-
-                    -- Next, need to do the i/o bus decode for the different things that we need
-                    -- to spot and have the idle state here detect them, stall and take over control
-                    -- of the bus. That will include a separate little state machine to detect the RETI
-                    -- sequence and stall the CPU on the 2nd byte of it.
-
-                    -- Best to move the wait-state generator into this module and make it responsible
-                    -- for all bus tracking and wait-state generation.
-
-                    -- Add a blob of logic at the top-level that connects to the expansion bus to model
-                    -- the data bus buffer, the keyboard buffer and a vector-supplying peripheral that
-                    -- will generate an interrupt and drive a vector in response to an interrupt ack cycle,
-                    -- then create a small ROM that cyscles through the different I/O addresses, enables
-                    -- interrupts and includes a vector table and ISR. Finally, snap a set of waves
-                    -- showing the behavior of the whole thing and write a short document to describe
-                    -- how it all works. Too much detail for the handbook, but a useful stand-alone
-                    -- supplementary document. May even include 2 interruptors and modelling of the
-                    -- daiy chain? Maybe put that whole sub-system into a module that can be dropped
-                    -- down as a test-bench, connected to this bridge.
+                    -- I/O bus reset sequence: hold BrReset_n and BrM1_n asserted for a few (8) 4MHz
+                    -- clock cycles. The CPU is already running and executing code at this point
+                    -- so a cycle (eg, an I/O read) may already be pending by the time we exit
+                    -- to the idle state. In addition, the op-code tracking (process RetiPrefixDetect
+                    -- etc.) is already running so we won't miss anything.
 
                     pio_cs_n <= '1';
                     ctc_cs_n <= '1';
                     fdc_cs_n <= '1';
 
-                    porte4_wr_n <= '1';
+                    porte4_wr   <= '0';
                     port00_rd_n <= '1';
 
-                    BrReset_n <= '0';
-                    BrM1_n <= '0';    -- this resets the PIO
                     BrIORQ_n <= '1';
                     BrRD_n <= '1';
                     BrWR_n <= '1';
@@ -392,155 +393,163 @@ begin
 
                     bridgeDone <= '0';
 
-                    if startCycle = '1' then
-                        if stateCount = 7 then
-                            state <= idle;
-                        else
-                            stateCount <= stateCount + 1;
-                        end if;
+                    -- Track how long we've been in reset
+                    if clk4t1h = '1' then
+                        stateCount <= stateCount + 1;
+                    end if;
+
+                    -- TODO: general question over whether this coding style (just coding when
+                    -- signal transitions occur) will synthesise successfully..
+                    if clk4t1h = '1' and stateCount = 3 then
+                        -- provide reset recovery time (seems polite)
+                        BrM1_n <= '1';
+                        BrReset_n <= '1';
+                    end if;
+
+                    -- Transition during the low part of T4. All the signals are already in
+                    -- their idle state
+                    if clk4t2l = '1' and stateCount = 4 then
+                        state <= idle;
                     end if;
 
                 when idle =>
+                    -- Come here during the low-time of a T4 cycle, so always
+                    -- spend a few cycles here before clk4t1h goes high to start
+                    -- the next sequence.
+                    -- During those cycles, want the existing outputs to be maintained,
+                    -- so that the previous cycle is completed successfully.
+
+                    BrReset_n <= '1';  -- always negated
+                    bridgeDone <= '0'; -- might be asserted on the way in
+                    porte4_wr <= '0';  -- might be asserted on the way in
+
+                    -- synchronise start point of next cycle to clk4 rising T1
+                    if clk4t1h = '1' then
+
+                        -- requests from Z80 are mutually exclusive but need priority
+                        -- tree to allow a default activity: the dummy M1 cycle.
+
+                        if bridgeIOCycle = '1' then
+                            -- read or write cycle. CPU is already stalled.
+
+                            pio_cs_n <= e_pio_cs_n;
+                            ctc_cs_n <= e_ctc_cs_n;
+                            fdc_cs_n <= e_fdc_cs_n;
+
+                            porte4_wr   <= '0';
+                            port00_rd_n <= '1';
+
+                            BrM1_n <= '1';
+                            BrIORQ_n <= '1';
+                            BrRD_n <= '1';
+                            BrWR_n <= '1';
+
+                            BrBufOE_n <= '1';
+                            BrBufWr <= not n_WR; -- get it in the right direction
+
+                            state <= iot1;
+                            stateCount <= 0;
+                        else
+                            -- If nothing to do for the CPU, do an dummy cycle on the I/O
+                            -- bus. This has 2 purposes: keep the data bus driven with a
+                            -- valid logic level (achieved by enabling the keyboard read
+                            -- buffer using port00_rd_n) and create M1 activity to allow
+                            -- the PIO to synchronise its assertion of INT_n. Because
+                            -- this looks like an M1 cycle, the PIO and CTC will be
+                            -- looking for a RETI op-code sequence so need to guarantee
+                            -- that the keyboard buffer won't drive that. It should be
+                            -- guaranteed by design because but[7] is tied high on the
+                            -- keyboard and should float to 1 if no keyboard is connected.
+
+                            -- TODO maybe idle for 2 clocks after the end of a previous sequence
+                            -- before launching one of these?? Is there any benefit??
+                            pio_cs_n <= '1';
+                            ctc_cs_n <= '1';
+                            fdc_cs_n <= '1';
+
+                            porte4_wr   <= '0';
+                            port00_rd_n <= '1';
+
+                            BrM1_n <= '0';
+                            BrIORQ_n <= '1';
+                            BrRD_n <= '0';
+                            BrWR_n <= '1';
+
+                            BrBufOE_n <= '1';
+                            BrBufWr <= '1';
+
+                            state <= m1t1;
+                            stateCount <= 0;
+                        end if;
+                    end if;
+
+                ---------------------------------------------------------------
+                -- Dummy M1 cycle
+                when m1t1 =>
+                    if clk4t2h = '1' then
+                        port00_rd_n <= '0'; -- drive the I/O data bus
+                        state <= m1t2;
+                    end if;
 
 
-
-
-
-                    if startCycle = '1' then
-                        -- Dummy M1 cycles to keep PIO happy
-                        pio_cs_n <= '1';
-                        ctc_cs_n <= '1';
-                        fdc_cs_n <= '1';
-
-                        porte4_wr_n <= '1';
+                when m1t2 =>
+                    if clk4t1h = '1' then
+                        -- going to T3 (don't need stateCount to tell us)
                         port00_rd_n <= '1';
-
-                        BrReset_n <= '1';
-                        BrM1_n <= '0';
-                        BrIORQ_n <= '1';
-                        BrRD_n <= '0';
-                        BrWR_n <= '1';
-
-                        BrBufOE_n <= '1';
-                        BrBufWr <= '1';
-
-                        bridgeDone <= '0';
-
-                        state <= t1m1;
-                        stateCount <= 0;
-                    else
-                        pio_cs_n <= '1';
-                        ctc_cs_n <= '1';
-                        fdc_cs_n <= '1';
-
-                        porte4_wr_n <= '1';
-                        port00_rd_n <= '1';
-
-                        BrReset_n <= '1';
                         BrM1_n <= '1';
-                        BrIORQ_n <= '1';
                         BrRD_n <= '1';
-                        BrWR_n <= '1';
+                        state <= m1t3;
+                    end if;
 
-                        BrBufOE_n <= '1';
-                        BrBufWr <= '1';
 
-                        bridgeDone <= '0';
-
+                when m1t3 =>
+                    if clk4t2l = '1' then
+                        -- going to idle (don't need stateCount to tell us)
+                        -- no bridgeDone pulse for the dummy M1 cycle because the
+                        -- CPU did not request it
                         state <= idle;
-                        stateCount <= 0;
                     end if;
 
-                --  Dummy M1 cycle
-                when t1m1 =>
-                    if (clkCount = 11) then
-                        state <= t2m1;
-                        port00_rd_n <= '0';
+
+                ---------------------------------------------------------------
+                -- CPU I/O read or write cycle
+                when iot1 =>
+                    BrIORQ_n <= '0';
+                    BrRD_n <= n_RD;
+                    BrWR_n <= n_WR;
+                    port00_rd_n <= e_port00_rd_n; -- drive read data from keyboard
+                    BrBufOE_n <= '0';
+                    if clk4t2h = '1' then
+                        state <= iot2;
                     end if;
 
-                when t2m1 =>
-                    if (startCycle = '1') then
-                        state <= t3m1;
-                        BrM1_n <= '1';
-                        BrRD_n <= '1';
+                when iot2 =>
+                    -- Spend 3 clocks here so need to track stateCount
+                    if clk4t1h = '1' then
+                        stateCount <= stateCount + 1;
                     end if;
 
-                when t3m1 =>
-                    if (clkCount = 6) then
-                        port00_rd_n <= '1';
-                    end if;
-                    if (clkCount = 11) then
-                        state <= t4m1;
-                    end if;
-
-                when t4m1 =>
-                    if (startCycle = '1') then
-                        state <= idle;
+                    if clk4t2l = '1' and stateCount = 2 then
+                        -- TODO does this allow data capture correctly or do I need to move it right to the
+                        -- end of the final cycle low time??
+                        porte4_wr <= e_porte4_wr; -- rising edge as WR negates
                         bridgeDone <= '1';
-                    end if;
-
-                -- I/O read or write cycle
-                -- [NAC HACK 2021Mar04] come here with chip selects decoded??
-                when t1io =>
-                    if (clkCount = 11) then
-                        state <= t2io;
-                        -- read or write determines buffer direction
-                        BrIORQ_n <= '0';
-                        BrRD_n <= '0'; -- incoming signal from CPU decides read or write
-                        BrWR_n <= '0';
-                    end if;
-
-                when t2io =>
-                    if (startCycle = '1') then
-                        state <= twio;
-                    end if;
-
-                when twio =>
-                    if (clkCount = 6) then
-                        BrIORQ_n <= '1';
-                        BrRD_n <= '1'; -- and data bus control and strobe control if appropriate
-                        BrWR_n <= '1';
-                    end if;
-                    if (clkCount = 11) then
-                        state <= t3io;
-                    end if;
-
-                when t3io =>
-                    if (startCycle = '1') then
                         state <= idle;
                     end if;
+                    -- TODO need to release OE in a way that avoids chance of bus clash
 
 
-                when t1intack =>
-                    -- Interrupt acknowledge cycle
-                    if (clkCount = 11) then
-                        state <= t2intack;
-                    end if;
+                ---------------------------------------------------------------
+                -- CPU Interrupt Acknowledge cycle
 
-                when t2intack =>
-                    if (startCycle = '1') then
-                        state <= tw1intack;
-                    end if;
+                ---------------------------------------------------------------
+                -- CPU mocked-up RETI cycle
 
-                when tw1intack =>
-                    if (clkCount = 11) then
-                        state <= tw2intack;
-                    end if;
 
-                when tw2intack =>
-                    if (startCycle = '1') then
-                        state <= t3intack;
-                    end if;
 
-                when t3intack =>
-                    if (clkCount = 11) then
-                        state <= t4intack;
-                    end if;
 
-                when t4intack =>
-                    if (startCycle = '1') then
-                        state <= idle;
-                    end if;
+
+
 
                 when others =>
                     state <= idle;
