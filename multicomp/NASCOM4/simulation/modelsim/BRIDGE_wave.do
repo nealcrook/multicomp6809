@@ -68,6 +68,8 @@ add wave -noupdate -radix hexadecimal /nascom4/br1/cpuRdData
 add wave -noupdate -radix hexadecimal /nascom4/br1/BridgeRdData
 add wave -noupdate /nascom4/br1/RetiPrefix
 add wave -noupdate /nascom4/br1/Reti
+add wave -noupdate /nascom4/br1/IntAckCycle
+add wave -noupdate /nascom4/br1/iastate
 add wave -noupdate -radix hexadecimal /nascom4/br1/addr
 add wave -noupdate /nascom4/br1/clkCount
 add wave -noupdate /nascom4/br1/clk4t1h
@@ -96,10 +98,9 @@ add wave -noupdate /nascom4/br1/e_ctc_cs_n
 add wave -noupdate /nascom4/br1/e_fdc_cs_n
 add wave -noupdate /nascom4/br1/e_port00_rd_n
 add wave -noupdate /nascom4/br1/e_porte4_wr
-add wave -noupdate /nascom4/cpu1/INT_n
 TreeUpdate [SetDefaultTree]
-WaveRestoreCursors {RET {31667427 ps} 1} {{Cursor 2} {2320000 ps} 0} {{Cursor 3} {4100000 ps} 0}
-quietly wave cursor active 3
+WaveRestoreCursors {{Cursor 2} {26240000 ps} 1} {{Cursor 3} {27760000 ps} 0}
+quietly wave cursor active 2
 configure wave -namecolwidth 271
 configure wave -valuecolwidth 100
 configure wave -justifyvalue left
@@ -114,4 +115,4 @@ configure wave -griddelta 40
 configure wave -timeline 0
 configure wave -timelineunits ps
 update
-WaveRestoreZoom {27618872 ps} {56546376 ps}
+WaveRestoreZoom {27259609 ps} {28260391 ps}

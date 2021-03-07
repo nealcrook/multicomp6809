@@ -154,16 +154,17 @@ architecture rtl of nasBridge is
     type states is (
         reset,                           -- coded
         idle,                            -- coded
+        iot1, iot2,                      -- coded
+        m1t1, m1t2, m1t3,                -- coded
 
-        iot1, iot2,
+        iat1, iat3, iat5
+        );
 
-        m1t1, m1t2, m1t3,
-
-
-        t1m1,  t2m1,  t3m1,  t4m1,       -- coded
-        t1io,  t2io,  twio,  t3io,
-        t1intack, t2intack, tw1intack, tw2intack, t3intack, t4intack,
-        t1m1reti,  t2m1reti,  t3m1reti,  t4m1reti   -- used twice; once for each byte
+    type iastates is (
+        idle,
+        start,
+        active,
+        done
         );
 
     -- TODO the reti might have originated from internal or external memory and, at least for the 1st byte we need to drive
@@ -171,25 +172,28 @@ architecture rtl of nasBridge is
     -- how to detect it and stall the processor at the right time.
 
     signal  state : states;
+    signal  iastate : iastates;
 
-    signal  clkCount: integer range 0 to 24 := 0;
-    signal  clk4Sync: std_logic;
-    signal  i_clk1: std_logic;
-    signal  clkExtend: std_logic;
+    signal clkCount: integer range 0 to 24 := 0;
+    signal clk4Sync: std_logic;
+    signal i_clk1: std_logic;
+    signal clkExtend: std_logic;
     -- 4MHz clocks come in pairs: T1 H/L T2 H/L
     -- these are decodes of the counter that can be used to do a synchronous
     -- transition at any of these boundaries
-    signal  clk4t1h: std_logic;
-    signal  clk4t1l: std_logic;
-    signal  clk4t2h: std_logic;
-    signal  clk4t2l: std_logic;
+    signal clk4t1h: std_logic;
+    signal clk4t1l: std_logic;
+    signal clk4t2h: std_logic;
+    signal clk4t2l: std_logic;
 
-    signal  stateCount: integer range 0 to 7 := 0;
+    signal stateCount: integer range 0 to 7 := 0;
 
-    signal  bridgeDone : std_logic;
+    signal bridgeDone : std_logic;
 
+    -- Decode interrupt acknowledge cycle
+    signal IntAckCycle : std_logic;
     -- Decode all of the ports that the bridge must respond to
-    signal  bridgeIOCycle: std_logic;
+    signal bridgeIOCycle: std_logic;
     -- Asynchronous decode of chip selects
     signal e_pio_cs_n: std_logic;
     signal e_ctc_cs_n: std_logic;
@@ -230,6 +234,43 @@ begin
     bridgeIOCycle <= '1' when n_IORQ = '0' and (e_pio_cs_n = '0' or e_ctc_cs_n = '0' or
                                                 e_fdc_cs_n = '0' or e_porte4_wr = '1' or e_port00_rd_n = '0') else '0';
 
+    -- Detect interrupt acknowledge cycle
+    -- Unlike other T80 cycles (memory or I/O read or write, refresh) all of which have MREQ or IORQ asserted for 1~
+    -- unless stalled, intack has M1 asserted for 4~ with IORQ asserted for the last 3~.
+    -- So, detect the final cycle, in order to be able to stall it there and kick off the bridge cycle.
+--    IntAckCycle <= '1' when intack_cnt = 2 else '0';
+
+    IntAckDetect: process (clk, n_reset)
+    begin
+        if n_reset = '0' then
+            iastate <= idle;
+            IntAckCycle <= '0';
+        elsif rising_edge(clk) then
+            case iastate is
+
+                when idle =>
+                    if n_M1 = '0' and n_IORQ = '0' and i_n_WAIT = '1' then
+                        iastate <= start;
+                    end if;
+
+                when start =>
+                    IntAckCycle <= '1';
+                    iastate <= active;
+
+                when active =>
+                    if bridgeDone = '1' then
+                        IntAckCycle <= '0';
+                        iastate <= done;
+                    end if;
+
+                when done =>
+                    -- delay to prevent it re-starting on end of cycle
+                    iastate <= idle;
+            end case;
+        end if;
+    end process;
+
+
     -- Detect RETI; op-code pair $ED $4D
     -- The prefix byte $EF is detected synchronously, on the clock edge that ends the op-code fetch
     -- The second byte $4D is detected asynchronously, during the op-code fetch, to give the main FSM
@@ -264,7 +305,9 @@ begin
     mstall_a       <= '1' when n_MREQ = '0'        and (n_RD = '0' or n_WR = '0') else '0';
     stall_bridge_a <= '1' when bridgeIOCycle = '1' and (n_RD = '0' or n_WR = '0') else '0';
 
-    i_n_WAIT <= '0' when (mstall_a = '1' and stall_e = '0') or (stall_bridge_a = '1' and bridgeDone = '0') else '1';
+    i_n_WAIT <= '0' when (mstall_a = '1' and stall_e = '0') or
+                (stall_bridge_a = '1' and bridgeDone = '0') or
+                (IntAckCycle = '1' and bridgeDone = '0') else '1';
 
     stall_e        <= '1' when stall_cnt = iopwr1aStalls else '0';
 
@@ -430,8 +473,7 @@ begin
                         -- tree to allow a default activity: the dummy M1 cycle.
 
                         if bridgeIOCycle = '1' then
-                            -- read or write cycle. CPU is already stalled.
-
+                            -- I/O read or write cycle. CPU is already stalled.
                             pio_cs_n <= e_pio_cs_n;
                             ctc_cs_n <= e_ctc_cs_n;
                             fdc_cs_n <= e_fdc_cs_n;
@@ -448,6 +490,25 @@ begin
                             BrBufWr <= not n_WR; -- get it in the right direction
 
                             state <= iot1;
+                            stateCount <= 0;
+                        elsif IntAckCycle = '1' then
+                            -- Interrupt acknowledge cycle. CPU is already stalled.
+                            pio_cs_n <= '1';
+                            ctc_cs_n <= '1';
+                            fdc_cs_n <= '1';
+
+                            porte4_wr   <= '0';
+                            port00_rd_n <= '1';
+
+                            BrM1_n <= '0';
+                            BrIORQ_n <= '1';
+                            BrRD_n <= '1';
+                            BrWR_n <= '1';
+
+                            BrBufOE_n <= '1';
+                            BrBufWr <= '1';
+
+                            state <= iat1;
                             stateCount <= 0;
                         else
                             -- If nothing to do for the CPU, do an dummy cycle on the I/O
@@ -483,30 +544,35 @@ begin
                         end if;
                     end if;
 
+
                 ---------------------------------------------------------------
-                -- Dummy M1 cycle
-                when m1t1 =>
-                    if clk4t2h = '1' then
-                        port00_rd_n <= '0'; -- drive the I/O data bus
-                        state <= m1t2;
-                    end if;
-
-
-                when m1t2 =>
+                -- CPU Interrupt Acknowledge cycle
+                when iat1 =>
+                    -- Spend 3 1/2 clocks here so need to track stateCount
                     if clk4t1h = '1' then
-                        -- going to T3 (don't need stateCount to tell us)
-                        port00_rd_n <= '1';
-                        BrM1_n <= '1';
-                        BrRD_n <= '1';
-                        state <= m1t3;
+                        stateCount <= stateCount + 1;
                     end if;
 
+                    if clk4t1l = '1' and stateCount = 1 then
+                        BrIORQ_n <= '0';
+                        BrBufOE_n <= '0';
 
-                when m1t3 =>
-                    if clk4t2l = '1' then
-                        -- going to idle (don't need stateCount to tell us)
-                        -- no bridgeDone pulse for the dummy M1 cycle because the
-                        -- CPU did not request it
+                        state <= iat3;
+                    end if;
+
+                when iat3 =>
+                    if clk4t1h = '1' then
+                        BrM1_n <= '1';
+                        BrIORQ_n <= '1';
+
+                        state <= iat5;
+                    end if;
+
+                when iat5 =>
+                    if clk4t1l = '1' then
+                        BrBufOE_n <= '1';
+
+                        bridgeDone <= '1';
                         state <= idle;
                     end if;
 
@@ -540,7 +606,32 @@ begin
 
 
                 ---------------------------------------------------------------
-                -- CPU Interrupt Acknowledge cycle
+                -- Dummy M1 cycle
+                when m1t1 =>
+                    if clk4t2h = '1' then
+                        port00_rd_n <= '0'; -- drive the I/O data bus
+                        state <= m1t2;
+                    end if;
+
+
+                when m1t2 =>
+                    if clk4t1h = '1' then
+                        -- going to T3 (don't need stateCount to tell us)
+                        port00_rd_n <= '1';
+                        BrM1_n <= '1';
+                        BrRD_n <= '1';
+                        state <= m1t3;
+                    end if;
+
+
+                when m1t3 =>
+                    if clk4t2l = '1' then
+                        -- going to idle (don't need stateCount to tell us)
+                        -- no bridgeDone pulse for the dummy M1 cycle because the
+                        -- CPU did not request it
+                        state <= idle;
+                    end if;
+
 
                 ---------------------------------------------------------------
                 -- CPU mocked-up RETI cycle
