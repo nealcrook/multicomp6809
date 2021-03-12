@@ -134,6 +134,8 @@ PLOP:   in      a, (4)          ;PIO
         in      a, ($00)        ;KBD
         in      a, ($e4)        ;NOT directed to the bridge
 
+        ld      a, 0edh         ;code sequence that looks like RETI but isn't M1 (code)
+        ld      c, l
 
         ;; Some instructions that have a $ED prefix, like RETI
         ;; (also "ld i, a" above).
