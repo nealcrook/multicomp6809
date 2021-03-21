@@ -10,15 +10,12 @@
 -- to stall I/O cycles, the WAIT generation for memory reads
 -- has been moved here to keep all the WAIT logic in one process.
 --
--- Next:
--- Code the intack cycle - need way to generate one in test
--- eg by connecting INT to an input port of the FPGA
--- need to deliver a fake vector from here to prevent the
--- program from crashing - unless I run the program in
--- a different interrupt mode. Best to do it properly, then
--- I can set up a jump table and ISR properly.
--- Code the RETI cycle
---
+-- Next: draw out a picture of how the RETI will work, including
+-- the async start, the stall and the way in which the data busses
+-- need to be controlled and where the values will get MUXed out
+-- and forced in (to the CPU)
+
+
 -- Problems to solve:
 -- * Make sure that write data for CPU I/O write gets to the
 --   pins (may only be coded for memory operations)
@@ -152,27 +149,28 @@ end nasBridge;
 architecture rtl of nasBridge is
 
     type states is (
-        reset,                           -- coded
-        idle,                            -- coded
-        iot1, iot2,                      -- coded
-        m1t1, m1t2, m1t3,                -- coded
-
-        iat1, iat3, iat5
+        reset, idle,
+        iot1, iot2,
+        m1t1, m1t2, m1t3,
+        iat1, iat3, iat5,
+        rett1, rett2, rett3
         );
 
     type iastates is (
-        idle,
-        start,
-        active,
-        done
+        idle, start, active, done
+        );
+
+    type rstates is (
+        idle, prefix, reti, active
         );
 
     -- TODO the reti might have originated from internal or external memory and, at least for the 1st byte we need to drive
     -- it out while the CPU is stalled. Need a control signal and control interface to allow this and need to work out
     -- how to detect it and stall the processor at the right time.
 
-    signal  state : states;
+    signal  state   : states;
     signal  iastate : iastates;
+    signal  rstate  : rstates;
 
     signal clkCount: integer range 0 to 24 := 0;
     signal clk4Sync: std_logic;
@@ -201,8 +199,7 @@ architecture rtl of nasBridge is
     signal e_porte4_wr : std_logic;
     signal e_port00_rd_n: std_logic;
 
-    signal RetiPrefix : std_logic;
-    signal Reti       : std_logic;
+    signal RetiCycle : std_logic;
 
     signal mstall_a      : std_logic;
     signal stall_bridge_a: std_logic;
@@ -238,8 +235,6 @@ begin
     -- Unlike other T80 cycles (memory or I/O read or write, refresh) all of which have MREQ or IORQ asserted for 1~
     -- unless stalled, intack has M1 asserted for 4~ with IORQ asserted for the last 3~.
     -- So, detect the final cycle, in order to be able to stall it there and kick off the bridge cycle.
---    IntAckCycle <= '1' when intack_cnt = 2 else '0';
-
     IntAckDetect: process (clk, n_reset)
     begin
         if n_reset = '0' then
@@ -247,7 +242,6 @@ begin
             IntAckCycle <= '0';
         elsif rising_edge(clk) then
             case iastate is
-
                 when idle =>
                     if n_M1 = '0' and n_IORQ = '0' and i_n_WAIT = '1' then
                         iastate <= start;
@@ -266,33 +260,55 @@ begin
                 when done =>
                     -- delay to prevent it re-starting on end of cycle
                     iastate <= idle;
+
             end case;
         end if;
     end process;
 
 
     -- Detect RETI; op-code pair $ED $4D
-    -- The prefix byte $EF is detected synchronously, on the clock edge that ends the op-code fetch
-    -- The second byte $4D is detected asynchronously, during the op-code fetch, to give the main FSM
-    -- the opportunity to delay that cycle.
-    -- Therefore, Reti must be conditioned properly (eg, with n_WAIT) elsewhere
-    Reti <= '1' when n_M1 = '0' and n_MREQ = '0' and n_RD = '0' and cpuRdData = x"4D" and RetiPrefix = '1'
-            else '0';
-
-    RetiPrefixDetect: process (clk, n_reset)
+    -- The cycle is replayed on the I/O bus. Original plan was to do this after
+    -- the CPU had read the second byte, by stalling the CPU during the RFRSH that
+    -- is part of the second M1 cycle. Sadly, the T80 core doesn't allow stalling
+    -- of RFRSH so I need to do all this before allowing the 2nd fetch to complete
+    -- at the CPU. That means I need to honour any stalls imposed for the memory
+    -- access then stall again while these cycles are replayed on the I/O bus.
+    -- TODO remember to test this with 0 memory stall
+    RetiDetect: process (clk, n_reset)
     begin
         if n_reset = '0' then
-            RetiPrefix <= '0';
+            rstate <= idle;
+            RetiCycle <= '0';
         elsif rising_edge(clk) then
-            if n_M1 = '0' and n_MREQ = '0' and n_RD = '0' and i_n_WAIT = '1' then
-                if cpuRdData = x"ED" then
-                    RetiPrefix <= '1';
-                else
-                    RetiPrefix <= '0';
-                end if;
-            end if;
+            case rstate is
+                when idle =>
+                    if n_M1 = '0' and n_MREQ = '0' and n_RD = '0' and i_n_WAIT = '1' and cpuRdData = x"ED" then
+                        rstate <= prefix;
+                    end if;
+
+                when prefix =>
+                    if n_M1 = '0' and n_MREQ = '0' and n_RD = '0' and i_n_WAIT = '1' then
+                        if cpuRdData = x"4D" then
+                            rstate <= reti;
+                        else
+                            rstate <= idle;
+                        end if;
+                    end if;
+
+                when reti =>
+                    RetiCycle <= '1';
+                    rstate <= active;
+
+                when active =>
+                    if bridgeDone = '1' then
+                        RetiCycle <= '0';
+                        rstate <= idle;
+                    end if;
+
+            end case;
         end if;
     end process;
+
 
     -- wait-state generation
     -- mstall_a is asynchronous decode of the need for a stall in a memory access. It is a
@@ -306,8 +322,10 @@ begin
     stall_bridge_a <= '1' when bridgeIOCycle = '1' and (n_RD = '0' or n_WR = '0') else '0';
 
     i_n_WAIT <= '0' when (mstall_a = '1' and stall_e = '0') or
-                (stall_bridge_a = '1' and bridgeDone = '0') or
-                (IntAckCycle = '1' and bridgeDone = '0') else '1';
+                (stall_bridge_a = '1'    and bridgeDone = '0') or
+                (IntAckCycle = '1'       and bridgeDone = '0') else '1'; -- or
+--                (RetiCycle = '1'         and bridgeDone = '0') else '1';
+
 
     stall_e        <= '1' when stall_cnt = iopwr1aStalls else '0';
 
@@ -462,9 +480,12 @@ begin
                     -- During those cycles, want the existing outputs to be maintained,
                     -- so that the previous cycle is completed successfully.
 
-                    BrReset_n <= '1';  -- always negated
+                    BrReset_n <= '1';  -- always negated here
                     bridgeDone <= '0'; -- might be asserted on the way in
                     porte4_wr <= '0';  -- might be asserted on the way in
+                    BrIORQ_n <= '1';   -- might be asserted on the way in
+                    BrRD_n <= '1';     -- might be asserted on the way in
+                    BrWR_n <= '1';     -- might be asserted on the way in
 
                     -- synchronise start point of next cycle to clk4 rising T1
                     if clk4t1h = '1' then
@@ -506,9 +527,28 @@ begin
                             BrWR_n <= '1';
 
                             BrBufOE_n <= '1';
-                            BrBufWr <= '1';
+                            BrBufWr <= '0'; -- get it in the right direction for reading the vector
 
                             state <= iat1;
+                            stateCount <= 0;
+                        elsif RetiCycle = '1' then
+                            -- Fake RETI cycle. CPU is already stalled.
+                            pio_cs_n <= '1';
+                            ctc_cs_n <= '1';
+                            fdc_cs_n <= '1';
+
+                            porte4_wr   <= '0';
+                            port00_rd_n <= '1';
+
+                            BrM1_n <= '0';
+                            BrIORQ_n <= '1';
+                            BrRD_n <= '0';
+                            BrWR_n <= '1';
+
+                            BrBufOE_n <= '1';
+                            BrBufWr <= '1';
+
+                            state <= rett1;
                             stateCount <= 0;
                         else
                             -- If nothing to do for the CPU, do an dummy cycle on the I/O
@@ -595,7 +635,7 @@ begin
                         stateCount <= stateCount + 1;
                     end if;
 
-                    if clk4t2l = '1' and stateCount = 2 then
+                    if clk4t2l = '1' and stateCount = 1 then
                         -- TODO does this allow data capture correctly or do I need to move it right to the
                         -- end of the final cycle low time??
                         porte4_wr <= e_porte4_wr; -- rising edge as WR negates
@@ -603,6 +643,43 @@ begin
                         state <= idle;
                     end if;
                     -- TODO need to release OE in a way that avoids chance of bus clash
+
+
+                ---------------------------------------------------------------
+                -- CPU mocked-up RETI cycle: 2 M1 cycles, driving the bytes $ED $4D
+                -- TODO the data bus control and the scheme for driving data back
+                -- out. After the 2nd cycle want to drive the 4D back into the CPU
+                -- as well, otherwise would have to go and get it from memory AGAIN.
+                when rett1 =>
+                    if clk4t2h = '1' then
+                        state <= rett2;
+                    end if;
+
+
+                when rett2 =>
+                    if clk4t1h = '1' then
+                        -- going to T3 (don't need stateCount to tell us)
+                        BrM1_n <= '1';
+                        BrRD_n <= '1';
+                        state <= rett3;
+                        stateCount <= stateCount + 1;
+                    end if;
+
+
+                when rett3 =>
+                    if stateCount = 1 and clk4t1h = '1' then
+                        -- done the first M1 cycle, go round again to do the second
+                        BrM1_n <= '0';
+                        BrRD_n <= '0';
+
+                        state <= rett1;
+                    end if;
+
+                    if stateCount = 2 and clk4t2l = '1' then
+                        -- done!
+                        bridgeDone <= '1';
+                        state <= idle;
+                    end if;
 
 
                 ---------------------------------------------------------------
@@ -631,15 +708,6 @@ begin
                         -- CPU did not request it
                         state <= idle;
                     end if;
-
-
-                ---------------------------------------------------------------
-                -- CPU mocked-up RETI cycle
-
-
-
-
-
 
 
                 when others =>

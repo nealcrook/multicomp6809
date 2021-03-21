@@ -1,6 +1,5 @@
 onerror {resume}
 quietly WaveActivateNextPane {} 0
-add wave -noupdate /tb_nascom4/n_reset
 add wave -noupdate /tb_nascom4/clk
 add wave -noupdate /tb_nascom4/uut/br1/state
 add wave -noupdate /tb_nascom4/uut/br1/clkCount
@@ -13,7 +12,6 @@ add wave -noupdate -radix hexadecimal /tb_nascom4/sRamData
 add wave -noupdate -radix hexadecimal /tb_nascom4/sRamData_dly
 add wave -noupdate -radix hexadecimal /tb_nascom4/sRamAddress
 add wave -noupdate /tb_nascom4/n_sRamWE
-add wave -noupdate /tb_nascom4/n_sRamCS
 add wave -noupdate /tb_nascom4/n_sRamCS2
 add wave -noupdate /tb_nascom4/n_sRamOE
 add wave -noupdate /tb_nascom4/clk4
@@ -37,8 +35,6 @@ add wave -noupdate -radix hexadecimal -childformat {{/tb_nascom4/ramH(0) -radix 
 add wave -noupdate -radix hexadecimal -childformat {{/tb_nascom4/fdc(0) -radix hexadecimal} {/tb_nascom4/fdc(1) -radix hexadecimal} {/tb_nascom4/fdc(2) -radix hexadecimal} {/tb_nascom4/fdc(3) -radix hexadecimal}} -subitemconfig {/tb_nascom4/fdc(0) {-height 13 -radix hexadecimal} /tb_nascom4/fdc(1) {-height 13 -radix hexadecimal} /tb_nascom4/fdc(2) {-height 13 -radix hexadecimal} /tb_nascom4/fdc(3) {-height 13 -radix hexadecimal}} /tb_nascom4/fdc
 add wave -noupdate -radix hexadecimal /tb_nascom4/kbdbuf
 add wave -noupdate -radix hexadecimal /tb_nascom4/drvreg
-add wave -noupdate /tb_nascom4/n_LED7
-add wave -noupdate /tb_nascom4/n_LED9
 add wave -noupdate /tb_nascom4/u_pio/reset
 add wave -noupdate /tb_nascom4/u_pio/reg_wr
 add wave -noupdate /tb_nascom4/u_pio/reg_rd
@@ -66,8 +62,22 @@ add wave -noupdate /tb_nascom4/u_pio/reg_wr
 add wave -noupdate /tb_nascom4/u_pio/reg_rd
 add wave -noupdate /tb_nascom4/u_pio/ba
 add wave -noupdate /tb_nascom4/u_pio/cd
+add wave -noupdate /tb_nascom4/n_LED7Drive
+add wave -noupdate /tb_nascom4/n_LED9Halt
+add wave -noupdate /tb_nascom4/n_LED3SdActive
+add wave -noupdate /tb_nascom4/uut/warm
+add wave -noupdate /tb_nascom4/n_SwRst
+add wave -noupdate /tb_nascom4/n_SwWarmRst
+add wave -noupdate /tb_nascom4/clk
+add wave -noupdate /tb_nascom4/uut/n_reset_s1
+add wave -noupdate /tb_nascom4/uut/n_reset_s2
+add wave -noupdate /tb_nascom4/uut/n_reset_clean
+add wave -noupdate /tb_nascom4/uut/post_reset_rd_cnt
+add wave -noupdate /tb_nascom4/uut/reset_jump
+add wave -noupdate /tb_nascom4/uut/n_wreset_s1
+add wave -noupdate /tb_nascom4/uut/n_wreset_s2
 TreeUpdate [SetDefaultTree]
-WaveRestoreCursors {{Cursor 1} {18462348 ps} 0}
+WaveRestoreCursors {{Cursor 1} {120000 ps} 0}
 quietly wave cursor active 1
 configure wave -namecolwidth 228
 configure wave -valuecolwidth 100
@@ -83,4 +93,4 @@ configure wave -griddelta 40
 configure wave -timeline 0
 configure wave -timelineunits ps
 update
-WaveRestoreZoom {0 ps} {105105 ns}
+WaveRestoreZoom {0 ps} {2205 ns}

@@ -50,29 +50,25 @@ set_global_assignment -name PARTITION_NETLIST_TYPE SOURCE -section_id Top
 set_global_assignment -name PARTITION_FITTER_PRESERVATION_LEVEL PLACEMENT_AND_ROUTING -section_id Top
 set_global_assignment -name PARTITION_COLOR 16764057 -section_id Top
 
-set_location_assignment PIN_9 -to n_LED9
-set_location_assignment PIN_7 -to n_LED7
-set_location_assignment PIN_48 -to vduffd0
-
-set_location_assignment PIN_101 -to rxd1
-set_location_assignment PIN_103 -to txd1
-set_location_assignment PIN_104 -to rts1
-
-set_location_assignment PIN_99 -to rxd2
-set_location_assignment PIN_100 -to txd2
-set_location_assignment PIN_96 -to rts2
-
-set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to rxd1
-set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to rxd2
-set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to vduffd0
-
 set_location_assignment PIN_17 -to clk
-set_location_assignment PIN_144 -to n_reset
+set_location_assignment PIN_144 -to n_SwRst
+set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to n_SwRst
 
-set_location_assignment PIN_4 -to n_sRamWE
-set_location_assignment PIN_126 -to n_sRamCS
-set_location_assignment PIN_79 -to n_sRamCS2
-set_location_assignment PIN_134 -to n_sRamOE
+set_location_assignment PIN_18 -to n_SwWarmRst
+set_location_assignment PIN_21 -to n_SwNMI
+
+set_location_assignment PIN_9 -to n_LED9Halt
+set_location_assignment PIN_7 -to n_LED7Drive
+set_location_assignment PIN_3 -to n_LED3SdActive
+
+set_location_assignment PIN_122 -to sRamData[7]
+set_location_assignment PIN_120 -to sRamData[6]
+set_location_assignment PIN_118 -to sRamData[5]
+set_location_assignment PIN_114 -to sRamData[4]
+set_location_assignment PIN_112 -to sRamData[3]
+set_location_assignment PIN_113 -to sRamData[2]
+set_location_assignment PIN_115 -to sRamData[1]
+set_location_assignment PIN_119 -to sRamData[0]
 set_location_assignment PIN_32 -to sRamAddress[18]
 set_location_assignment PIN_31 -to sRamAddress[17]
 set_location_assignment PIN_25 -to sRamAddress[16]
@@ -92,50 +88,70 @@ set_location_assignment PIN_133 -to sRamAddress[3]
 set_location_assignment PIN_129 -to sRamAddress[2]
 set_location_assignment PIN_125 -to sRamAddress[1]
 set_location_assignment PIN_121 -to sRamAddress[0]
-set_location_assignment PIN_122 -to sRamData[7]
-set_location_assignment PIN_120 -to sRamData[6]
-set_location_assignment PIN_118 -to sRamData[5]
-set_location_assignment PIN_114 -to sRamData[4]
-set_location_assignment PIN_112 -to sRamData[3]
-set_location_assignment PIN_113 -to sRamData[2]
-set_location_assignment PIN_115 -to sRamData[1]
-set_location_assignment PIN_119 -to sRamData[0]
+set_location_assignment PIN_4 -to n_sRamWE
+set_location_assignment PIN_126 -to n_sRamCS1
+set_location_assignment PIN_79 -to n_sRamCS2
+set_location_assignment PIN_134 -to n_sRamOE
 
-set_location_assignment PIN_60 -to gpio2[7]
-set_location_assignment PIN_59 -to gpio2[6]
-set_location_assignment PIN_58 -to gpio2[5]
-set_location_assignment PIN_57 -to gpio2[4]
-set_location_assignment PIN_55 -to gpio2[3]
-set_location_assignment PIN_53 -to gpio2[2]
-set_location_assignment PIN_52 -to gpio2[1]
-set_location_assignment PIN_51 -to gpio2[0]
+set_location_assignment PIN_69 -to clk4
+set_location_assignment PIN_67 -to clk1
+set_location_assignment PIN_58 -to pio_cs_n
+set_location_assignment PIN_71 -to ctc_cs_n
+set_location_assignment PIN_64 -to fdc_cs_n
+set_location_assignment PIN_70 -to porte4_wr
+set_location_assignment PIN_87 -to port00_rd_n
 
-set_location_assignment PIN_42 -to gpio0[2]
-set_location_assignment PIN_41 -to gpio0[1]
-set_location_assignment PIN_40 -to gpio0[0]
+set_location_assignment PIN_72 -to BrReset_n
+set_location_assignment PIN_57 -to BrM1_n
+set_location_assignment PIN_63 -to BrIORQ_n
+set_location_assignment PIN_59 -to BrRD_n
+set_location_assignment PIN_60 -to BrWr_n
 
-set_location_assignment PIN_75 -to video
-set_location_assignment PIN_74 -to videoSync
-set_location_assignment PIN_87 -to ps2Data
-set_location_assignment PIN_86 -to ps2Clk
+set_location_assignment PIN_104 -to BrBufOE_n
+set_location_assignment PIN_96 -to BrBufWr
 
-set_location_assignment PIN_64 -to videoB0
-set_location_assignment PIN_63 -to videoB1
-set_location_assignment PIN_67 -to videoG0
-set_location_assignment PIN_65 -to videoG1
-set_location_assignment PIN_70 -to videoR0
-set_location_assignment PIN_69 -to videoR1
-set_location_assignment PIN_71 -to hSync
-set_location_assignment PIN_72 -to vSync
+set_location_assignment PIN_44 -to ps2Clk
+set_location_assignment PIN_45 -to ps2Data
 
-set_location_assignment PIN_92 -to sdMISO
+set_location_assignment PIN_100 -to NasKbdClk
+set_location_assignment PIN_99 -to NasKbdRst
+
+set_location_assignment PIN_101 -to SerRxToNas
+set_location_assignment PIN_103 -to SerTxFrNas
+set_location_assignment PIN_93 -to SerRxBdClk
+set_location_assignment PIN_94 -to SerTxBdClk
+
+set_location_assignment PIN_97 -to n_INT
+
+set_location_assignment PIN_42 -to sdMISO
 set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to sdMISO
-set_location_assignment PIN_94 -to sdSCLK
-set_location_assignment PIN_93 -to sdMOSI
-set_location_assignment PIN_97 -to sdCS
-set_location_assignment PIN_3 -to driveLED
+set_location_assignment PIN_43 -to sdSCLK
+set_location_assignment PIN_40 -to sdMOSI
+set_location_assignment PIN_41 -to sdCS
 
-set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to n_reset
+set_location_assignment PIN_51 -to PriVSync
+set_location_assignment PIN_55 -to PriHSync
+set_location_assignment PIN_53 -to PriVideo
+set_location_assignment PIN_48 -to SecVSync
+set_location_assignment PIN_47 -to SecHSync
+set_location_assignment PIN_52 -to SecVideo
+
+set_location_assignment PIN_22 -to FdcRdy_n
+set_location_assignment PIN_88 -to FdcIntr
+set_location_assignment PIN_91 -to FdcDrq
+
+set_location_assignment PIN_65 -to Spare65
+set_location_assignment PIN_89 -to SpareIn89
+set_location_assignment PIN_86 -to Spare86
+set_location_assignment PIN_74 -to Spare74
+set_location_assignment PIN_75 -to Spare75
+set_location_assignment PIN_92 -to Spare92
+set_location_assignment PIN_90 -to SpareIn90
+
+
+
+
+
 
 set_global_assignment -name STRATIX_DEVICE_IO_STANDARD "3.3-V LVTTL"
 set_global_assignment -name OPTIMIZE_HOLD_TIMING "IO PATHS AND MINIMUM TPD PATHS"
@@ -169,23 +185,13 @@ set_instance_assignment -name CURRENT_STRENGTH_NEW 12MA -to sRamAddress[3]
 set_instance_assignment -name CURRENT_STRENGTH_NEW 12MA -to sRamAddress[2]
 set_instance_assignment -name CURRENT_STRENGTH_NEW 12MA -to sRamAddress[1]
 set_instance_assignment -name CURRENT_STRENGTH_NEW 12MA -to sRamAddress[0]
-set_instance_assignment -name CURRENT_STRENGTH_NEW 12MA -to n_sRamCS
+set_instance_assignment -name CURRENT_STRENGTH_NEW 12MA -to n_sRamCS1
 set_instance_assignment -name CURRENT_STRENGTH_NEW 12MA -to n_sRamCS2
 set_instance_assignment -name CURRENT_STRENGTH_NEW 12MA -to n_sRamOE
 set_instance_assignment -name CURRENT_STRENGTH_NEW 12MA -to n_sRamWE
 
-set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to gpio0[2]
-set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to gpio0[1]
-set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to gpio0[0]
-set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to gpio2[7]
-set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to gpio2[6]
-set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to gpio2[5]
-set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to gpio2[4]
-set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to gpio2[3]
-set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to gpio2[2]
-set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to gpio2[1]
-set_instance_assignment -name CURRENT_STRENGTH_NEW 4MA -to gpio2[0]
-
+set_instance_assignment -name CURRENT_STRENGTH_NEW 12MA -to clk1
+set_instance_assignment -name CURRENT_STRENGTH_NEW 12MA -to clk4
 
 set_global_assignment -name SDC_FILE NASCOM4.out.sdc
 set_global_assignment -name VHDL_FILE ../Components/MMAPPER/mem_mapper.vhd
@@ -215,6 +221,10 @@ set_global_assignment -name QIP_FILE ../RAMS/InternalRam4K.qip
 set_global_assignment -name QIP_FILE ../ROMS/Z80/Z80_NASSYS3_ROM.qip
 set_global_assignment -name QIP_FILE ../ROMS/Z80/Z80_MAP80VFC_ROM.qip
 set_global_assignment -name QIP_FILE ../ROMS/Z80/Z80_SBOOT_ROM.qip
+
+
+
+
 
 
 

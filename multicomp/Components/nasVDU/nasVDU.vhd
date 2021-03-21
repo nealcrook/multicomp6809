@@ -60,15 +60,13 @@ entity nasVDU is
 		dataIn	: in  std_logic_vector(7 downto 0);
 		dataOut	: out std_logic_vector(7 downto 0);
 
-		-- RGB video signals
-		videoR0	: out std_logic;
-		videoR1	: out std_logic;
-		videoG0	: out std_logic;
-		videoG1	: out std_logic;
-		videoB0	: out std_logic;
-		videoB1	: out std_logic;
-		hSync  	: buffer  std_logic;
-		vSync  	: buffer  std_logic
+		-- RGB video signals for Primary and Secondary output
+		PriHsync: out std_logic;
+		PriVsync: out std_logic; -- TODO previusly the sync signals were defined as 'buffer'
+		PriVideo: out std_logic;
+		SecHsync: out std_logic;
+		SecVsync: out std_logic;
+		SecVideo: out std_logic
  );
 end nasVDU;
 
@@ -107,29 +105,25 @@ begin
         charAddr <= vcharAddr when video_map80vfc='1' else ncharAddr;
 
         -- route correct video signal out
-        -- [NAC HACK 2020Nov30] later have 2 sets of outputs and only 1 "colour" out
-        -- and make this swap them so that 1 or 2 external monitors could be used.
+        -- [NAC HACK 2021Mar19] maybe allow same output on both monitors? Still need to implement
+        -- arbitrated access to char generator..
         vid_mux: process (video_map80vfc, vvideo, nvideo, vhSync, nhSync, vvSync, nvSync)
         begin
-          if (video_map80vfc = '1') then
-            videoR0 <= vvideo;
-            videoR1 <= vvideo;
-            videoG0 <= vvideo;
-            videoG1 <= vvideo;
-            videoB0 <= vvideo;
-            videoB1 <= vvideo;
-            hSync   <= vhSync;
-            vSync   <= vvSync;
-          else
-            videoR0 <= nvideo;
-            videoR1 <= nvideo;
-            videoG0 <= nvideo;
-            videoG1 <= nvideo;
-            videoB0 <= nvideo;
-            videoB1 <= nvideo;
-            hSync   <= nhSync;
-            vSync   <= nvSync;
-          end if;
+            if (video_map80vfc = '1') then
+                PriHsync <= vhSync;
+                PriVsync <= vvSync;
+                PriVideo <= vvideo;
+                SecHsync <= nhSync;
+                SecVsync <= nvSync;
+                SecVideo <= nvideo;
+            else
+                PriHsync <= nhsync;
+                PriVsync <= nvsync;
+                PriVideo <= nvideo;
+                SecHsync <= vhsync;
+                SecVsync <= vvsync;
+                SecVideo <= vvideo;
+            end if;
         end process;
 
 -- COMMON CHARACTER GENERATOR

@@ -1,10 +1,14 @@
 -- TODO/BUGS
+-- Doc: add link on debug connector from unused outputs to (floating)
+-- unused inputs
+-- Add a "never booted" flag that can be used on warm reset to take the
+-- system to a minimal (no SDcard) setup eg on 1st bringup.
 -- Consider changing ROMs to be a single model with an initialisation file
 --   and put them in a generic folder.
 -- Change char gen to an initialised RAM and add control port for writes
 -- Review compilation warnings and fix
 -- Do gate-count estimate for adding GM813 memory-mapper
--- Make sure input-only pins can have internal pullups
+-- Make sure input-only pins can have internal pullups (they *cannot*)
 --
 -- Next..
 -- add cursor key support to keyboard
@@ -147,78 +151,12 @@
 -- the source code for the SBootROM.
 
 
--- I/O assignment/reassignment:
-
--- Current         New
--- gpio0(2)        in, NMI button
--- gpio0(1)        in, warm/cold reset (actually using VFUFFD0 pin currently)
--- gpio0(0)        in,
---
--- n_LED7          out, DRIVE - [NAC HACK 2020Nov25] not yet coded.
--- n_LED9          out, HALT
--- gpio2(7)        out, nascom kbd clk
--- gpio2(6)        out, nascom kbd rst
--- gpio2(5)        out, /M1 (for int ack)
--- gpio2(4)        out, CLK (for PIO)
--- gpio2(3)        out, IORQ (for PIO)
--- gpio2(2)        out, RD (for PIO)
--- gpio2(1)        out, WR (for PIO)
--- gpio2(0)        in, INT (for PIO)
--- vduffd0         out, buf oe (for I/O bus buffer)
--- rxd2            out, buf dir (for I/O bus buffer)
--- txd2            out, ioclk for motor on/drive select/fm~mfm register
--- rt2s            out iooe for reading 3 FDC status signals: INT/DAV/BUSY
--- videoSync       out iooe for reading NASCOM kbd data
--- txd1            out UART TXD
--- rxd1            in UART RXD
--- rts1            in UART TXRXCLK
--- video           out FDC chip select
---                 out PIO chip select
---
--- .. may run out of pins..
--- currently this allows me to keep the 5 pins assigned to SDcard and its LED
--- and the PS/2 keyboard connection
--- and the 8 pins for VGA. VGA could be reduced to 3 pins freeing 5
--- if I have 2 VGA ports, using 6 pins, I'll still free 2 pins.. one for the PIO
--- chip select and one spare (FDC clock?? Reset??)
---
--- ..just hope I did not forget anything!
--- mitigation is to put Port0 output latch externally:
--- add 1 control signal, remove connections for LED, KBD-reset, KBD-clock
--- and so save 2 pins. Still do the single-step bit internally but also publish it in the I/O write.
-
-
-
 ------
 -- Work out how to do shared video access to char gen:
 -- add debug signals to show reads of video/chargen RAM
 ------
 -- Add write port to char gen.. how to decode? Whole of VFC space?
 -- Code synchroniser and pulse generator for NMI push button
--- Work out what's needed for FDC miscellaneous control
--- Look at clocking, implement external RAM interface, allow
--- slow-down for I/O cycles. Allow operation at a lower clock speed.
--- Work out external pin mapping.
--- Consider Arduino interface; 1 or 2 external SDcards..
-
--- The pin assignments here are designed to match up with James Moxham's
--- multicomp PCB. The support for devices on that PCB is summaried below:
--- LED pin 3  - connected, controlled by SDcard
--- LED pin 7  - unused. LED off.
--- LED pin 9  - unused. LED off.
--- I/O pin 48 - vduffd0 (see description above).
--- I/O - not connected; most pins assigned for GPIO unit.
--- Refer to Microcomputer.qsf for GPIO (and any other) pinout details.
--- VGA - connected and used as 1st (primary) I/O device: 80x25 colour video
--- MONO - connected.
--- SD1 - connected.
--- PROTO - not connected
--- TOUCH - not connected
--- KBD - connected
--- SERIAL A - connected and used as 2nd I/O device
--- SERIAL B - connected and used as 3rd I/O device
--- MEMORY 512K - connected. Accessible through memory paging unit.
--- SECOND MEMORY - connected. Accessible through memory paging unit.
 --
 
 library ieee;
@@ -231,65 +169,92 @@ entity NASCOM4 is
     );
     port(
 	-- these are connected on the base FPGA board
-        n_reset       : in std_logic;
         clk           : in std_logic;
+        n_SwRst       : in std_logic;
 
-        -- LEDs on base FPGA board and duplicated on James Moxham's PCB.
-        -- Set LOW to illuminate. 3rd LED is "driveLED" output from SDcard
-        n_LED7        : out std_logic := '1';  -- DRIVE (tape)
-        n_LED9        : out std_logic := '1';  -- HALT
+        -- push-buttons
+        n_SwWarmRst   : in std_logic; -- Assigned to input-only pin
+        n_SwNMI       : in std_logic; -- Assigned to input-only pin - cannot select pullup on input-only pins. They have
+                                      -- weak pullup during configuration. May need to add a pull-up on the PCB.
 
-        -- External pull-up so this defaults to 1. When pulled to gnd
-        -- SBootROM will do a COLD reset. Otherwise, warm reset
-        vduffd0         : in std_logic;
+        -- LEDs - set LOW to illuminate. These also exist on FPGA daughter-card so DON'T
+        -- change the pin assignments (pins 7/9/3).
+        n_LED7Drive   : out std_logic := '1';  -- DRIVE (tape)
+        n_LED9Halt    : out std_logic := '1';  -- CPU HALT
+        n_LED3SdActive: out std_logic := '1';  -- SDcard Active
 
+        -- External RAM interface
         sRamData        : inout std_logic_vector(7 downto 0);
         sRamAddress     : out std_logic_vector(18 downto 0); -- 18:0 -> 512KByte
         n_sRamWE        : out std_logic;
-        n_sRamCS        : out std_logic;                     -- lower blocks [NAC HACK 2020Dec08] rename CSLo
-        n_sRamCS2       : out std_logic;                     -- upper blocks [NAC HACK 2020Dec08] rename CSHi
+        n_sRamCS1       : out std_logic;                     -- lower blocks
+        n_sRamCS2       : out std_logic;                     -- upper blocks
         n_sRamOE        : out std_logic;
 
-        rxd1            : in std_logic;
-        txd1            : out std_logic;
-        rts1            : out std_logic; -- [NAC HACK 2020Dec04] unused
+        -- I/O bridge
+        clk4            : out std_logic;
+        clk1            : out std_logic;
 
-        rxd2		: in std_logic; -- [NAC HACK 2020Dec04] unused.. now used for CPU INT
-        txd2		: out std_logic; -- [NAC HACK 2020Dec04] unused
-        rts2		: out std_logic; -- [NAC HACK 2020Dec04] unused
+        pio_cs_n        : out std_logic;
+        ctc_cs_n        : out std_logic;
+        fdc_cs_n        : out std_logic;
 
-        videoSync   : out std_logic; -- [NAC HACK 2020Dec04] unused
-        video       : out std_logic; -- [NAC HACK 2020Dec04] unused
+        porte4_wr       : out std_logic;
+        port00_rd_n     : out std_logic;
 
-        videoR0     : out std_logic;
-        videoG0     : out std_logic;
-        videoB0     : out std_logic;
-        videoR1     : out std_logic;
-        videoG1     : out std_logic;
-        videoB1     : out std_logic;
-        hSync       : out std_logic;
-        vSync       : out std_logic;
+        BrReset_n       : out std_logic;
+        BrM1_n          : out std_logic;
+        BrIORQ_n        : out std_logic;
+        BrRD_n          : out std_logic;
+        BrWR_n          : out std_logic;
 
-        ps2Clk      : inout std_logic; -- [NAC HACK 2020Dec04] currently unused, reserved
-        ps2Data     : inout std_logic; -- [NAC HACK 2020Dec04] currently unused, reserved
+        BrBufOE_n       : out std_logic;
+        BrBufWr         : out std_logic;
 
-        -- 3 GPIO mapped to "group A" connector. Pin 1..3 of that connector
-        -- assigned to bit 0..2 of gpio0.
-        -- Intended for connection to DS1302 RTC as follows:
-        -- bit 2: CE          (FPGA PIN 42)
-        -- bit 1: SCLK        (FPGA PIN 41)
-        -- bit 0: I/O (Data)  (FPGA PIN 40)
-        gpio0       : in std_logic_vector(2 downto 0); --[NAC HACK 2020Nov25] was bootmode now unused
-        -- 8 GPIO mapped to "group B" connector. Pin 1..8 of that connector
-        -- assigned to bit 0..7 of gpio2.
-        gpio2       : inout std_logic_vector(7 downto 0);
+        -- PS/2 keyboard
+        ps2Clk          : inout std_logic;
+        ps2Data         : inout std_logic;
 
-        sdCS        : out std_logic;
-        sdMOSI      : out std_logic;
-        sdMISO      : in std_logic;
-        sdSCLK      : out std_logic;
-        -- despite its name this needs to be LOW to illuminate the LED.
-        driveLED    : out std_logic :='1'
+        -- NASCOM keyboard
+        NasKbdClk       : out std_logic;   -- TODO get name polarity aligned between here and PCB
+        NasKbdRst       : out std_logic;
+
+        -- NASCOM serial port
+        SerRxToNas      : in std_logic;
+        SerTxFrNas      : out std_logic;
+        SerRxBdClk      : in std_logic;
+        SerTxBdClk      : in std_logic;
+
+        -- Interrupt to CPU
+        n_INT           : in std_logic;
+
+        -- SDcard
+        sdCS            : out std_logic;
+        sdMOSI          : out std_logic;   -- SDDO externally
+        sdMISO          : in std_logic;    -- SDDI externally
+        sdSCLK          : out std_logic;
+
+        -- VGA output
+        PriVSync        : out std_logic;
+        PriHSync        : out std_logic;
+        PriVideo        : out std_logic;
+        SecVSync        : out std_logic;
+        SecHSync        : out std_logic;
+        SecVideo        : out std_logic;
+
+        -- Signals from FDC for port E4 read
+        FdcRdy_n        : in std_logic;    -- Assigned to input-only pin
+        FdcIntr         : in std_logic;    -- Assigned to input-only pin
+        FdcDrq          : in std_logic;    -- Assigned to input-only pin
+
+        -- Unused stuff on debug connector
+        Spare65         : out std_logic;
+        SpareIn89       : in std_logic;    -- Assigned to input-only pin
+        Spare86         : out std_logic;
+        Spare74         : out std_logic;
+        Spare75         : out std_logic;
+        Spare92         : out std_logic;
+        SpareIn90       : in std_logic     -- Assigned to input-only pin
     );
 end NASCOM4;
 
@@ -297,10 +262,15 @@ architecture struct of NASCOM4 is
 
     signal n_WR                   : std_logic;
     signal n_RD                   : std_logic;
-    signal hold                   : std_logic;
+    signal n_WAIT                 : std_logic;
+    signal n_MREQ                 : std_logic := '1';
+    signal n_IORQ                 : std_logic := '1';
+    signal n_HALT                 : std_logic;
+    signal n_M1                   : std_logic;
     signal cpuAddress             : std_logic_vector(15 downto 0);
     signal cpuDataOut             : std_logic_vector(7 downto 0);
     signal cpuDataIn              : std_logic_vector(7 downto 0);
+
     signal n_sRamCSHi_i           : std_logic;
     signal n_sRamCSLo_i           : std_logic;
 
@@ -312,8 +282,6 @@ architecture struct of NASCOM4 is
     signal UartDataOut            : std_logic_vector(7 downto 0);
     signal sdCardDataOut          : std_logic_vector(7 downto 0);
 
-    signal irq                    : std_logic;
-
     signal n_nasWSRamCS           : std_logic :='1';
     signal n_nasVidRamCS          : std_logic :='1';
     signal n_nasRomCS             : std_logic :='1';
@@ -322,24 +290,21 @@ architecture struct of NASCOM4 is
     signal n_vfcRomCS             : std_logic :='1';
 
     signal n_sbootRomCS           : std_logic :='1';
-    signal n_UartCS               : std_logic :='1';
-    signal n_sdCardCS             : std_logic :='1';
+
+    signal wren_nasWSRam          : std_logic := '1';
+    signal n_memWr                : std_logic;
 
     signal serialClkCount         : std_logic_vector(15 downto 0) := x"0000";
     signal serialClkCount_d       : std_logic_vector(15 downto 0);
     signal serialClkEn            : std_logic;
 
+    signal n_UartCS               : std_logic :='1';
     signal n_WR_uart              : std_logic := '1';
     signal n_RD_uart              : std_logic := '1';
 
+    signal n_sdCardCS             : std_logic :='1';
     signal n_WR_sd                : std_logic := '1';
     signal n_RD_sd                : std_logic := '1';
-
-    signal n_WR_gpio              : std_logic := '1';
-
-    signal wren_nasWSRam          : std_logic := '1';
-
---[NAC HACK 2020Nov15] new to be tidied/integrated
 
     -- Event interface to PS/2 keyboard
     signal KbdEvent               : std_logic;
@@ -349,45 +314,18 @@ architecture struct of NASCOM4 is
     -- synchronise reset and generate control for jump-on-reset
     signal n_reset_s1             : std_logic;
     signal n_reset_s2             : std_logic;
+    signal n_wreset_s1            : std_logic;
+    signal n_wreset_s2            : std_logic;
     signal n_reset_clean          : std_logic;
     signal post_reset_rd_cnt      : std_logic_vector(1 downto 0);
     signal reset_jump             : std_logic;
 
-    signal n_WAIT                 : std_logic;
-    signal cpuClock               : std_logic := '1';
-    signal n_MREQ                 : std_logic := '1';
-    signal n_IORQ                 : std_logic := '1';
-    signal n_HALT                 : std_logic;
-    signal n_M1                   : std_logic;
-
-    signal n_memWr                : std_logic;
-
-
-    ------------------------------------------------------------------
-    -- To the outside world. Can go from here once I tidy up the
-    -- top-level ports list
-    signal clk4                   : std_logic;
-    signal clk1                   : std_logic;
-    signal io_reset_n             : std_logic;
-    signal pio_cs_n               : std_logic;
-    signal ctc_cs_n               : std_logic;
-    signal fdc_cs_n               : std_logic;
-    signal porte4_wr              : std_logic;
-    signal port00_rd_n            : std_logic;
-    signal BrM1_n                 : std_logic;
-    signal BrIORQ_n               : std_logic;
-    signal BrRD_n                 : std_logic;
-    signal BrWR_n                 : std_logic;
-    signal BrBufOE_n              : std_logic;
-    signal BrBufWr                : std_logic;
-
-    -- TODO these will be inputs and go to the read path of the E4 port
-    signal FdcIntr                : std_logic;
-    signal FdcDrq                 : std_logic;
-    signal FdcRdy_n               : std_logic;
-
     -- internal signals for bridge
     signal BridgeRdData           : std_logic_vector(7 downto 0);
+
+    -- 0 : SBootROM will do a COLD reset (does not simulate coz needs SdCard)
+    -- 1 : SBootROM will do a WARM reset
+    signal warm                   : std_logic := '0';
 
 
     ------------------------------------------------------------------
@@ -418,7 +356,7 @@ architecture struct of NASCOM4 is
     -- Port 10-17: Decoded for SDcard (only 10,11,12,13,14 used)
 
     ------------------------------------------------------------------
-    -- Port 18: new for FPGA implementation (R/W)
+    -- REMAP Port 18: new for FPGA implementation (R/W)
     -- NOT RESET to allow warm reset flow in SBROM
     -- The initial states below allow a warm reset from SBROM in
     -- RTL simulation.
@@ -452,7 +390,7 @@ architecture struct of NASCOM4 is
     signal SBootRomState          : std_logic_vector(1 downto 0);
 
     ------------------------------------------------------------------
-    -- Port 19: RAM write protect
+    -- PROTECT Port 19: RAM write protect
     -- Ef8k means: from E000 for 8K
 
     signal iopwr19ProtEf8k        : std_logic; -- bit 6 Protect BASIC
@@ -465,32 +403,32 @@ architecture struct of NASCOM4 is
     signal sRamProtect            : std_logic;
 
     ------------------------------------------------------------------
-    -- Port 1A: Memory stalls
+    -- MWAITS Port 1A: Memory stalls
     -- Write-only. N means N+1 stalls
 
     signal iopwr1aStalls          : std_logic_vector(7 downto 0);
 
     ------------------------------------------------------------------
-    -- Port 1B: PORPage
+    -- PORPAGE Port 1B: POR address saved for warm reset
     -- Read/Write with no hardware side-effect. Managed by SBootROM
 
-    signal iopwr1bPOR             : std_logic_vector(7 downto 0) := x"00";
-    signal ioprd1b                : std_logic_vector(7 downto 0);
+    signal iopwr1BPOR             : std_logic_vector(7 downto 0) := x"00";
+    signal ioprd1B                : std_logic_vector(7 downto 0);
 
     ------------------------------------------------------------------
-    -- Port 1C: Reason
-    -- Read-only bits to distinguish hard from soft reset, either from push
-    -- buttons or from the PS/2 keyboard FN keys
-    -- TODO not yet implemented
-    -- TODO need a write-any-data-to-clear (already done in the SBootROM
-    -- but has no effect here yet).
+    -- REASON Port 1C: Distinguish hard from soft reset
+    -- Read-only.
+    -- Events from front-panel buttons or from the PS/2 keyboard FN keys
+    -- TODO only bit[7] implemented currently.
+    -- TODO might need a write-any-data-to-clear (already done in the
+    -- SBootROM code but has no effect here yet).
 
-    signal ioprd1c                : std_logic_vector(7 downto 0);
+    signal ioprd1C                : std_logic_vector(7 downto 0);
 
     ------------------------------------------------------------------
     -- Port E4: MAP80 VFC disk control
     signal portE4wr               : std_logic_vector(7 downto 0);  -- TODO remove this is will be external
-    signal portE4rd               : std_logic_vector(7 downto 0) := x"00"; -- TODO connect FDC signals to this
+    signal ioprdE4                : std_logic_vector(7 downto 0);
 
     ------------------------------------------------------------------
     -- Port E6: MAP80 VFC parallel keyboard
@@ -527,25 +465,26 @@ architecture struct of NASCOM4 is
     -- NMI to CPU and NMI state machine
     signal n_NMI                  : std_logic;
     signal nmi_state              : std_logic_vector(2 downto 0);
+    signal nmi_count              : std_logic_vector(7 downto 0); -- for button debounce
+    signal nmi_button             : std_logic;
 
 begin
-
-    n_LED9 <= n_HALT;
-    n_LED7 <= not iopwr00NasDrive;
+    n_LED9Halt  <= n_HALT;
+    n_LED7Drive <= not iopwr00NasDrive;
+    NasKbdClk   <= iopwr00NasKbdClk;
+    NasKbdRst   <= iopwr00NasKbdRst;
 
 -- ____________________________________________________________________________________
 -- CPU CHOICE GOES HERE
 
-    cpuClock <= clk; -- [NAC HACK 2020Nov15] fix.. this is 50MHz?
-
     cpu1 : entity work.T80s
       generic map(mode => 1, t2write => 1, iowait => 0)
       port map(
-            clk_n   => cpuClock, -- or just clk??
+            clk_n   => clk,   -- 50MHz master input clock
             reset_n => n_reset_clean,
             wait_n  => n_WAIT,
-            int_n   => rxd2,   -- TODO from external I/O sub-system
-            nmi_n   => n_NMI, -- from single-step logic
+            int_n   => n_INT, -- from external I/O sub-system
+            nmi_n   => n_NMI, -- from single-step logic or debounced switch
             busrq_n => '1',   -- unused
             halt_n  => n_HALT,
             m1_n    => n_M1,
@@ -605,12 +544,12 @@ begin
 
     proc_sramadr: process(cpuAddress, iopwrFEPageSel, iopwrFEUpper32k, iopwrFE32kPages)
     begin
-      if (iopwrFE32kPages = '0') then
+      if iopwrFE32kPages = '0' then
         -- 64K paging. 16 address lines from CPU, 3 from the page register.
         sRamAddress  <= iopwrFEPageSel(3 downto 1) & cpuAddress(15 downto 0);
         n_sRamCSLo_i <=     iopwrFEPageSel(4);
         n_sRamCSHi_i <= not(iopwrFEPageSel(4));
-      elsif (iopwrFEUpper32k = cpuAddress(15)) then
+      elsif iopwrFEUpper32k = cpuAddress(15) then
         -- 32K paging. Select page 0 in the lower or upper half of the address space
         sRamAddress  <= "000" & cpuAddress(15 downto 0);
         n_sRamCSLo_i <= '0';
@@ -624,7 +563,7 @@ begin
     end process;
 
     -- Assign chip selects to pins
-    n_sRamCS  <= n_sRamCSLo_i;
+    n_sRamCS1 <= n_sRamCSLo_i;
     n_sRamCS2 <= n_sRamCSHi_i;
 
 
@@ -716,8 +655,8 @@ begin
         -- Originally I tried to NOT reset this, so that it would be
         -- maintained across soft reset, but I got very weird behaviour
         -- on silicon, even though it seemed to work fine in simulation.
---        iopwr1aStalls <= x"20";
-        iopwr1aStalls <= x"04";
+        iopwr1aStalls <= x"20";
+--        iopwr1aStalls <= x"04"; -- for RTL simulation
 
         portE4wr <= x"00";
         portE8wr <= x"00";
@@ -814,12 +753,14 @@ begin
           & iopwr19ProtAf4k & '0' & iopwr19Prot0f2k;
 
     -- Readback for port1b
-    ioprd1b <= iopwr1bPOR;
+    ioprd1B <= iopwr1BPOR;
 
     -- Readback for port1c
     -- TODO add other reason bits
-    ioprd1c <= vduffd0 & "0000000";
+    ioprd1C <= warm & "0000000";
 
+    -- Readback for portE4; port bit positions match MAP80 VFC
+    ioprdE4 <= FdcDrq & "00000" & FdcRdy_n & FdcIntr;
 
     -- [NAC HACK 2020Nov16] here, I drive data for any IO request -- will need changing for external IO read
     -- [NAC HACK 2020Nov16] and for interrupt ack cycle
@@ -828,7 +769,7 @@ begin
     -- E4 read from stuff.. disk control
     -- E6 parallel keyboard synthesised from PS/2 kbd
     -- Miscellaneous I/O port write
-    proc_iord: process(cpuAddress, ioprd00, UartDataOut, ioprd18, ioprd19, sdCardDataOut, porte4rd, porte6rd)
+    proc_iord: process(cpuAddress, ioprd00, UartDataOut, ioprd18, ioprd19, ioprdE4, porte6rd, sdCardDataOut, sRamData)
     begin
       if cpuAddress(7 downto 0) = x"00" then
         nasLocalIODataOut  <= ioprd00;
@@ -841,20 +782,21 @@ begin
       elsif cpuAddress(7 downto 0) = x"19" then
         nasLocalIODataOut  <= ioprd19;
       elsif cpuAddress(7 downto 0) = x"1b" then
-        nasLocalIODataOut  <= ioprd1b;
+        nasLocalIODataOut  <= ioprd1B;
       elsif cpuAddress(7 downto 0) = x"1c" then
-        nasLocalIODataOut  <= ioprd1c;
+        nasLocalIODataOut  <= ioprd1C;
       elsif cpuAddress(7 downto 0) = x"e4" then
-        nasLocalIODataOut  <= porte4rd;
+        nasLocalIODataOut  <= ioprdE4;
       elsif cpuAddress(7 downto 0) = x"e6" then
         nasLocalIODataOut  <= porte6rd;
       else
-        nasLocalIODataOut  <= x"00";
+        -- from external I/O bridge TODO is this the best way to do it?? Can it work for iack, too?
+        nasLocalIODataOut  <= sRamData;
       end if;
     end process;
 
-    -- Single-step logic
-    -- Write to Port 0. Then, M1 cycles:
+    -- Single-step logic: soft-generated NMI
+    -- Write to Port 0, bit[3]=1 Then, M1 cycles:
     -- 0x472 F1    POP AF
     -- 0x473 ED
     -- 0x474 45    RETN (2 M1 cycles)
@@ -862,28 +804,58 @@ begin
     -- By wave inspection, this seems to work correctly: two
     -- single-step commands in a row start execution at
     -- successive addresses.
+    --
+    -- In addition, front-panel NMI button is debounced
+    -- to generate a single-cycle pulse.
+    --
+    -- TODO there are some counting states in the SM after NMI asserts that are not needed;
+    -- do an RTL sim, give the states names and use some of those states for the button NMI, merging
+    -- the button press logic into the SM and getting rid of nmi_button
+    -- TODO 8-bit count value is arbitrary: investigate whether it could be shorter.
+    -- Also, could generate a common prescale/clock enable elsewhere for use here
+
     proc_sstep: process(clk, n_reset_clean)
     begin
-      if (n_reset_clean='0') then
-        n_NMI <= '1';
-        nmi_state <= "000";
-      elsif rising_edge(clk) then
-        -- only assert NMI for 1 cycle
-        if n_NMI = '0' then
-          n_NMI <= '1';
+        if n_reset_clean='0' then
+            n_NMI <= '1';
+            nmi_state <= "000";
+
+            nmi_count <= x"00";
+            nmi_button <= '0';
+        elsif rising_edge(clk) then
+            -- only assert NMI for 1 cycle
+            if n_NMI = '0' then
+                n_NMI <= '1';
+            end if;
+
+            if iopwr00NasNMI = '0' then
+                -- Soft bit is LOW; clear state
+                nmi_state <= "000";
+            elsif n_M1 = '0' and n_RD = '0' and n_WAIT = '1' then
+                -- Soft bit is high and M1 cycle; trek through states
+                if nmi_state = "011" then
+                    n_NMI <= '0';
+                end if;
+                if nmi_state /= "111" then
+                    nmi_state <= nmi_state + "001";
+                end if;
+            end if;
+
+            -- nmi_button makes sure we only get 1 NMI per button-press.
+            if n_SwNMI = '1' then
+                nmi_count <= x"00";
+                nmi_button <= '0';
+            elsif nmi_count = x"FF" then
+                if n_M1 = '0' and n_RD = '0' and n_WAIT = '1' and nmi_button = '0' then
+                    n_NMI <= '0';
+                    nmi_button <= '1';
+                end if;
+            else
+                nmi_count <= nmi_count + x"01";
+            end if;
         end if;
-        if iopwr00NasNMI = '0' then
-          nmi_state <= "000";
-        elsif n_M1 = '0' and n_RD = '0' and n_WAIT = '1' then
-          if nmi_state = "011" then
-            n_NMI <= '0';
-          end if;
-          if nmi_state /= "111" then
-            nmi_state <= nmi_state + "001";
-          end if;
-        end if;
-      end if;
     end process;
+
 
     n_memWr <= n_MREQ or n_WR;
 
@@ -905,14 +877,13 @@ begin
             dataOut     => VDURamDataOut,
 
             -- RGB video signals
-            hSync       => hSync,
-            vSync       => vSync,
-            videoR0     => videoR0,
-            videoR1     => videoR1,
-            videoG0     => videoG0,
-            videoG1     => videoG1,
-            videoB0     => videoB0,
-            videoB1     => videoB1);
+            PriHsync    => PriHsync,
+            PriVsync    => PriVsync,
+            PriVideo    => PriVideo,
+            SecHsync    => SecHsync,
+            SecVsync    => SecVsync,
+            SecVideo    => SecVideo
+            );
 
 
     n_WR_uart <= n_UartCS or n_WR or n_IORQ;
@@ -924,7 +895,7 @@ begin
 
     proc_uartcnt: process(clk, n_reset_clean)
     begin
-      if (n_reset='0') then
+      if n_reset_clean='0' then
         uartcnt <= x"0a";
       elsif rising_edge(clk) then
         if n_RD_uart = '0' and cpuAddress(1) = '0' and uartcnt /= x"ff" then
@@ -975,39 +946,39 @@ begin
 
     io2 : entity work.bufferedUART6402
     port map(
-            n_reset => n_reset_clean,
-            clk => clk,
+        n_reset => n_reset_clean,
+        clk => clk,
 
-            n_wr => n_WR_uart,
-            n_rd => n_RD_uart,
-            regSel => cpuAddress(0),
-            dataIn => cpuDataOut,
-            dataOut => UartDataOut,
-            rxClkEn => serialClkEn,
-            txClkEn => serialClkEn,
-            rxd => rxd1,
-            txd => txd1);
+        n_wr => n_WR_uart,
+        n_rd => n_RD_uart,
+        regSel => cpuAddress(0),
+        dataIn => cpuDataOut,
+        dataOut => UartDataOut,
+        rxClkEn => serialClkEn,
+        txClkEn => serialClkEn,
+        rxd => SerRxToNas,   -- In
+        txd => SerTxFrNas    -- Out
+        );
 end generate;
-
 
 
     io3 : entity work.nasKBDPS2
     port map(
-            n_reset => n_reset_clean,
-            clk     => clk,
+        n_reset => n_reset_clean,
+        clk     => clk,
 
-            ps2Clk  => ps2Clk,
-            ps2Data => ps2Data,
+        ps2Clk  => ps2Clk,
+        ps2Data => ps2Data,
 
-            Event     => KbdEvent,
-            EventCode => KbdEventCode,
-            ClearEvent  => KbdClearEvent,
+        Event     => KbdEvent,
+        EventCode => KbdEventCode,
+        ClearEvent  => KbdClearEvent,
 
-            kbdrst => iopwr00NasKbdRst,
-            kbdclk => iopwr00NasKbdClk,
+        kbdrst => iopwr00NasKbdRst,
+        kbdclk => iopwr00NasKbdClk,
 
-            kbddata => ioprd00 -- [NAC HACK 2021Jan13] need to combine with real NASCOM kbd data in from the outside
-            );
+        kbddata => ioprd00 -- [NAC HACK 2021Jan13] need to combine with real NASCOM kbd data in from the outside
+        );
 
 
     n_WR_sd <= n_sdCardCS or n_WR or n_IORQ;
@@ -1018,18 +989,18 @@ end generate;
         CLKEDGE_DIVIDER => 25 -- edges at 50MHz/25 = 2MHz ie 1MHz sdSCLK
     )
     port map(
-            sdCS => sdCS,
-            sdMOSI => sdMOSI,
-            sdMISO => sdMISO,
-            sdSCLK => sdSCLK,
-            n_wr => n_WR_sd,
-            n_rd => n_RD_sd,
-            n_reset => n_reset_clean,
-            dataIn => cpuDataOut,
-            dataOut => sdCardDataOut,
-            regAddr => cpuAddress(2 downto 0),
-            driveLED => driveLED,
-            clk => clk
+        sdCS => sdCS,
+        sdMOSI => sdMOSI,
+        sdMISO => sdMISO,
+        sdSCLK => sdSCLK,
+        n_wr => n_WR_sd,
+        n_rd => n_RD_sd,
+        n_reset => n_reset_clean,
+        dataIn => cpuDataOut,
+        dataOut => sdCardDataOut,
+        regAddr => cpuAddress(2 downto 0),
+        driveLED => n_LED3SdActive,
+        clk => clk
     );
 
 
@@ -1038,7 +1009,7 @@ end generate;
 -- -----------------------------------------------------------------------------------
 
     br1: entity work.nasBridge
-      port map(
+    port map(
         n_reset => n_reset_clean,
         clk     => clk,
 
@@ -1059,6 +1030,7 @@ end generate;
         -- To the outside world
         clk4           => clk4,
         clk1           => clk1,
+
         pio_cs_n       => pio_cs_n,
         ctc_cs_n       => ctc_cs_n,
         fdc_cs_n       => fdc_cs_n,
@@ -1066,7 +1038,7 @@ end generate;
         porte4_wr      => porte4_wr,
         port00_rd_n    => port00_rd_n,
 
-        BrReset_n      => io_reset_n,
+        BrReset_n      => BrReset_n,
         BrM1_n         => BrM1_n,
         BrIORQ_n       => BrIORQ_n,
         BrRD_n         => BrRD_n,
@@ -1119,7 +1091,7 @@ end generate;
                         vfcRomDataOut           when n_vfcRomCS    = '0' else
                         nasWSRamDataOut         when n_nasWSRamCS  = '0' else
                         VDURamDataOut           when n_nasVidRamCS = '0' or n_vfcVidRamCS = '0' else
-                        sRamData;
+                        sRamData;               -- for external memory read, for interrupt ack
 
 -- ____________________________________________________________________________________
 -- SYSTEM CLOCKS GO HERE
@@ -1162,32 +1134,49 @@ end generate;
 
 -- n_reset_clean asserts asynchronously and negates synchronously; this ensures
 -- that all blocks come out of reset cleanly and on the same clock.
-    n_reset_clean <= n_reset and n_reset_s2;
+-- [NAC HACK 2021Mar19] n_SwRst has an RC network on it that has the effect of
+-- debouncing it. n_SwWarmRst does not, so it may need some additional conditioning
+-- before being combined into this logic
+    n_reset_clean <= '0' when n_SwRst = '0' or n_SwWarmRst = '0' or n_reset_s2 = '0' else '1';
 
-    rst_gen: process (clk, n_reset)
+
+    trk_warm: process (clk)
     begin
-      if (n_reset='0') then
-        n_reset_s1 <= '0';
-        n_reset_s2 <= '0';
-        n_reset_s1 <= '0';
-        post_reset_rd_cnt <= "00";
-        reset_jump <= '1';
-      elsif rising_edge(clk) then
-        n_reset_s1 <= n_reset;
-        n_reset_s2 <= n_reset_s1;
-
-        -- count reads after reset..
-        if n_reset_s2 = '1' and n_rd = '0' and n_WAIT = '1' and post_reset_rd_cnt /= "11" then
-          post_reset_rd_cnt <= post_reset_rd_cnt + "01";
+        if rising_edge(clk) then
+            n_wreset_s1 <= n_SwWarmRst; -- Just track warm reset
+            n_wreset_s2 <= n_wreset_s1;
         end if;
+    end process;
 
-        -- ..after the 3rd read, set reset_jump high to un-map the special
-        -- boot ROM (NASCOM 2 does this by counting 2 M1 cycles but counting
-        -- reads has cleaner timing).
-        if post_reset_rd_cnt = "11" and reset_jump = '1' then
-          reset_jump <= '0';
+    rst_gen: process (clk, n_SwRst, n_SwWarmRst)
+    begin
+        if n_SwRst='0' or n_SwWarmRst='0' then
+            n_reset_s1 <= '0';
+            n_reset_s2 <= '0';
+            warm <= '0';
+            post_reset_rd_cnt <= "00";
+            reset_jump <= '1';
+        elsif rising_edge(clk) then
+            n_reset_s1 <= n_SwRst and n_SwWarmRst; -- Either reset will do it
+            n_reset_s2 <= n_reset_s1;
+
+            -- sample warm until reset negates
+            if n_reset_s2 = '0' and n_reset_s1 = '0' then
+                warm <= not n_wreset_s2;
+            end if;
+
+            -- count reads after reset..
+            if n_reset_s2 = '1' and n_rd = '0' and n_WAIT = '1' and post_reset_rd_cnt /= "11" then
+                post_reset_rd_cnt <= post_reset_rd_cnt + "01";
+            end if;
+
+            -- ..after the 3rd read, set reset_jump high to un-map the special
+            -- boot ROM (NASCOM 2 does this by counting 2 M1 cycles but counting
+            -- reads has cleaner timing).
+            if post_reset_rd_cnt = "11" and reset_jump = '1' then
+                reset_jump <= '0';
+            end if;
         end if;
-      end if;
     end process;
 
 end;

@@ -42,12 +42,11 @@
 -- shifted on a NASCOM keyboard.
 --
 -- TODO
--- Handle the FN keys and generate hard outputs for them
+-- Test the event interface and integrate it into the NASCOM
 -- Do something with these unused keys: to-the-left-of-1, to-the-left-of-backspace
 -- to-the-left-of-z
 -- Decode the prefix byte and handle the extra cursor keys
 -- Consider decoding the numeric pad and the cursor pad
---
 --
 --
 -- Modifications by foofoobedoo@gmail.com
@@ -76,10 +75,11 @@ entity nasKBDPS2 is
 		ps2Clk	: inout std_logic;
 		ps2Data	: inout std_logic;
 
-		-- FN keys passed out as general signals (momentary and toggled versions)
-                -- [NAC HACK 2021Jan10] todo: create CPU RESET and NMI and BOOTMODE signals from these
-		FNkeys	: out std_logic_vector(12 downto 0);
-		FNtoggledKeys	: out std_logic_vector(12 downto 0);
+		-- Fn keys generate a single-cycle Event and a 4-bit EventCode. EventCode persists until next
+                -- event or until EventClear.
+		Event	: out std_logic;
+		EventCode : out std_logic_vector(3 downto 0);
+		ClearEvent : in std_logic;
 
 		-- Pretend to be NASCOM keyboard
 		kbdrst 	: in  std_logic;
@@ -89,9 +89,6 @@ entity nasKBDPS2 is
 end nasKBDPS2;
 
 architecture rtl of nasKBDPS2 is
-
-	signal	FNkeysSig	: std_logic_vector(12 downto 0) := (others => '0');
-	signal	FNtoggledKeysSig	: std_logic_vector(12 downto 0) := (others => '0');
 
 	signal	func_reset: std_logic := '0';
 
@@ -125,7 +122,8 @@ architecture rtl of nasKBDPS2 is
 	signal	statusReg : std_logic_vector(7 downto 0) := (others => '0');
 
 	signal	ps2Byte: std_logic_vector(7 DOWNTO 0);
-	signal	ps2PreviousByte: std_logic_vector(7 DOWNTO 0);
+	signal	ps2ByteD1: std_logic_vector(7 DOWNTO 0);
+	signal	ps2ByteD2: std_logic_vector(7 DOWNTO 0);
 	signal	ps2ConvertedDS: std_logic_vector(5 DOWNTO 0);
 	signal	ps2ClkCount : integer range 0 to 10 :=0;
 	signal	ps2WriteClkCount : integer range 0 to 20 :=0;
@@ -186,32 +184,30 @@ architecture rtl of nasKBDPS2 is
         -- any other key. Legal drive values are 0-7. Legal sense values are 0-6. The illegal value 7,7 is used to represent a key
         -- that has no corresponding key on the NASCOM keyboard (it is ignored). The function keys F1-F12 do not affect the NASCOM
         -- keyboard but their DEPRESSION creates a hardware strobe (release is ignored)
+        --       code   lookup  event
+        -- F1    05   t(0,7)    0000
+        -- F2    06     1,7     0001
+        -- F3    04     2,7     0010
+        -- F4    0c     3,7     0011
+        -- F5    03     0,7     0100
+        -- F6    0b     1,7     0101
+        -- F7    83     2,7     0110
+        -- F8    0a     3,7     0111
+        -- F9    01     0,7     1000
+        -- F10   09     1,7     1001
+        -- F11   78     2,7     1010
+        -- F12   07     3,7     1011
+        --                      1111 -- no event
         --
-        -- F1    05   t(0,7)
-        -- F2    06     1,7
-        -- F3    04     2,7
-        -- F4    0c     3,7
-        -- F5    03     4,7
-        -- F6    0b     5,7
-        -- F7    83     0,7
-        -- F8    0a     1,7
-        -- F9    01     2,7
-        -- F10   09     3,7
-        -- F11   78     4,7
-        -- F12   07     5,6
+        -- converted codes repeat so need to part-decode the scan code[7:0] to generate the high two bits of the event code
         --
-        -- converted codes repeat so need to decode the scan code[7:0] to choose low half from high half
-        -- low if !b7 & !bb4 & ( (b3 & b2) | (!b2 & b1 & b0) | (!b3 & b2 & (!b1 | !b0))
-        --
-        -- leaves codes (7,7) for NO KEY and (6,7) for SOME OTHER SPECIAL THING (currently unused)
-        --
-        -- [NAC HACK 2021Jan17] ^^none of that's implemented yet.
+        -- leaves codes (7,7) for NO KEY and (4,7) (5,7) (6,7) for SOME OTHER SPECIAL THINGs (currently unused)
 
 	constant kbUnshifted : kbDataArray :=
 	(
 	--  0        1        2        3        4        5        6        7        8        9        A        B        C        D        E        F
 	--       F9                F5       F3       F1       F2       F12               F10      F8       F6       F4       TAB      `
-	t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(5,6),  t(7,7),  t(7,7), -- 0
+	t(7,7),  t(0,7),  t(7,7),  t(0,7),  t(2,7),  t(0,7),  t(1,7),  t(3,7),  t(7,7),  t(1,7),  t(3,7),  t(1,7),  t(3,7),  t(5,6),  t(7,7),  t(7,7), -- 0
 	--       l-ALT    l-SHIFT           l-CTRL   q        1                                   z        s        a        w        2
 	t(7,7),  t(1,6),  t(0,4),  t(7,7),  t(0,3),  t(5,4),  t(6,4),  t(7,7),  t(7,7),  t(7,7),  t(2,4),  t(3,4),  t(4,4),  t(4,3),  t(6,3),  t(7,7), -- 1
 	--       c        x        d        e        4        3                          SPACE    v        f        t        r        5
@@ -225,16 +221,12 @@ architecture rtl of nasKBDPS2 is
 	--       \|                                           BACKSP                     KP1               KP4      KP7
 	t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(0,0),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7), -- 6
 	-- KP0   KP.      KP2      KP5      KP6      KP8      ESC      NUMLCK   F11      KP+      KP3      KP-      KP*      KP9      SCRLCK
-	t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7), -- 7
+	t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(2,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7),  t(7,7), -- 7
 	--                         F7
-	t(7,7),  t(7,7),  t(7,7),  t(7,7) -- 8
+	t(7,7),  t(7,7),  t(7,7),  t(2,7) -- 8
 	);
 
 begin
-
-	FNkeys <= FNkeysSig;
-	FNtoggledKeys <= FNtoggledKeysSig;
-
         -- [NAC HACK 2021Jan10] clean up the reset; recode as async
         func_reset <= not n_reset;
 
@@ -300,6 +292,13 @@ begin
 	begin
 		if rising_edge(clk) then
 
+			if func_reset = '1' or ClearEvent = '1' then
+				EventCode <= "1111";
+                        end if;
+
+			-- Asserts for 1 cycle so always kick it low here.
+			Event <= '0';
+
 			ps2PrevClk <= ps2ClkFiltered;
 
 			if n_kbWR = '0' and kbWriteTimer<25000 then
@@ -334,33 +333,38 @@ begin
 					end if;
 					ps2ClkCount<=ps2ClkCount+1;
 				else -- stop bit - use this time to store
-					-- FN1-FN10 keys return values 0x11-0x1A. They are not presented as ASCII codes through
-					-- the virtual UART but instead toggle the FNkeys, FNtoggledKeys outputs.
-					-- F11, F12 are not included because we need code 0x1B for ESC
-					-- TODO rework this fn key stuff.. the convertedDS codes are NOT as noted here! Should
-                                        -- probably comment this out for now..
---					if ps2ConvertedDS>x"10" and ps2ConvertedDS<x"1B" then
---						if ps2PreviousByte /= x"F0" then
---							FNtoggledKeysSig(to_integer(unsigned(ps2ConvertedDS))-16#10#) <= FNtoggledKeysSig(to_integer(unsigned(ps2ConvertedDS))-16#10#);
---							FNKeysSig(to_integer(unsigned(ps2ConvertedDS))-16#10#) <= '1';
---						else
---							FNKeysSig(to_integer(unsigned(ps2ConvertedDS))-16#10#) <= '0';
---						end if;
-					-- Self-test passed (after power-up).
-					-- Send SET-LEDs command to establish SCROLL, CAPS AND NUM
---					elsif ps2Byte = x"AA" then
-					if ps2Byte = x"AA" then
-							ps2WriteByte <= x"ED";
-							ps2WriteByte2(0) <= ps2Scroll;
-							ps2WriteByte2(1) <= ps2Num;
-							ps2WriteByte2(2) <= ps2Caps;
-							ps2WriteByte2(7 downto 3) <= "00000";
-							n_kbWR <= '0';
-							kbWriteTimer<=0;
+					if ps2ConvertedDS = t(0,7) or ps2ConvertedDS = t(1,7) or ps2ConvertedDS = t(2,7) or ps2ConvertedDS = t(3,7) then
+						-- On press of Fn1-Fn12 keys, generate an output strobe "Event" with an associated "EventCode".
+						-- The strobe is 1 clock wide. The EventCode persists until input ClearEvent is sampled high.
+						-- The release of the Fn keys is ignored.
+						-- The lookup codes for these keys use (0,7)-(3,7) - repeated 3 times. They form the low
+						-- two bits of the event code; the high 2 bits comes from decoding the PS/2 scan codes
+						-- (which I hope will munge down to some efficiently small amount of logic)
+						Event <= '1';
+						EventCode(1 downto 0) <= ps2ConvertedDS(4 downto 3);
+						if ps2Byte = x"03" or ps2Byte = x"0b" or ps2Byte = x"83" or ps2Byte = x"0a" then
+							EventCode(2) <= '1';
+						else
+							EventCode(2) <= '0';
+						end if;
+						if ps2Byte = x"01" or ps2Byte = x"09" or ps2Byte = x"78" or ps2Byte = x"07" then
+							EventCode(3) <= '1';
+						else
+							EventCode(3) <= '0';
+						end if;
+
+					elsif ps2Byte = x"AA" then
+						ps2WriteByte <= x"ED";
+						ps2WriteByte2(0) <= ps2Scroll;
+						ps2WriteByte2(1) <= ps2Num;
+						ps2WriteByte2(2) <= ps2Caps;
+						ps2WriteByte2(7 downto 3) <= "00000";
+						n_kbWR <= '0';
+						kbWriteTimer<=0;
 					-- SCROLL-LOCK pressed - set flags and
 					-- update LEDs
 					elsif ps2Byte = x"7E" then
-						if ps2PreviousByte /= x"F0" then
+						if ps2ByteD1 /= x"F0" then
 							ps2Scroll <= not ps2Scroll;
 							ps2WriteByte <= x"ED";
 							ps2WriteByte2(0) <= not ps2Scroll;
@@ -373,7 +377,7 @@ begin
 					-- NUM-LOCK pressed - set flags and
 					-- update LEDs
 					elsif ps2Byte = x"77" then
-						if ps2PreviousByte /= x"F0" then
+						if ps2ByteD1 /= x"F0" then
 							ps2Num <= not ps2Num;
 							ps2WriteByte <= x"ED";
 							ps2WriteByte2(0) <= ps2Scroll;
@@ -386,7 +390,7 @@ begin
 					-- CAPS-LOCK pressed - set flags and
 					-- update LEDs
 					elsif ps2Byte = x"58" then
-						if ps2PreviousByte /= x"F0" then
+						if ps2ByteD1 /= x"F0" then
 							ps2Caps <= not ps2Caps;
 							ps2WriteByte <= x"ED";
 							ps2WriteByte2(0) <= ps2Scroll;
@@ -404,7 +408,7 @@ begin
 						end if;
 					-- ASCII key press - store it in the kbBuffer.
                                         elsif ps2ConvertedDS /= t(7,7) then
-						if ps2PreviousByte = x"F0" then
+						if ps2ByteD1 = x"F0" then
                                                   -- RELEASE key so CLEAR bit in kmap
                                                   kmap(kbdDrive) <= kmap(kbdDrive) and (not kbdMask);
                                                 else
@@ -412,7 +416,8 @@ begin
                                                   kmap(kbdDrive) <= kmap(kbdDrive) or kbdMask;
                                                 end if;
 					end if;
-					ps2PreviousByte<=ps2Byte;
+					ps2ByteD1<=ps2Byte;   -- previous byte
+					ps2ByteD2<=ps2ByteD1; -- previous previous byte
 					ps2ClkCount<=0;
 				end if;
 

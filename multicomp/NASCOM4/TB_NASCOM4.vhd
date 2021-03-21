@@ -29,8 +29,10 @@ use ieee.std_logic_unsigned.all;
 
 entity TB_NASCOM4 is
     port(
-        n_reset : in std_logic;
-        clk     : in std_logic
+        clk     : in std_logic;
+        n_SwRst : in std_logic;
+        n_SwWarmRst : in std_logic;
+        n_SwNMI : in std_logic
         );
 end TB_NASCOM4;
 
@@ -40,12 +42,13 @@ architecture rtl of TB_NASCOM4 is
     signal sRamData_dly : std_logic_vector(7 downto 0);
     signal sRamAddress : std_logic_vector(18 downto 0);
     signal n_sRamWE    : std_logic;
-    signal n_sRamCS    : std_logic;
+    signal n_sRamCS1   : std_logic;
     signal n_sRamCS2   : std_logic;
     signal n_sRamOE    : std_logic;
 
-    signal n_LED7 : std_logic;
-    signal n_LED9 : std_logic;
+    signal n_LED7Drive    : std_logic;
+    signal n_LED9Halt     : std_logic;
+    signal n_LED3SdActive : std_logic;
 
     -- Devices on memory bus
     type t_mem8 is array (0 to 7) of std_logic_vector(7 downto 0);
@@ -58,12 +61,14 @@ architecture rtl of TB_NASCOM4 is
     signal kbdbuf : std_logic_vector(7 downto 0) := x"FA";
     signal drvreg : std_logic_vector(7 downto 0);
 
+    -- NASCOM serial port
+    signal txd : std_logic;
 
     -- I/O bus connections from FPGA
     signal clk4 :       std_logic;
     signal clk1 :       std_logic;
 
-    signal int_n :      std_logic;
+    signal n_INT :      std_logic;
 
     signal pio_cs_n :   std_logic;
     signal ctc_cs_n :   std_logic;
@@ -119,26 +124,24 @@ begin
     -- Unit Under Test
     uut: entity work.NASCOM4
         port map(
-            n_reset     => n_reset,
             clk         => clk,
+            n_SwRst     => n_SwRst,
 
-            n_LED7      => n_LED7,
-            n_LED9      => n_LED9,
+            n_SwWarmRst => n_SwWarmRst,
+            n_SwNMI     => n_SwNMI,
 
-
-
-            vduffd0     => '0', -- 0: cold reset, 1: warm reset
+            n_LED7Drive    => n_LED7Drive,
+            n_LED9Halt     => n_LED9Halt,
+            n_LED3SdActive => n_LED3SdActive,
 
             sRamData    => sRamData,
             sRamAddress => sRamAddress,
             n_sRamWE    => n_sRamWE,
-            n_sRamCS    => n_sRamCS,
+            n_sRamCS1   => n_sRamCS1,
             n_sRamCS2   => n_sRamCS2,
             n_sRamOE    => n_sRamOE,
 
-            rxd1        => '0',
-            rxd2        => int_n,     -- logic below combines the drivers
-            gpio0       => "000",
+            n_INT       => n_INT,     -- logic below combines the drivers
             sdMISO      => '0',
 
             -- I/O bus
@@ -159,7 +162,22 @@ begin
             BrWR_n      => BrWR_n,
 
             BrBufOE_n   => BrBufOE_n,
-            BrBufWr     => BrBufWr
+            BrBufWr     => BrBufWr,
+
+            -- NASCOM serial port.. currently doesn't do anything here
+            SerRxToNas  => '1',
+            SerTxFrNas  => txd,
+            SerRxBdClk  => '0',
+            SerTxBdClk  => '0',
+
+            -- Inputs from FDC, not modelled here but need to be tied off
+            FdcRdy_n    => '0',
+            FdcIntr     => '0',
+            FdcDrq      => '0',
+
+            -- Unused inputs
+            SpareIn89   => '0',
+            SpareIn90   => '0'
             );
 
     -- PIO
@@ -216,21 +234,21 @@ begin
     -- write strobes are combinational rather than clocked: without
     -- this the data would have negative hold time relative to the strobes
     -- and would be missed
-    sRamData_dly <= sRamData after 1ns;
+    sRamData_dly <= sRamData after 1 ns;
 
 
     -- Mimic an open-collector interrupt line; the two interrupt sources
     -- go between Z and 0.
-    int_n <= '0' when pio_int_n = '0' or ctc_int_n = '0' else '1';
+    n_INT <= '0' when pio_int_n = '0' or ctc_int_n = '0' else '1';
 
     -- Report HALT LED
-    LedHalt : process (n_LED9)
+    LedHalt : process (n_LED9Halt)
     begin
-        if rising_edge(n_LED9) then
+        if rising_edge(n_LED9Halt) then
             report "The HALT LED has turned off";
         end if;
 
-        if falling_edge(n_LED9) then
+        if falling_edge(n_LED9Halt) then
             report "The HALT LED has turned on";
         end if;
     end process;
@@ -254,7 +272,7 @@ begin
 
     --------------------------------------------------------------------------------
     -- Handle memory writes
-    raml_wr <= '1' when n_sRamWE = '0' and n_sRamCS = '0' else '0';
+    raml_wr <= '1' when n_sRamWE = '0' and n_sRamCS1 = '0' else '0';
     ramh_wr <= '1' when n_sRamWE = '0' and n_sRamCS2 = '0' else '0';
 
     -- Capture write data at the *end* of the write cycle
@@ -275,7 +293,7 @@ begin
     --------------------------------------------------------------------------------
     -- Handle memory reads
 
-    sRamData <= raml(to_integer(unsigned(sRamAddress(2 downto 0)))) when n_sRamCS  = '0' and n_sRamOE = '0' else (others=> 'Z');
+    sRamData <= raml(to_integer(unsigned(sRamAddress(2 downto 0)))) when n_sRamCS1 = '0' and n_sRamOE = '0' else (others=> 'Z');
     sRamData <= ramh(to_integer(unsigned(sRamAddress(2 downto 0)))) when n_sRamCS2 = '0' and n_sRamOE = '0' else (others=> 'Z');
 
     --------------------------------------------------------------------------------
