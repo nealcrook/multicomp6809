@@ -1,8 +1,7 @@
 -- TODO/BUGS
 -- Doc: add link on debug connector from unused outputs to (floating)
 -- unused inputs
--- Add a "never booted" flag that can be used on warm reset to take the
--- system to a minimal (no SDcard) setup eg on 1st bringup.
+-- Doc: user manual, rework REASON description and cold/warm reset
 -- Consider changing ROMs to be a single model with an initialisation file
 --   and put them in a generic folder.
 -- Change char gen to an initialised RAM and add control port for writes
@@ -314,8 +313,6 @@ architecture struct of NASCOM4 is
     -- synchronise reset and generate control for jump-on-reset
     signal n_reset_s1             : std_logic;
     signal n_reset_s2             : std_logic;
-    signal n_wreset_s1            : std_logic;
-    signal n_wreset_s2            : std_logic;
     signal n_reset_clean          : std_logic;
     signal post_reset_rd_cnt      : std_logic_vector(1 downto 0);
     signal reset_jump             : std_logic;
@@ -323,10 +320,11 @@ architecture struct of NASCOM4 is
     -- internal signals for bridge
     signal BridgeRdData           : std_logic_vector(7 downto 0);
 
-    -- 0 : SBootROM will do a COLD reset (does not simulate coz needs SdCard)
-    -- 1 : SBootROM will do a WARM reset
-    signal warm                   : std_logic := '0';
-
+    -- Both set to 1 by cold reset, read through REASON register and
+    -- write-1-to-clear; controlled by SBootROM. Neither is affected
+    -- by warm reset.
+    signal Cold                   : std_logic;
+    signal NeverBooted            : std_logic;
 
     ------------------------------------------------------------------
     -- Port 0: NASCOM keyboard and NMI control
@@ -419,7 +417,7 @@ architecture struct of NASCOM4 is
     -- REASON Port 1C: Distinguish hard from soft reset
     -- Read-only.
     -- Events from front-panel buttons or from the PS/2 keyboard FN keys
-    -- TODO only bit[7] implemented currently.
+    -- TODO only bits[7:6] implemented currently.
     -- TODO might need a write-any-data-to-clear (already done in the
     -- SBootROM code but has no effect here yet).
 
@@ -469,6 +467,14 @@ architecture struct of NASCOM4 is
     signal nmi_button             : std_logic;
 
 begin
+    -- Debug
+    Spare65     <= n_reset_clean;
+    Spare86     <= n_reset_s2;
+    Spare74     <= n_NMI;
+    Spare75     <= Cold;
+    Spare92     <= NeverBooted;
+
+
     n_LED9Halt  <= n_HALT;
     n_LED7Drive <= not iopwr00NasDrive;
     NasKbdClk   <= iopwr00NasKbdClk;
@@ -757,7 +763,7 @@ begin
 
     -- Readback for port1c
     -- TODO add other reason bits
-    ioprd1C <= warm & "0000000";
+    ioprd1C <= Cold & NeverBooted & "000000";
 
     -- Readback for portE4; port bit positions match MAP80 VFC
     ioprdE4 <= FdcDrq & "00000" & FdcRdy_n & FdcIntr;
@@ -1134,35 +1140,24 @@ end generate;
 
 -- n_reset_clean asserts asynchronously and negates synchronously; this ensures
 -- that all blocks come out of reset cleanly and on the same clock.
--- [NAC HACK 2021Mar19] n_SwRst has an RC network on it that has the effect of
--- debouncing it. n_SwWarmRst does not, so it may need some additional conditioning
--- before being combined into this logic
     n_reset_clean <= '0' when n_SwRst = '0' or n_SwWarmRst = '0' or n_reset_s2 = '0' else '1';
 
-
-    trk_warm: process (clk)
+    rst_gen: process (clk, n_SwRst)
     begin
-        if rising_edge(clk) then
-            n_wreset_s1 <= n_SwWarmRst; -- Just track warm reset
-            n_wreset_s2 <= n_wreset_s1;
-        end if;
-    end process;
-
-    rst_gen: process (clk, n_SwRst, n_SwWarmRst)
-    begin
-        if n_SwRst='0' or n_SwWarmRst='0' then
+        if n_SwRst='0' then
             n_reset_s1 <= '0';
             n_reset_s2 <= '0';
-            warm <= '0';
+            Cold <= '1';
+            NeverBooted <= '1';
             post_reset_rd_cnt <= "00";
             reset_jump <= '1';
         elsif rising_edge(clk) then
             n_reset_s1 <= n_SwRst and n_SwWarmRst; -- Either reset will do it
             n_reset_s2 <= n_reset_s1;
 
-            -- sample warm until reset negates
-            if n_reset_s2 = '0' and n_reset_s1 = '0' then
-                warm <= not n_wreset_s2;
+            if n_reset_s2 = '0' then
+                post_reset_rd_cnt <= "00";
+                reset_jump <= '1';
             end if;
 
             -- count reads after reset..
@@ -1176,6 +1171,15 @@ end generate;
             if post_reset_rd_cnt = "11" and reset_jump = '1' then
                 reset_jump <= '0';
             end if;
+
+            -- Write-1-to-clear bits in REASON register
+            if cpuAddress(7 downto 0) = x"1c" and n_IORQ = '0' and n_WR = '0' then
+                Cold        <= Cold        and not cpuDataOut(7);
+                NeverBooted <= NeverBooted and not cpuDataOut(6);
+        end if;
+
+
+
         end if;
     end process;
 

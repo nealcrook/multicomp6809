@@ -65,7 +65,6 @@ add wave -noupdate /tb_nascom4/u_pio/cd
 add wave -noupdate /tb_nascom4/n_LED7Drive
 add wave -noupdate /tb_nascom4/n_LED9Halt
 add wave -noupdate /tb_nascom4/n_LED3SdActive
-add wave -noupdate /tb_nascom4/uut/warm
 add wave -noupdate /tb_nascom4/n_SwRst
 add wave -noupdate /tb_nascom4/n_SwWarmRst
 add wave -noupdate /tb_nascom4/clk
@@ -74,10 +73,10 @@ add wave -noupdate /tb_nascom4/uut/n_reset_s2
 add wave -noupdate /tb_nascom4/uut/n_reset_clean
 add wave -noupdate /tb_nascom4/uut/post_reset_rd_cnt
 add wave -noupdate /tb_nascom4/uut/reset_jump
-add wave -noupdate /tb_nascom4/uut/n_wreset_s1
-add wave -noupdate /tb_nascom4/uut/n_wreset_s2
+add wave -noupdate /tb_nascom4/uut/Cold
+add wave -noupdate /tb_nascom4/uut/NeverBooted
 TreeUpdate [SetDefaultTree]
-WaveRestoreCursors {{Cursor 1} {120000 ps} 0}
+WaveRestoreCursors {{Cursor 1} {2175403 ps} 0}
 quietly wave cursor active 1
 configure wave -namecolwidth 228
 configure wave -valuecolwidth 100

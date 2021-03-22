@@ -92,13 +92,23 @@ SBSTART:
 ;;; Entry point after reset. No stack, and the NASCOM 4 I/O ports are
 ;;; in an unknown state.
 REENTER: in     a, (REASON)
-        out     (REASON), a     ;clear reason register TODO not yet implemented
-        and     $80             ;warm reset?
-        jr      z, COLD
+        and     $80             ;Cold bit set?
+        out     (REASON), a     ;Cold bit is now clear (W1C)
+        jr      nz, COLD
+
+        in      a, (REASON)
+        and     $40             ;NeverBooted bit set?
+        jr      z, WARM
+
+;;; Warm reset after failed boot - assume no SDcard present
+;;; and go to NAS-SYS/minimal system
+        ld      a,$19           ;remap: WSram/VidRam/Monitor
+        ld      hl,$0000
+        jp      EXIT
 
 ;;; Warm reset. Retain all of the existing NASCOM 4 register state
 ;;; and the current video output.
-        ld      l,0
+WARM:   ld      l,0
         in      a, (PORPAGE)
         ld      h, a            ;where we started last time
         in      a, (REMAP)      ;what was enabled
@@ -212,7 +222,9 @@ ICMD:   push    hl
 
 ;;; Go: G1000=40
 ;;; HL already has destination address
-GCMD:   ld      a,c             ;data
+GCMD:   ld      a, $40
+        out     (REASON), a     ;clear NeverBooted
+        ld      a,c             ;data
         jr      EXIT            ;go and never come back
 
 ;;; Load image: Lxxxx=yyyy
