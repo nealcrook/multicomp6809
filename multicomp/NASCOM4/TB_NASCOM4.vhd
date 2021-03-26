@@ -32,7 +32,9 @@ entity TB_NASCOM4 is
         clk     : in std_logic;
         n_SwRst : in std_logic;
         n_SwWarmRst : in std_logic;
-        n_SwNMI : in std_logic
+        n_SwNMI : in std_logic;
+        SerRxBdClk : in std_logic;
+        SerTxBdClk : in std_logic
         );
 end TB_NASCOM4;
 
@@ -165,10 +167,10 @@ begin
             BrBufWr     => BrBufWr,
 
             -- NASCOM serial port.. currently doesn't do anything here
-            SerRxToNas  => '1',
+            SerRxToNas  => txd, -- loopback'1',
             SerTxFrNas  => txd,
-            SerRxBdClk  => '0',
-            SerTxBdClk  => '0',
+            SerRxBdClk  => SerRxBdClk,
+            SerTxBdClk  => SerTxBdClk,
 
             -- Inputs from FDC, not modelled here but need to be tied off
             FdcRdy_n    => '0',

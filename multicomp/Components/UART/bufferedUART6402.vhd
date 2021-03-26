@@ -49,10 +49,12 @@ entity bufferedUART6402 is
 		regSel  : in  std_logic;
 		dataIn  : in  std_logic_vector(7 downto 0);
 		dataOut : out std_logic_vector(7 downto 0);
-		-- these clock enables are asserted for one period of input clk,
+                -- 0:   1   stop bit
+                -- 1:   1.5 stop bits
+                -- 2,3: 2   stop bits
+                stop    : in std_logic_vector(1 downto 0);
+                -- these clock enables are asserted for one period of input clk,
 		-- at 16x the baud rate.
-		-- TODO maybe replace this with a true async tx/rx clock so that
-		-- this can work with NAScas
 		rxClkEn : in  std_logic; -- 16 x baud rate.
 		txClkEn : in  std_logic; -- 16 x baud rate
 		rxd     : in  std_logic;
@@ -99,7 +101,6 @@ signal rxFilter : integer range 0 to 50;
 signal rxdFiltered : std_logic := '1';
 
 begin
-
 	-- status reg
 	--       7            6             5           4            3            2            1             0
 	-- | rx data    | tx buffer  | always 0   | always 0   | rx framing | rx parity  | rx overrun | always 0   |
@@ -236,7 +237,7 @@ begin
 			when dataBit =>
 				if txClockCount= 15 then -- 1 bit later
 					txClockCount<=(others=>'0');
-					if txBitCount= 8 then -- 8 bits read - handle stop bit
+					if txBitCount= 8 then -- 8 bits written - handle stop bit
 						txd <= '1';
 						txState<=stopBit;
 					else
@@ -248,7 +249,12 @@ begin
 					txClockCount<=txClockCount+1;
 				end if;
 			when stopBit =>
-				if txClockCount= 15 then
+                            -- will spend 1 bit-time in IDLE so exit after 15 rather than 16 clocks
+                            -- (for 1 stop bit) etc.
+                            if  (stop = "00" and txClockCount = 14)  or
+                                (stop = "01" and txClockCount = 22) or
+                                (stop = "10" and txClockCount = 30) or
+                                (stop = "11" and txClockCount = 30) then
 					txState <=idle;
 				else
 					txClockCount<=txClockCount+1;

@@ -101,7 +101,7 @@ entity nasBridge is
         n_reset	: in  std_logic;
         clk    	: in  std_logic;
 
-        iopwr1aStalls : std_logic_vector(7 downto 0); -- control memory wait states
+        iopwr1AStalls : std_logic_vector(7 downto 0); -- control memory wait states
 
         -- Z80 signals
         addr    : in  std_logic_vector(7 downto 0); -- 8-bit I/O address
@@ -327,7 +327,7 @@ begin
 --                (RetiCycle = '1'         and bridgeDone = '0') else '1';
 
 
-    stall_e        <= '1' when stall_cnt = iopwr1aStalls else '0';
+    stall_e        <= '1' when stall_cnt = iopwr1AStalls else '0';
 
     WaitGen: process (clk, n_reset)
     begin

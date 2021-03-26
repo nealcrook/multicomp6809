@@ -1,7 +1,6 @@
 -- TODO/BUGS
 -- Doc: add link on debug connector from unused outputs to (floating)
 -- unused inputs
--- Doc: user manual, rework REASON description and cold/warm reset
 -- Consider changing ROMs to be a single model with an initialisation file
 --   and put them in a generic folder.
 -- Change char gen to an initialised RAM and add control port for writes
@@ -9,22 +8,11 @@
 -- Do gate-count estimate for adding GM813 memory-mapper
 -- Make sure input-only pins can have internal pullups (they *cannot*)
 --
--- Next..
--- add cursor key support to keyboard
--- add fn key support to keyboard, with clear-down
--- existing reset pin needs to set a bit in the reason register
--- new soft-reset needs to set a bit in the reason register
--- write to reason register OR NMI needs to clear bits in
--- reason register, back to kbd.
---
 -- Allow the image loader to load exact image sizes
 -- (maybe??) so that loading the memory test doesn't
 -- result in stack corruption
-
+--
 -- "javino store" for rt-angle push buttons with footprint
--- "jc electronic components" for rocker push button with
--- LED. But then need break-off strip on edge of PCB.
--- RESET/SDACTIVE SOFT/DRIVE NMI/HALT
 --
 -- Need a soft reset of the kbd to avoid the
 -- reported input letter after menu boot.. or
@@ -33,28 +21,36 @@
 -- reason code also clear the keyboard map; that would
 -- fix the problem.
 
--- NEXT STEPS
--- modify kbd to generate cursor and FN keys
--- bodge on push-buttons for cold/warm/nmi and
--- add debounce and cleardown and reason code.
--- BUG: cannot warm-start PASCAL: it HALTs. Why?
--- modify baud to be input or local, add slower divisors,
--- control from new register at $1D
--- add (programmable) support for 2 stop bits in the UART.
+-- ** Stuff still to do **
+-- Proper debounce on NMI button
+-- Merge in NASCOM keyboard (jumper or auto select?)
+-- Dummy random screen at startup with version number
+-- Cursor keys on PS/2 keyboard
+-- Fn keys on PS/2 keyboard to generate setup events (reset is fiddly)
+-- Cleaner minimal flow (currently registers are not
+--  initialised)
+-- CODED NOT TESTED Programmable baud clock in/auto
+-- CODED NOT TESTED Programmable baud clock frequency
+-- Full vectored interrupt support
+-- Share char gen cleanly so video sources can run simultaneously
+-- - add debug signals to show reads of video/chargen RAM.
+-- Allow (programmable) support for 2 stop bits in the UART.
+-- Add write port to char gen.. how to decode? Whole of VFC space?
 
------------------------------------------------------
+-- BUG: cannot warm-start PASCAL: it goes back to NAS-SYS. Why?
 
-
--- FPGA implementation of the NASCOM2
--- with external RAM, Flash/ROM and peripherals.
--- Goal is to be 100% software compatible with plain NASCOM 2
--- and 99.9% compatible with a NASCOM system comprising:
+--------------------------------------------------------------------------------
+-- "NASCOM 4"
+--
+-- An FPGA implementation of the NASCOM2 with external RAM and peripherals. Goal
+-- is to be 100% software compatible with a plain NASCOM 2 and 99.9% compatible
+-- with a NASCOM system comprising:
 -- * NASCOM2 board
 -- * MAP80 256K RAM board
 -- * MAP80 VFC
 --
--- The "99.9%" is because I do not reproduce the 6845 on the VFC but
--- have a fixed hardware setup for that video control..
+-- The "99.9%" is because I do not reproduce the 6845 on the VFC but use a
+-- fixed hardware setup for that video control.
 --
 -- Lots of ideas and some bits of code from Grant Searle's FPGA "Multicomp"
 -- design, which is copyright by Grant Searle 2014: http://www.searle.wales/
@@ -71,11 +67,12 @@
 --   - can be decoded at 0xF800 instead, for NASCOM CP/M
 -- * 1K ws RAM at location 0xc00
 --   - can be paged out via I/O write
--- * 1K "Special Boot ROM" at location 0x1000.
+-- * 1K "Special Boot ROM" (SBootROM) at location 0x1000.
 --   - always enabled at reset, and takes control through
 --     jump-on-reset circuit
 --   - can be paged out via I/O write; delayed disable allows the
 --     code that disables it to be contained in the ROM
+--   - more on the SBootROM below..
 -- * Write-protect register allows memory regions to appear
 --   ROM-like
 -- * 2K MAP80 VFC ROM.
@@ -92,7 +89,7 @@
 --     through port 0xFE like two/four MAP80 256Kbyte RAM cards.
 -- * SDcard interface with high-level block read/write (no bit-banging)
 --   allows ROM images to be loaded on reset under the control of the
---   Special Boot ROM.
+--   SBootROM.
 --
 -- * I/O port 0     - keyboard and single-step control
 -- * I/O port 1,2   - 6402 compatible UART
@@ -104,6 +101,7 @@
 -- * I/O port 1A    - NEW memory stall control
 -- * I/O port 1B    - NEW por high byte (controlled by SBROM)
 -- * I/O port 1C    - NEW reset reason (controlled by reset/fn keys)
+-- * I/O port 1D    - NEW baudrate
 -- * I/O port E0-E3 - EXTERNAL WD2797 Floppy Disk Controller
 -- * I/O port E4    - VFC FDC drive select etc.
 -- * I/O port E6    - VFC "parallel" keyboard (maybe; from PS/2 keyboard) - NOT IMPLEMENTED
@@ -114,27 +112,19 @@
 -- * I/O port EE    - VFC write to select VFC video on output
 -- * I/O port EF    - VFC write to select NASCOM video on output
 -- * I/O port FE    - MAP80 256KRAM paging/memory mapping (write-only)
-
-
+--
 -- Connection off-chip to:
 -- * VGA video drive
 -- * Serial in/out and optional serial clock in (via level translators)
 -- * NASCOM-compatible Keyboard connector (via level translators)
 -- * PS/2 keyboard connector (not authentic but more available)
--- * 256Kbyte RAM (TBD device)
--- * SDcard for loading "ROM" images
--- * I/O bus for PIO, FDC
+-- * 256Kbyte RAM (Allied Semi device)
+-- * SDcard for loading "ROM" images at boot
+-- * I/O bus for PIO, CTC, FDC
 -- * Data-bus buffer/level translator with control signals
 -- * FDC drive select, data ready/intrq, fm/mfm select
-
--- decide what to do wrt integrated SDcard controller vs NAScas/arduino hookup.
--- could put in a separate // port for connecting? And sw select of the serial
--- source allowing tape loading.. but then, would want to use this to do the
--- ROM load as well, and not use the integrated SDcard controller.
 --
--- The "Special boot ROM" (SBootROM) is decoded at address $1000. It is always
--- enabled at reset but can be paged out later. It takes control through a bit
--- of jump-on-reset logic (rather like a real NASCOM2). It looks at a "reason"
+-- The SBootROM always takes control after reset. It reads the "reason"
 -- register to choose between a cold reset and a warm reset. In the case of a
 -- warm reset it tries to touch as little hardware as possible and restarts to
 -- the entry point from the last cold reset, paging itself out on the way.
@@ -148,15 +138,6 @@
 --
 -- The format of the profile is documented in make_sdcard_image and also in
 -- the source code for the SBootROM.
-
-
-------
--- Work out how to do shared video access to char gen:
--- add debug signals to show reads of video/chargen RAM
-------
--- Add write port to char gen.. how to decode? Whole of VFC space?
--- Code synchroniser and pulse generator for NMI push button
---
 
 library ieee;
 use ieee.std_logic_1164.all;
@@ -295,7 +276,9 @@ architecture struct of NASCOM4 is
 
     signal serialClkCount         : std_logic_vector(15 downto 0) := x"0000";
     signal serialClkCount_d       : std_logic_vector(15 downto 0);
-    signal serialClkEn            : std_logic;
+    signal serialInc              : std_logic_vector(15 downto 0);
+    signal SerRxClkEn             : std_logic;
+    signal SerTxClkEn             : std_logic;
 
     signal n_UartCS               : std_logic :='1';
     signal n_WR_uart              : std_logic := '1';
@@ -316,6 +299,14 @@ architecture struct of NASCOM4 is
     signal n_reset_clean          : std_logic;
     signal post_reset_rd_cnt      : std_logic_vector(1 downto 0);
     signal reset_jump             : std_logic;
+
+    -- filter and edge-detect external buad clocks
+    signal RxBdClkHist            : std_logic_vector(2 downto 0);
+    signal RxBdClkFilt            : std_logic;
+    signal RxBdClkD1              : std_logic;
+    signal TxBdClkHist            : std_logic_vector(2 downto 0);
+    signal TxBdClkFilt            : std_logic;
+    signal TxBdClkD1              : std_logic;
 
     -- internal signals for bridge
     signal BridgeRdData           : std_logic_vector(7 downto 0);
@@ -404,7 +395,7 @@ architecture struct of NASCOM4 is
     -- MWAITS Port 1A: Memory stalls
     -- Write-only. N means N+1 stalls
 
-    signal iopwr1aStalls          : std_logic_vector(7 downto 0);
+    signal iopwr1AStalls          : std_logic_vector(7 downto 0);
 
     ------------------------------------------------------------------
     -- PORPAGE Port 1B: POR address saved for warm reset
@@ -415,13 +406,32 @@ architecture struct of NASCOM4 is
 
     ------------------------------------------------------------------
     -- REASON Port 1C: Distinguish hard from soft reset
-    -- Read-only.
+    -- Read-only, Write-1-to-clear
     -- Events from front-panel buttons or from the PS/2 keyboard FN keys
-    -- TODO only bits[7:6] implemented currently.
-    -- TODO might need a write-any-data-to-clear (already done in the
-    -- SBootROM code but has no effect here yet).
+    -- Cold        -- bit 7
+    -- NeverBooted -- bit 6
+    -- TBD         -- bits 5:0
 
     signal ioprd1C                : std_logic_vector(7 downto 0);
+
+    ------------------------------------------------------------------
+    -- SERCON Port 1D: Serial config: baud rate/external baud clocks/
+    -- stop bits
+    -- Write-only
+    -- 0   1   stop bits
+    -- 1   1.5 stop bits
+    -- 2,3 2   stop bits
+    signal iopwr1DStop            : std_logic_vector(1 downto 0); -- bits 7:6
+    -- 0    300bd
+    -- 1   1200bd
+    -- 2   2400bd
+    -- 3   4800bd
+    -- 4   9600bd
+    -- 5  19200bd
+    -- 6  38400bd
+    -- 7 115200bd <-- reset value
+    -- 8 External baud clocks
+    signal iopwr1DBaud            : std_logic_vector(3 downto 0); -- bits 3:0
 
     ------------------------------------------------------------------
     -- Port E4: MAP80 VFC disk control
@@ -661,8 +671,11 @@ begin
         -- Originally I tried to NOT reset this, so that it would be
         -- maintained across soft reset, but I got very weird behaviour
         -- on silicon, even though it seemed to work fine in simulation.
-        iopwr1aStalls <= x"20";
---        iopwr1aStalls <= x"04"; -- for RTL simulation
+        iopwr1AStalls <= x"20";
+--        iopwr1AStalls <= x"04"; -- for RTL simulation
+
+        iopwr1DBaud <= x"7";
+        iopwr1DStop <= "00";
 
         portE4wr <= x"00";
         portE8wr <= x"00";
@@ -684,7 +697,12 @@ begin
         end if;
 
         if cpuAddress(7 downto 0) = x"1a" and n_IORQ = '0' and n_WR = '0' then
-          iopwr1aStalls <= cpuDataOut(7 downto 0);
+          iopwr1AStalls <= cpuDataOut(7 downto 0);
+        end if;
+
+        if cpuAddress(7 downto 0) = x"1d" and n_IORQ = '0' and n_WR = '0' then
+          iopwr1DStop <= cpuDataOut(7 downto 6);
+          iopwr1DBaud <= cpuDataOut(3 downto 0);
         end if;
 
         if cpuAddress(7 downto 0) = x"e4" and n_IORQ = '0' and n_WR = '0' then
@@ -960,8 +978,9 @@ begin
         regSel => cpuAddress(0),
         dataIn => cpuDataOut,
         dataOut => UartDataOut,
-        rxClkEn => serialClkEn,
-        txClkEn => serialClkEn,
+        stop => iopwr1DStop,
+        rxClkEn => SerRxClkEn,
+        txClkEn => SerTxClkEn,
         rxd => SerRxToNas,   -- In
         txd => SerTxFrNas    -- Out
         );
@@ -1019,7 +1038,7 @@ end generate;
         n_reset => n_reset_clean,
         clk     => clk,
 
-        iopwr1aStalls => iopwr1aStalls,
+        iopwr1AStalls => iopwr1AStalls,
 
         -- Z80 bus
         addr    => cpuAddress(7 downto 0),
@@ -1111,28 +1130,68 @@ end generate;
     -- 9600   201
     -- 4800   101
     -- 2400   50
-    baud_div: process (serialClkCount_d, serialClkCount)
+    -- 1200   25 ?? will these be accurate?
+    --  600   25 ??
+    --  300   12 ??
+    serialInc <= x"0970" when iopWr1DBaud = x"7" else
+                 x"0325" when iopWr1DBaud = x"6" else
+                 x"0193" when iopWr1DBaud = x"5" else
+                 x"00c9" when iopWr1DBaud = x"4" else
+                 x"0065" when iopWr1DBaud = x"3" else
+                 x"0032" when iopWr1DBaud = x"2" else
+                 x"0019" when iopWr1DBaud = x"1" else
+                 x"000c" when iopWr1DBaud = x"0" else
+                 x"0000"; -- static when disabled
+
+    baud_div: process (serialClkCount_d, serialClkCount, serialInc)
     begin
-        serialClkCount_d <= serialClkCount + 2416;
+        serialClkCount_d <= serialClkCount + serialInc;
     end process;
 
-    baud_clk: process(clk)
-    begin
-        if rising_edge(clk) then
-        end if;
-    end process;
+    -- Filter
+    RxBdClkFilt <= '1' when RxBdClkHist = "111" else '0';
+    TxBdClkFilt <= '1' when TxBdClkHist = "111" else '0';
 
--- SUB-CIRCUIT CLOCK SIGNALS
-    clk_gen: process (clk) begin
-    if rising_edge(clk) then
-        -- Enable for baud rate generator
-        serialClkCount <= serialClkCount_d;
-        if serialClkCount(15) = '0' and serialClkCount_d(15) = '1' then
-            serialClkEn <= '1';
-        else
-            serialClkEn <= '0';
+    baud_clk: process (clk, n_reset_clean)
+    begin
+        if n_reset_clean = '0' then
+            SerRxClkEn <= '0';
+            RxBdClkHist <= "000";
+            RxBdClkD1 <= '0';
+
+            SerTxClkEn <= '0';
+            TxBdClkHist <= "000";
+            TxBdClkD1 <= '0';
+
+        elsif rising_edge(clk) then
+            RxBdClkHist <= RxBdClkHist(1 downto 0) & SerRxBdClk;
+            RxBdClkD1   <= RxBdClkFilt;
+            TxBdClkHist <= TxBdClkHist(1 downto 0) & SerTxBdClk;
+            TxBdClkD1   <= TxBdClkFilt;
+
+            if iopwr1DBaud = x"8" then
+                if RxBdClkFilt = '1' and RxBdClkD1 = '0' then
+                    SerRxClkEn <= '1';
+                else
+                    SerRxClkEn <= '0';
+                end if;
+                if TxBdClkFilt = '1' and TxBdClkD1 = '0' then
+                    SerTxClkEn <= '1';
+                else
+                    SerTxClkEn <= '0';
+                end if;
+            else
+                -- Enable for baud rate generator
+                serialClkCount <= serialClkCount_d;
+                if serialClkCount(15) = '0' and serialClkCount_d(15) = '1' then
+                    SerRxClkEn <= '1';
+                    SerTxClkEn <= '1';
+                else
+                    SerRxClkEn <= '0';
+                    SerTxClkEn <= '0';
+                end if;
+            end if;
         end if;
-    end if;
     end process;
 
 
@@ -1176,10 +1235,7 @@ end generate;
             if cpuAddress(7 downto 0) = x"1c" and n_IORQ = '0' and n_WR = '0' then
                 Cold        <= Cold        and not cpuDataOut(7);
                 NeverBooted <= NeverBooted and not cpuDataOut(6);
-        end if;
-
-
-
+            end if;
         end if;
     end process;
 
