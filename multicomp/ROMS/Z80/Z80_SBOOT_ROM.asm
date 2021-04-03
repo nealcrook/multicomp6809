@@ -72,6 +72,7 @@ PROTECT: EQU     $19
 MWAITS: EQU     $1A
 PORPAGE: EQU     $1B
 REASON: EQU     $1C
+SERCON: EQU     $1D
 ;;; I/O ports VFC
 VIDMAP: EQU     $ee             ;write any data, select 80-col VFC output
 VIDNAS: EQU     $ef             ;write any data, select 48-col NASCOM output
@@ -89,7 +90,7 @@ SBSTART:
         jp      CSUM            ;portable entry point to CSUM utility
         jp      SD2MEM          ;portable entry point to SD2MEM utility
 
-;;; Entry point after reset. No stack, and the NASCOM 4 I/O ports are
+;;; Entry point after reset. No stack, and some NASCOM 4 I/O ports are
 ;;; in an unknown state.
 REENTER: in     a, (REASON)
         and     $80             ;Cold bit set?
@@ -115,7 +116,7 @@ WARM:   ld      l,0
         and     $fb             ;will disable SBootROM
         jp      EXIT            ;go and never come back
 
-;;; Cold reset. To allow warm reset, the NASCOM 4 ports
+;;; Cold reset. To allow warm reset, some NASCOM 4 ports
 ;;; are not reset, so start by setting them to a polite state.
 ;;; and selecting the NASCOM video output.
 ;;; This path through the code has NO STACK
@@ -125,6 +126,8 @@ COLD:   out     (VIDNAS), a     ;select NASCOM video output
         xor     a
         out     (PROTECT), a    ;make whole address space writeable
         out     (PORPAGE), a    ;reset to 0 (NAS-SYS)
+        ld      a, 7
+        out     (SERCON), a     ;serial port at 115200 baud
 
 ;;; Initialise stack and NAS-SYS, so that the RST calls are usable
         ld      sp,$1000        ;like NAS-SYS
