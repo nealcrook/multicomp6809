@@ -53,6 +53,9 @@ entity bufferedUART6402 is
                 -- 1:   1.5 stop bits
                 -- 2,3: 2   stop bits
                 stop    : in std_logic_vector(1 downto 0);
+                -- by default data signals are idle when high. When this signal is
+                -- high, the data signals are idle when low.
+                idleLow : in std_logic;
                 -- these clock enables are asserted for one period of input clk,
 		-- at 16x the baud rate.
 		rxClkEn : in  std_logic; -- 16 x baud rate.
@@ -100,7 +103,14 @@ signal rxFilter : integer range 0 to 50;
 
 signal rxdFiltered : std_logic := '1';
 
+signal rxdX : std_logic;
+signal txdX : std_logic;
+
 begin
+    -- Conditional inversion
+    rxdX <= rxd  xor idleLow;
+    txd  <= txdX xor idleLow;
+
 	-- status reg
 	--       7            6             5           4            3            2            1             0
 	-- | rx data    | tx buffer  | always 0   | always 0   | rx framing | rx parity  | rx overrun | always 0   |
@@ -118,16 +128,16 @@ begin
 	process (clk)
 	begin
 		if rising_edge(clk) then
-			if rxd = '1' and rxFilter=50 then
+			if rxdX = '1' and rxFilter=50 then
 				rxdFiltered <= '1';
 			end if;
-			if rxd = '1' and rxFilter /= 50 then
+			if rxdX = '1' and rxFilter /= 50 then
 				rxFilter <= rxFilter+1;
 			end if;
-			if rxd = '0' and rxFilter=0 then
+			if rxdX = '0' and rxFilter=0 then
 				rxdFiltered <= '0';
 			end if;
-			if rxd = '0' and rxFilter/=0 then
+			if rxdX = '0' and rxFilter/=0 then
 				rxFilter <= rxFilter-1;
 			end if;
 		end if;
@@ -225,12 +235,12 @@ begin
 		elsif rising_edge(clk) and txClkEn = '1' then
 			case txState is
 			when idle =>
-				txd <= '1';
+				txdX <= '1';
 				if (txByteWritten /= txByteSent) then
 					txBuffer <= txByteLatch;
 					txByteSent <= not txByteSent;
 					txState <=dataBit;
-					txd <= '0'; -- start bit
+					txdX <= '0'; -- start bit
 					txBitCount<=(others=>'0');
 					txClockCount<=(others=>'0');
 				end if;
@@ -238,10 +248,10 @@ begin
 				if txClockCount= 15 then -- 1 bit later
 					txClockCount<=(others=>'0');
 					if txBitCount= 8 then -- 8 bits written - handle stop bit
-						txd <= '1';
+						txdX <= '1';
 						txState<=stopBit;
 					else
-						txd <= txBuffer(0);
+						txdX <= txBuffer(0);
 						txBuffer <= '0' & txBuffer(7 downto 1);
 						txBitCount <=txBitCount+1;
 					end if;

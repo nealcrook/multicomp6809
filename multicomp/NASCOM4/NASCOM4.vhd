@@ -300,7 +300,7 @@ architecture struct of NASCOM4 is
     signal post_reset_rd_cnt      : std_logic_vector(1 downto 0);
     signal reset_jump             : std_logic;
 
-    -- filter and edge-detect external buad clocks
+    -- filter and edge-detect external baud clocks
     signal RxBdClkHist            : std_logic_vector(2 downto 0);
     signal RxBdClkFilt            : std_logic;
     signal RxBdClkD1              : std_logic;
@@ -381,6 +381,7 @@ architecture struct of NASCOM4 is
     ------------------------------------------------------------------
     -- PROTECT Port 19: RAM write protect
     -- Ef8k means: from E000 for 8K
+    -- NO HARDWARE RESET; managed by SBROM
 
     signal iopwr19ProtEf8k        : std_logic; -- bit 6 Protect BASIC
     signal iopwr19ProtDf4k        : std_logic; -- bit 5 Protect ZEAP etc
@@ -400,6 +401,7 @@ architecture struct of NASCOM4 is
     ------------------------------------------------------------------
     -- PORPAGE Port 1B: POR address saved for warm reset
     -- Read/Write with no hardware side-effect. Managed by SBootROM
+    -- NO HARDWARE RESET; managed by SBROM
 
     signal iopwr1BPOR             : std_logic_vector(7 downto 0) := x"00";
     signal ioprd1B                : std_logic_vector(7 downto 0);
@@ -416,12 +418,17 @@ architecture struct of NASCOM4 is
 
     ------------------------------------------------------------------
     -- SERCON Port 1D: Serial config: baud rate/external baud clocks/
-    -- stop bits
     -- Write-only
+    -- NO HARDWARE RESET; managed by SBROM
+
+    -- stop bits
     -- 0   1   stop bits
     -- 1   1.5 stop bits
     -- 2,3 2   stop bits
     signal iopwr1DStop            : std_logic_vector(1 downto 0); -- bits 7:6
+    -- 0: txd, rxd idle high
+    -- 1: txd, rxd idle low
+    signal iopwr1DIdleLow         : std_logic;                    -- bit  4
     -- 0    300bd
     -- 1   1200bd
     -- 2   2400bd
@@ -674,9 +681,6 @@ begin
         iopwr1AStalls <= x"20";
 --        iopwr1AStalls <= x"04"; -- for RTL simulation
 
-        iopwr1DBaud <= x"7";
-        iopwr1DStop <= "00";
-
         portE4wr <= x"00";
         portE8wr <= x"00";
 
@@ -698,11 +702,6 @@ begin
 
         if cpuAddress(7 downto 0) = x"1a" and n_IORQ = '0' and n_WR = '0' then
           iopwr1AStalls <= cpuDataOut(7 downto 0);
-        end if;
-
-        if cpuAddress(7 downto 0) = x"1d" and n_IORQ = '0' and n_WR = '0' then
-          iopwr1DStop <= cpuDataOut(7 downto 6);
-          iopwr1DBaud <= cpuDataOut(3 downto 0);
         end if;
 
         if cpuAddress(7 downto 0) = x"e4" and n_IORQ = '0' and n_WR = '0' then
@@ -755,6 +754,12 @@ begin
 
         if cpuAddress(7 downto 0) = x"1b" and n_IORQ = '0' and n_WR = '0' then
           iopwr1bPOR <= cpuDataOut(7 downto 0);
+        end if;
+
+        if cpuAddress(7 downto 0) = x"1d" and n_IORQ = '0' and n_WR = '0' then
+          iopwr1DStop    <= cpuDataOut(7 downto 6);
+          iopwr1DIdleLow <= cpuDataOut(4);
+          iopwr1DBaud    <= cpuDataOut(3 downto 0);
         end if;
 
         if cpuAddress(7 downto 0) = x"ee" and n_IORQ = '0' and n_WR = '0' then
@@ -979,6 +984,7 @@ begin
         dataIn => cpuDataOut,
         dataOut => UartDataOut,
         stop => iopwr1DStop,
+        idleLow => iopwr1DIdleLow,
         rxClkEn => SerRxClkEn,
         txClkEn => SerTxClkEn,
         rxd => SerRxToNas,   -- In
