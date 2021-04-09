@@ -111,9 +111,7 @@ entity nasBridge is
         n_RD    : in  std_logic;
         n_WR    : in  std_logic;
         n_WAIT  : out std_logic;
-        cpuWrData: in  std_logic_vector(7 downto 0);    -- for I/O writes
         cpuRdData: in  std_logic_vector(7 downto 0);    -- for spotting op-codes
-        BridgeRdData: out std_logic_vector(7 downto 0); -- data from I/O rd & IntAck
 
         -- Primary I/O of FPGA [NAC HACK 2021Feb27] change to camelcase? BrClk4
         clk4 : out std_logic;
@@ -128,8 +126,8 @@ entity nasBridge is
         fdc_cs_n : out std_logic;
 
         -- Address and strobe decode
-        porte4_wr   : out std_logic;
-        port00_rd_n : out std_logic;
+        porte4_wr   : out std_logic;  -- idle high, goes low-then-high on write.
+        port00_rd_n : out std_logic;  -- idle high, goes low-then-high on read.
 
         -- Bridge control signals like Z80
         BrReset_n : out std_logic;
@@ -407,7 +405,7 @@ begin
             fdc_cs_n <= '1';
 
             -- Address and strobe decode
-            porte4_wr   <= '0';
+            porte4_wr   <= '1';
             port00_rd_n <= '1';
 
             -- Bridge control signals like Z80
@@ -442,7 +440,7 @@ begin
                     ctc_cs_n <= '1';
                     fdc_cs_n <= '1';
 
-                    porte4_wr   <= '0';
+                    porte4_wr   <= '1';
                     port00_rd_n <= '1';
 
                     BrIORQ_n <= '1';
@@ -482,7 +480,7 @@ begin
 
                     BrReset_n <= '1';  -- always negated here
                     bridgeDone <= '0'; -- might be asserted on the way in
-                    porte4_wr <= '0';  -- might be asserted on the way in
+                    porte4_wr <= '1';  -- might be asserted on the way in
                     BrIORQ_n <= '1';   -- might be asserted on the way in
                     BrRD_n <= '1';     -- might be asserted on the way in
                     BrWR_n <= '1';     -- might be asserted on the way in
@@ -499,7 +497,7 @@ begin
                             ctc_cs_n <= e_ctc_cs_n;
                             fdc_cs_n <= e_fdc_cs_n;
 
-                            porte4_wr   <= '0';
+                            porte4_wr   <= '1';
                             port00_rd_n <= '1';
 
                             BrM1_n <= '1';
@@ -518,7 +516,7 @@ begin
                             ctc_cs_n <= '1';
                             fdc_cs_n <= '1';
 
-                            porte4_wr   <= '0';
+                            porte4_wr   <= '1';
                             port00_rd_n <= '1';
 
                             BrM1_n <= '0';
@@ -537,7 +535,7 @@ begin
                             ctc_cs_n <= '1';
                             fdc_cs_n <= '1';
 
-                            porte4_wr   <= '0';
+                            porte4_wr   <= '1';
                             port00_rd_n <= '1';
 
                             BrM1_n <= '0';
@@ -568,7 +566,7 @@ begin
                             ctc_cs_n <= '1';
                             fdc_cs_n <= '1';
 
-                            porte4_wr   <= '0';
+                            porte4_wr   <= '1';
                             port00_rd_n <= '1';
 
                             BrM1_n <= '0';
@@ -638,7 +636,7 @@ begin
                     if clk4t2l = '1' and stateCount = 1 then
                         -- TODO does this allow data capture correctly or do I need to move it right to the
                         -- end of the final cycle low time??
-                        porte4_wr <= e_porte4_wr; -- rising edge as WR negates
+                        porte4_wr <= not e_porte4_wr; -- rising edge at end of write
                         bridgeDone <= '1';
                         state <= idle;
                     end if;
