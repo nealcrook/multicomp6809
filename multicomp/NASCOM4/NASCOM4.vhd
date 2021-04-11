@@ -756,9 +756,9 @@ begin
             end if;
 
             -- VFC port switches on read or on write.
-            -- On the real VFC board, link XX controls which port selects which output. The assignment
-            -- here corresponds to XX and matches the assignment used in the XX example in the MAP VFC
-            -- documentation
+            -- On the real VFC board, link 2 controls which port selects which output. The assignment
+            -- here corresponds to a-b, c-d and matches the assignment used in the program example in
+            -- Section 4 of the MAP VFC documentation
             if cpuAddress(7 downto 0) = x"ee" and n_IORQ = '0' and (n_WR = '0' or n_RD = '0') then
                 video_map80vfc <= '0';
             end if;
