@@ -27,17 +27,15 @@
 -- Dummy random screen at startup with version number
 -- Cursor keys on PS/2 keyboard
 -- Fn keys on PS/2 keyboard to generate setup events (reset is fiddly)
--- Cleaner minimal flow (currently registers are not
---  initialised)
--- CODED NOT TESTED Programmable baud clock in/auto
--- CODED NOT TESTED Programmable baud clock frequency
 -- Full vectored interrupt support
 -- Share char gen cleanly so video sources can run simultaneously
 -- - add debug signals to show reads of video/chargen RAM.
--- Allow (programmable) support for 2 stop bits in the UART.
 -- Add write port to char gen.. how to decode? Whole of VFC space?
 
 -- BUG: cannot warm-start PASCAL: it goes back to NAS-SYS. Why?
+-- BUG: cannot start up memory test: it leaves SBROM enabled. My theory is that
+-- the stack is being overwritten by the loaded program. How to handle
+-- non-512-xple image sizes??
 
 --------------------------------------------------------------------------------
 -- "NASCOM 4"
@@ -307,9 +305,6 @@ architecture struct of NASCOM4 is
     signal TxBdClkHist            : std_logic_vector(2 downto 0);
     signal TxBdClkFilt            : std_logic;
     signal TxBdClkD1              : std_logic;
-
-    -- internal signals for bridge
-    signal BridgeRdData           : std_logic_vector(7 downto 0);
 
     -- Both set to 1 by cold reset, read through REASON register and
     -- write-1-to-clear; controlled by SBootROM. Neither is affected
@@ -773,35 +768,40 @@ begin
       end if;
     end process;
 
-    -- Readback for port18
+    -- Read data for port18
     ioprd18 <= "00" & iopwr18MAP80AutoBoot & iopwr18NasWsRam
           & iopwr18NasSysRom & iopwr18SBootRom & iopwr18NasVidHigh & iopwr18NasVidRam;
 
-    -- Readback for port19
+    -- Read data for port19
     ioprd19 <= '0' & iopwr19ProtEf8k & iopwr19ProtDf4k & iopwr19ProtCf4k & iopwr19ProtBf4k
           & iopwr19ProtAf4k & '0' & iopwr19Prot0f2k;
 
-    -- Readback for port1b
+    -- Read data for port1B
     ioprd1B <= iopwr1BPOR;
 
-    -- Readback for port1c
+    -- Read data for port1C
     -- TODO add other reason bits
     ioprd1C <= Cold & NeverBooted & "000000";
 
-    -- Readback for portE4; port bit positions match MAP80 VFC
+    -- Read data for portE4; port bit positions match MAP80 VFC
     ioprdE4 <= FdcDrq & "00000" & FdcRdy_n & FdcIntr;
 
-    -- [NAC HACK 2020Nov16] here, I drive data for any IO request -- will need changing for external IO read
-    -- [NAC HACK 2020Nov16] and for interrupt ack cycle
-    -- I/O port read..
-    -- 00 read from input pins
-    -- E4 read from stuff.. disk control
-    -- E6 parallel keyboard synthesised from PS/2 kbd
-    -- Miscellaneous I/O port write
-    proc_iord: process(cpuAddress, ioprd00, UartDataOut, ioprd18, ioprd19, ioprdE4, porte6rd, sdCardDataOut, sRamData)
+    -- MUX read data to CPU for IO port read requests
+    -- [NAC HACK 2021Apr05] will need changing for external IO read and for interrupt ack cycle?
+    proc_iord: process(cpuAddress, ioprd00, UartDataOut, ioprd18, ioprd19, ioprdE4, portE6rd, sdCardDataOut, sRamData)
     begin
       if cpuAddress(7 downto 0) = x"00" then
-        nasLocalIODataOut  <= ioprd00;
+          -- Scan data from keyboard. Data from PS/2 keyboard is on ioprd00. Data from NASCOM
+          -- keyboard comes from external I/O bus on sRamData.
+          -- For PS/2 keyboard, ioprd00 is 0xff if keyboard absent or no key pressed.
+          -- For NASCOM keyboard, external buffer may be fitted or not; may need a
+          -- jumper wire or pulldown?
+          -- If the keyboard is fitted, D[7]=1 from a pullup on that line on the keyboard itself
+          if sRamData(7) = '1' and sRamData(7 downto 0) /= x"ff" then
+              nasLocalIODataOut  <= sRamData; -- from NASCOM keyboard
+          else
+              nasLocalIODataOut  <= ioprd00;  -- from PS/2 keyboard
+          end if;
       elsif cpuAddress(7 downto 0) = x"01" or cpuAddress(7 downto 0) = x"02" then
         nasLocalIODataOut  <= UartDataOut;
       elsif cpuAddress(7 downto 3) = "00010" then
@@ -817,7 +817,7 @@ begin
       elsif cpuAddress(7 downto 0) = x"e4" then
         nasLocalIODataOut  <= ioprdE4;
       elsif cpuAddress(7 downto 0) = x"e6" then
-        nasLocalIODataOut  <= porte6rd;
+        nasLocalIODataOut  <= portE6rd;
       else
         -- from external I/O bridge TODO is this the best way to do it?? Can it work for iack, too?
         nasLocalIODataOut  <= sRamData;
@@ -842,7 +842,6 @@ begin
     -- the button press logic into the SM and getting rid of nmi_button
     -- TODO 8-bit count value is arbitrary: investigate whether it could be shorter.
     -- Also, could generate a common prescale/clock enable elsewhere for use here
-
     proc_sstep: process(clk, n_reset_clean)
     begin
         if n_reset_clean='0' then
@@ -1053,10 +1052,8 @@ end generate;
         n_MREQ  => n_MREQ,
         n_RD    => n_RD,
         n_WR    => n_WR,
-        n_WAIT  => n_WAIT,       -- cycle length control for ALL accesses
-        cpuWrData  => cpuDataOut,     -- In  to   bridge
-        cpuRdData  => cpuDataIn,      -- In  to   bridge
-        BridgeRdData => BridgeRdData, -- Out from bridge - contributes to cpuRdData
+        n_WAIT  => n_WAIT,         -- cycle length control for ALL accesses
+        cpuRdData  => cpuDataIn,   -- in to bridge; for spotting/tracking op-codes.
 
         -- To the outside world
         clk4           => clk4,
