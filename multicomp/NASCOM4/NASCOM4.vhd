@@ -23,7 +23,6 @@
 
 -- ** Stuff still to do **
 -- Proper debounce on NMI button
--- Merge in NASCOM keyboard (jumper or auto select?)
 -- Dummy random screen at startup with version number
 -- Cursor keys on PS/2 keyboard
 -- Fn keys on PS/2 keyboard to generate setup events (reset is fiddly)
@@ -107,8 +106,8 @@
 -- * I/O port EA    - VFC MC6845 register select - NOT IMPLEMENTED
 -- * I/O port EB    - VFC MC6845 data - NOT IMPLEMENTED
 -- * I/O port EC    - VFC mapping register (write-only)
--- * I/O port EE    - VFC write to select VFC video on output
--- * I/O port EF    - VFC write to select NASCOM video on output
+-- * I/O port EE    - VFC read or write to select NASCOM video on output
+-- * I/O port EF    - VFC read or write to select VFC video on output
 -- * I/O port FE    - MAP80 256KRAM paging/memory mapping (write-only)
 --
 -- Connection off-chip to:
@@ -756,12 +755,16 @@ begin
                 iopwr1DBaud    <= cpuDataOut(3 downto 0);
             end if;
 
-            if cpuAddress(7 downto 0) = x"ee" and n_IORQ = '0' and n_WR = '0' then
-                video_map80vfc <= '1';
+            -- VFC port switches on read or on write.
+            -- On the real VFC board, link XX controls which port selects which output. The assignment
+            -- here corresponds to XX and matches the assignment used in the XX example in the MAP VFC
+            -- documentation
+            if cpuAddress(7 downto 0) = x"ee" and n_IORQ = '0' and (n_WR = '0' or n_RD = '0') then
+                video_map80vfc <= '0';
             end if;
 
-            if cpuAddress(7 downto 0) = x"ef" and n_IORQ = '0' and n_WR = '0' then
-                video_map80vfc <= '0';
+            if cpuAddress(7 downto 0) = x"ef" and n_IORQ = '0' and (n_WR = '0' or n_RD = '0') then
+                video_map80vfc <= '1';
             end if;
       end if;
     end process;
