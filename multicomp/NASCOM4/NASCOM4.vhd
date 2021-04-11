@@ -496,43 +496,43 @@ begin
 -- CPU CHOICE GOES HERE
 
     cpu1 : entity work.T80s
-      generic map(mode => 1, t2write => 1, iowait => 0)
-      port map(
-            clk     => clk,   -- 50MHz master input clock
-            reset_n => n_reset_clean,
-            wait_n  => n_WAIT,
-            int_n   => n_INT, -- from external I/O sub-system
-            nmi_n   => n_NMI, -- from single-step logic or debounced switch
-            busrq_n => '1',   -- unused
-            halt_n  => n_HALT,
-            m1_n    => n_M1,
-            mreq_n  => n_MREQ,
-            iorq_n  => n_IORQ,
-            rd_n    => n_RD,
-            wr_n    => n_WR,
-            a       => cpuAddress,
-            di      => cpuDataIn,
-            do      => cpuDataOut);
+    generic map(mode => 1, t2write => 1, iowait => 0)
+    port map(
+        clk     => clk,   -- 50MHz master input clock
+        reset_n => n_reset_clean,
+        wait_n  => n_WAIT,
+        int_n   => n_INT, -- from external I/O sub-system
+        nmi_n   => n_NMI, -- from single-step logic or debounced switch
+        busrq_n => '1',   -- unused
+        halt_n  => n_HALT,
+        m1_n    => n_M1,
+        mreq_n  => n_MREQ,
+        iorq_n  => n_IORQ,
+        rd_n    => n_RD,
+        wr_n    => n_WR,
+        a       => cpuAddress,
+        di      => cpuDataIn,
+        do      => cpuDataOut);
 
 -- ____________________________________________________________________________________
 -- ROMS GO HERE
     rom1 : entity work.Z80_NASSYS3_ROM -- 2KB ROM
     port map(
-            address => cpuAddress(10 downto 0),
-            clock => clk,
-            q => nasRomDataOut);
+        address => cpuAddress(10 downto 0),
+        clock => clk,
+        q => nasRomDataOut);
 
     rom2 : entity work.Z80_MAP80VFC_ROM -- 2KB ROM
     port map(
-            address => cpuAddress(10 downto 0),
-            clock => clk,
-            q => vfcRomDataOut);
+        address => cpuAddress(10 downto 0),
+        clock => clk,
+        q => vfcRomDataOut);
 
     rom3 : entity work.Z80_SBOOT_ROM -- 1KB ROM (insufficient resource to make this 2K)
     port map(
-            address => cpuAddress(9 downto 0),
-            clock => clk,
-            q => sbootRomDataOut);
+        address => cpuAddress(9 downto 0),
+        clock => clk,
+        q => sbootRomDataOut);
 
 -- ____________________________________________________________________________________
 -- RAM GOES HERE
@@ -562,22 +562,22 @@ begin
 
     proc_sramadr: process(cpuAddress, iopwrFEPageSel, iopwrFEUpper32k, iopwrFE32kPages)
     begin
-      if iopwrFE32kPages = '0' then
-        -- 64K paging. 16 address lines from CPU, 3 from the page register.
-        sRamAddress  <= iopwrFEPageSel(3 downto 1) & cpuAddress(15 downto 0);
-        n_sRamCSLo_i <=     iopwrFEPageSel(4);
-        n_sRamCSHi_i <= not(iopwrFEPageSel(4));
-      elsif iopwrFEUpper32k = cpuAddress(15) then
-        -- 32K paging. Select page 0 in the lower or upper half of the address space
-        sRamAddress  <= "000" & cpuAddress(15 downto 0);
-        n_sRamCSLo_i <= '0';
-        n_sRamCSHi_i <= '1';
-      else
-        -- 32K paging. Select the addressed 32K page
-        sRamAddress  <= iopwrFEPageSel(3 downto 0) & cpuAddress(14 downto 0);
-        n_sRamCSLo_i <=     iopwrFEPageSel(4);
-        n_sRamCSHi_i <= not(iopwrFEPageSel(4));
-      end if;
+        if iopwrFE32kPages = '0' then
+            -- 64K paging. 16 address lines from CPU, 3 from the page register.
+            sRamAddress  <= iopwrFEPageSel(3 downto 1) & cpuAddress(15 downto 0);
+            n_sRamCSLo_i <=     iopwrFEPageSel(4);
+            n_sRamCSHi_i <= not(iopwrFEPageSel(4));
+        elsif iopwrFEUpper32k = cpuAddress(15) then
+            -- 32K paging. Select page 0 in the lower or upper half of the address space
+            sRamAddress  <= "000" & cpuAddress(15 downto 0);
+            n_sRamCSLo_i <= '0';
+            n_sRamCSHi_i <= '1';
+        else
+            -- 32K paging. Select the addressed 32K page
+            sRamAddress  <= iopwrFEPageSel(3 downto 0) & cpuAddress(14 downto 0);
+            n_sRamCSLo_i <=     iopwrFEPageSel(4);
+            n_sRamCSHi_i <= not(iopwrFEPageSel(4));
+        end if;
     end process;
 
     -- Assign chip selects to pins
@@ -610,11 +610,11 @@ begin
 
     WSRam: entity work.InternalRam1K
     port map(
-             address => cpuAddress(9 downto 0),
-             clock => clk,
-             data => cpuDataOut,
-             wren => wren_nasWSRam,
-             q => nasWSRamDataOut);
+        address => cpuAddress(9 downto 0),
+        clock => clk,
+        data => cpuDataOut,
+        wren => wren_nasWSRam,
+        q => nasWSRamDataOut);
 
 -- ____________________________________________________________________________________
 -- INPUT/OUTPUT DEVICES GO HERE
@@ -632,94 +632,93 @@ begin
 
     proc_sboot: process(clk, n_reset_clean)
     begin
-      if n_reset_clean='0' then
-        SBootRomState <= "10"; -- MSB is the ROM enable
-      elsif rising_edge(clk) then
-        case SBootRomState is
-          when "10" =>
-            if cpuAddress(7 downto 0) = x"18" and n_IORQ = '0' and n_WR = '0' and cpuDataOut(2) = '0' then
-              -- Start the process of disabling the ROM
-              SBootRomState <= "11";
-            end if;
+        if n_reset_clean='0' then
+            SBootRomState <= "10"; -- MSB is the ROM enable
+        elsif rising_edge(clk) then
+            case SBootRomState is
+                when "10" =>
+                    if cpuAddress(7 downto 0) = x"18" and n_IORQ = '0' and n_WR = '0' and cpuDataOut(2) = '0' then
+                        -- Start the process of disabling the ROM
+                        SBootRomState <= "11";
+                    end if;
 
-          when "11" =>
-            if n_MREQ = '0' and n_RD = '0' and n_WAIT = '1' then
-              -- The JP (HL) instruction fetch.. complete the process of disabling the ROM
-              SBootRomState <= "00";
-            end if;
+                when "11" =>
+                    if n_MREQ = '0' and n_RD = '0' and n_WAIT = '1' then
+                        -- The JP (HL) instruction fetch.. complete the process of disabling the ROM
+                        SBootRomState <= "00";
+                    end if;
 
-          when "00" =>
-            if cpuAddress(7 downto 0) = x"18" and n_IORQ = '0' and n_WR = '0' and cpuDataOut(2) = '1' then
-              -- Enable the ROM
-              SBootRomState <= "10";
-            end if;
+                when "00" =>
+                    if cpuAddress(7 downto 0) = x"18" and n_IORQ = '0' and n_WR = '0' and cpuDataOut(2) = '1' then
+                        -- Enable the ROM
+                        SBootRomState <= "10";
+                    end if;
 
-          when others =>
-            SBootRomState <= "10";
-        end case;
-      end if;
+                when others =>
+                    SBootRomState <= "10";
+            end case;
+        end if;
     end process;
 
 
     -- Miscellaneous I/O port write
     proc_iowr_rst: process(clk, n_reset_clean)
     begin
-      if n_reset_clean='0' then
-        iopwr00NasDrive  <= '0';
-        iopwr00NasNMI    <= '0';
-        iopwr00NasKbdClk <= '0';
-        iopwr00NasKbdRst <= '0';
+        if n_reset_clean='0' then
+            iopwr00NasDrive  <= '0';
+            iopwr00NasNMI    <= '0';
+            iopwr00NasKbdClk <= '0';
+            iopwr00NasKbdRst <= '0';
 
-        -- Originally I tried to NOT reset this, so that it would be
-        -- maintained across soft reset, but I got very weird behaviour
-        -- on silicon, even though it seemed to work fine in simulation.
-        iopwr1AStalls <= x"20";
---        iopwr1AStalls <= x"04"; -- for RTL simulation
+            -- Originally I tried to NOT reset this, so that it would be
+            -- maintained across soft reset, but I got very weird behaviour
+            -- on silicon, even though it seemed to work fine in simulation.
+            iopwr1AStalls <= x"20";
+            --        iopwr1AStalls <= x"04"; -- for RTL simulation
 
-        portE4wr <= x"00";
-        portE8wr <= x"00";
+            portE4wr <= x"00";
+            portE8wr <= x"00";
 
-        iopwrECRomEnable  <= '0';
-        iopwrECRamEnable  <= '0';
-        iopwrECVfcPage    <= x"0";
+            iopwrECRomEnable  <= '0';
+            iopwrECRamEnable  <= '0';
+            iopwrECVfcPage    <= x"0";
 
-        iopwrFE32kPages   <= '0';
-        iopwrFEUpper32k   <= '0';
-        iopwrFEPageSel    <= "000000";
+            iopwrFE32kPages   <= '0';
+            iopwrFEUpper32k   <= '0';
+            iopwrFEPageSel    <= "000000";
 
-      elsif rising_edge(clk) then
-        if cpuAddress(7 downto 0) = x"00" and n_IORQ = '0' and n_WR = '0' then
-          iopwr00NasDrive  <= cpuDataOut(4);
-          iopwr00NasNMI    <= cpuDataOut(3);
-          iopwr00NasKbdRst <= cpuDataOut(1);
-          iopwr00NasKbdClk <= cpuDataOut(0);
+        elsif rising_edge(clk) then
+            if cpuAddress(7 downto 0) = x"00" and n_IORQ = '0' and n_WR = '0' then
+                iopwr00NasDrive  <= cpuDataOut(4);
+                iopwr00NasNMI    <= cpuDataOut(3);
+                iopwr00NasKbdRst <= cpuDataOut(1);
+                iopwr00NasKbdClk <= cpuDataOut(0);
+            end if;
+
+            if cpuAddress(7 downto 0) = x"1a" and n_IORQ = '0' and n_WR = '0' then
+                iopwr1AStalls <= cpuDataOut(7 downto 0);
+            end if;
+
+            if cpuAddress(7 downto 0) = x"e4" and n_IORQ = '0' and n_WR = '0' then
+                portE4wr <= cpuDataOut;
+            end if;
+
+            if cpuAddress(7 downto 0) = x"e8" and n_IORQ = '0' and n_WR = '0' then
+                portE8wr <= cpuDataOut;
+            end if;
+
+            if cpuAddress(7 downto 0) = x"ec" and n_IORQ = '0' and n_WR = '0' then
+                iopwrECVfcPage    <= cpuDataOut(7 downto 4);
+                iopwrECRomEnable  <= cpuDataOut(1);
+                iopwrECRamEnable  <= cpuDataOut(0);
+            end if;
+
+            if cpuAddress(7 downto 0) = x"fe" and n_IORQ = '0' and n_WR = '0' then
+                iopwrFE32kPages   <= cpuDataOut(7);
+                iopwrFEUpper32k   <= cpuDataOut(6);
+                iopwrFEPageSel    <= cpuDataOut(5 downto 0);
+            end if;
         end if;
-
-        if cpuAddress(7 downto 0) = x"1a" and n_IORQ = '0' and n_WR = '0' then
-          iopwr1AStalls <= cpuDataOut(7 downto 0);
-        end if;
-
-        if cpuAddress(7 downto 0) = x"e4" and n_IORQ = '0' and n_WR = '0' then
-          portE4wr <= cpuDataOut;
-        end if;
-
-        if cpuAddress(7 downto 0) = x"e8" and n_IORQ = '0' and n_WR = '0' then
-          portE8wr <= cpuDataOut;
-        end if;
-
-        if cpuAddress(7 downto 0) = x"ec" and n_IORQ = '0' and n_WR = '0' then
-          iopwrECVfcPage    <= cpuDataOut(7 downto 4);
-          iopwrECRomEnable  <= cpuDataOut(1);
-          iopwrECRamEnable  <= cpuDataOut(0);
-        end if;
-
-        if cpuAddress(7 downto 0) = x"fe" and n_IORQ = '0' and n_WR = '0' then
-          iopwrFE32kPages   <= cpuDataOut(7);
-          iopwrFEUpper32k   <= cpuDataOut(6);
-          iopwrFEPageSel    <= cpuDataOut(5 downto 0);
-        end if;
-
-      end if;
     end process;
 
 
@@ -728,43 +727,42 @@ begin
     -- as possible.
     proc_iowr: process(clk)
     begin
-      if rising_edge(clk) then
-        if cpuAddress(7 downto 0) = x"18" and n_IORQ = '0' and n_WR = '0' then
-          iopwr18MAP80AutoBoot <= cpuDataOut(5);
-          iopwr18NasWsRam      <= cpuDataOut(4);
-          iopwr18NasSysRom     <= cpuDataOut(3);
-          -- bit (2) is handled elsewhere
-          iopwr18NasVidHigh    <= cpuDataOut(1);
-          iopwr18NasVidRam     <= cpuDataOut(0);
-        end if;
+        if rising_edge(clk) then
+            if cpuAddress(7 downto 0) = x"18" and n_IORQ = '0' and n_WR = '0' then
+                iopwr18MAP80AutoBoot <= cpuDataOut(5);
+                iopwr18NasWsRam      <= cpuDataOut(4);
+                iopwr18NasSysRom     <= cpuDataOut(3);
+                -- bit (2) is handled elsewhere
+                iopwr18NasVidHigh    <= cpuDataOut(1);
+                iopwr18NasVidRam     <= cpuDataOut(0);
+            end if;
 
-        if cpuAddress(7 downto 0) = x"19" and n_IORQ = '0' and n_WR = '0' then
-          iopwr19ProtEf8k <= cpuDataOut(6);
-          iopwr19ProtDf4k <= cpuDataOut(5);
-          iopwr19ProtCf4k <= cpuDataOut(4);
-          iopwr19ProtBf4k <= cpuDataOut(3);
-          iopwr19ProtAf4k <= cpuDataOut(2);
-          iopwr19Prot0f2k <= cpuDataOut(0);
-        end if;
+            if cpuAddress(7 downto 0) = x"19" and n_IORQ = '0' and n_WR = '0' then
+                iopwr19ProtEf8k <= cpuDataOut(6);
+                iopwr19ProtDf4k <= cpuDataOut(5);
+                iopwr19ProtCf4k <= cpuDataOut(4);
+                iopwr19ProtBf4k <= cpuDataOut(3);
+                iopwr19ProtAf4k <= cpuDataOut(2);
+                iopwr19Prot0f2k <= cpuDataOut(0);
+            end if;
 
-        if cpuAddress(7 downto 0) = x"1b" and n_IORQ = '0' and n_WR = '0' then
-          iopwr1bPOR <= cpuDataOut(7 downto 0);
-        end if;
+            if cpuAddress(7 downto 0) = x"1b" and n_IORQ = '0' and n_WR = '0' then
+                iopwr1bPOR <= cpuDataOut(7 downto 0);
+            end if;
 
-        if cpuAddress(7 downto 0) = x"1d" and n_IORQ = '0' and n_WR = '0' then
-          iopwr1DStop    <= cpuDataOut(7 downto 6);
-          iopwr1DIdleLow <= cpuDataOut(4);
-          iopwr1DBaud    <= cpuDataOut(3 downto 0);
-        end if;
+            if cpuAddress(7 downto 0) = x"1d" and n_IORQ = '0' and n_WR = '0' then
+                iopwr1DStop    <= cpuDataOut(7 downto 6);
+                iopwr1DIdleLow <= cpuDataOut(4);
+                iopwr1DBaud    <= cpuDataOut(3 downto 0);
+            end if;
 
-        if cpuAddress(7 downto 0) = x"ee" and n_IORQ = '0' and n_WR = '0' then
-          video_map80vfc <= '1';
-        end if;
+            if cpuAddress(7 downto 0) = x"ee" and n_IORQ = '0' and n_WR = '0' then
+                video_map80vfc <= '1';
+            end if;
 
-        if cpuAddress(7 downto 0) = x"ef" and n_IORQ = '0' and n_WR = '0' then
-          video_map80vfc <= '0';
-        end if;
-
+            if cpuAddress(7 downto 0) = x"ef" and n_IORQ = '0' and n_WR = '0' then
+                video_map80vfc <= '0';
+            end if;
       end if;
     end process;
 
@@ -790,38 +788,38 @@ begin
     -- [NAC HACK 2021Apr05] will need changing for external IO read and for interrupt ack cycle?
     proc_iord: process(cpuAddress, ioprd00, UartDataOut, ioprd18, ioprd19, ioprdE4, portE6rd, sdCardDataOut, sRamData)
     begin
-      if cpuAddress(7 downto 0) = x"00" then
-          -- Scan data from keyboard. Data from PS/2 keyboard is on ioprd00. Data from NASCOM
-          -- keyboard comes from external I/O bus on sRamData.
-          -- For PS/2 keyboard, ioprd00 is 0xff if keyboard absent or no key pressed.
-          -- For NASCOM keyboard, external buffer may be fitted or not; may need a
-          -- jumper wire or pulldown?
-          -- If the keyboard is fitted, D[7]=1 from a pullup on that line on the keyboard itself
-          if sRamData(7) = '1' and sRamData(7 downto 0) /= x"ff" then
-              nasLocalIODataOut  <= sRamData; -- from NASCOM keyboard
-          else
-              nasLocalIODataOut  <= ioprd00;  -- from PS/2 keyboard
-          end if;
-      elsif cpuAddress(7 downto 0) = x"01" or cpuAddress(7 downto 0) = x"02" then
-        nasLocalIODataOut  <= UartDataOut;
-      elsif cpuAddress(7 downto 3) = "00010" then
-        nasLocalIODataOut  <= sdCardDataOut;
-      elsif cpuAddress(7 downto 0) = x"18" then
-        nasLocalIODataOut  <= ioprd18;
-      elsif cpuAddress(7 downto 0) = x"19" then
-        nasLocalIODataOut  <= ioprd19;
-      elsif cpuAddress(7 downto 0) = x"1b" then
-        nasLocalIODataOut  <= ioprd1B;
-      elsif cpuAddress(7 downto 0) = x"1c" then
-        nasLocalIODataOut  <= ioprd1C;
-      elsif cpuAddress(7 downto 0) = x"e4" then
-        nasLocalIODataOut  <= ioprdE4;
-      elsif cpuAddress(7 downto 0) = x"e6" then
-        nasLocalIODataOut  <= portE6rd;
-      else
-        -- from external I/O bridge TODO is this the best way to do it?? Can it work for iack, too?
-        nasLocalIODataOut  <= sRamData;
-      end if;
+        if cpuAddress(7 downto 0) = x"00" then
+            -- Scan data from keyboard. Data from PS/2 keyboard is on ioprd00. Data from NASCOM
+            -- keyboard comes from external I/O bus on sRamData.
+            -- For PS/2 keyboard, ioprd00 is 0xff if keyboard absent or no key pressed.
+            -- For NASCOM keyboard, external buffer may be fitted or not; may need a
+            -- jumper wire or pulldown?
+            -- If the keyboard is fitted, D[7]=1 from a pullup on that line on the keyboard itself
+            if sRamData(7) = '1' and sRamData(7 downto 0) /= x"ff" then
+                nasLocalIODataOut  <= sRamData; -- from NASCOM keyboard
+            else
+                nasLocalIODataOut  <= ioprd00;  -- from PS/2 keyboard
+            end if;
+        elsif cpuAddress(7 downto 0) = x"01" or cpuAddress(7 downto 0) = x"02" then
+            nasLocalIODataOut  <= UartDataOut;
+        elsif cpuAddress(7 downto 3) = "00010" then
+            nasLocalIODataOut  <= sdCardDataOut;
+        elsif cpuAddress(7 downto 0) = x"18" then
+            nasLocalIODataOut  <= ioprd18;
+        elsif cpuAddress(7 downto 0) = x"19" then
+            nasLocalIODataOut  <= ioprd19;
+        elsif cpuAddress(7 downto 0) = x"1b" then
+            nasLocalIODataOut  <= ioprd1B;
+        elsif cpuAddress(7 downto 0) = x"1c" then
+            nasLocalIODataOut  <= ioprd1C;
+        elsif cpuAddress(7 downto 0) = x"e4" then
+            nasLocalIODataOut  <= ioprdE4;
+        elsif cpuAddress(7 downto 0) = x"e6" then
+            nasLocalIODataOut  <= portE6rd;
+        else
+            -- from external I/O bridge TODO is this the best way to do it?? Can it work for iack, too?
+            nasLocalIODataOut  <= sRamData;
+        end if;
     end process;
 
     -- Single-step logic: soft-generated NMI
@@ -889,29 +887,29 @@ begin
 
     io1 : entity work.nasVDU
     port map (
-            n_reset => n_reset_clean,
-            clk => clk,
+        n_reset => n_reset_clean,
+        clk => clk,
 
-            -- select which video
-            video_map80vfc => video_map80vfc,
+        -- select which video
+        video_map80vfc => video_map80vfc,
 
-            -- memory access to video RAM
-            addr        => cpuAddress(10 downto 0),
-            n_nasCS     => n_nasVidRamCS,
-            n_mapCS     => n_vfcVidRamCS,
-            n_charGenCS => '1',    -- TODO paged address space for chargen write path
-            n_memWr     => n_memWr,
-            dataIn      => cpuDataOut,
-            dataOut     => VDURamDataOut,
+        -- memory access to video RAM
+        addr        => cpuAddress(10 downto 0),
+        n_nasCS     => n_nasVidRamCS,
+        n_mapCS     => n_vfcVidRamCS,
+        n_charGenCS => '1',    -- TODO paged address space for chargen write path
+        n_memWr     => n_memWr,
+        dataIn      => cpuDataOut,
+        dataOut     => VDURamDataOut,
 
-            -- RGB video signals
-            PriHsync    => PriHsync,
-            PriVsync    => PriVsync,
-            PriVideo    => PriVideo,
-            SecHsync    => SecHsync,
-            SecVsync    => SecVsync,
-            SecVideo    => SecVideo
-            );
+        -- RGB video signals
+        PriHsync    => PriHsync,
+        PriVsync    => PriVsync,
+        PriVideo    => PriVideo,
+        SecHsync    => SecHsync,
+        SecVsync    => SecVsync,
+        SecVideo    => SecVideo
+        );
 
 
     n_WR_uart <= n_UartCS or n_WR or n_IORQ;
@@ -923,13 +921,13 @@ begin
 
     proc_uartcnt: process(clk, n_reset_clean)
     begin
-      if n_reset_clean='0' then
-        uartcnt <= x"0a";
-      elsif rising_edge(clk) then
-        if n_RD_uart = '0' and cpuAddress(1) = '0' and uartcnt /= x"ff" then
-            uartcnt <= uartcnt + x"01";
+        if n_reset_clean='0' then
+            uartcnt <= x"0a";
+        elsif rising_edge(clk) then
+            if n_RD_uart = '0' and cpuAddress(1) = '0' and uartcnt /= x"ff" then
+                uartcnt <= uartcnt + x"01";
+            end if;
         end if;
-      end if;
     end process;
 
     ioprd01  <= x"53" when uartcnt = x"0a" else -- SC80<newline><newline>
@@ -1112,14 +1110,14 @@ end generate;
 -- BUS ISOLATION GOES HERE
 
     cpuDataIn <=
-                        nasLocalIODataOut       when n_IORQ        = '0' else
-                        sbootRomDataOut         when n_sbootRomCS  = '0' else -- needs to be above nasRomDataOut so that reset jump
+        nasLocalIODataOut       when n_IORQ        = '0' else
+        sbootRomDataOut         when n_sbootRomCS  = '0' else -- needs to be above nasRomDataOut so that reset jump
                                                                               -- works
-                        nasRomDataOut           when n_nasRomCS    = '0' else
-                        vfcRomDataOut           when n_vfcRomCS    = '0' else
-                        nasWSRamDataOut         when n_nasWSRamCS  = '0' else
-                        VDURamDataOut           when n_nasVidRamCS = '0' or n_vfcVidRamCS = '0' else
-                        sRamData;               -- for external memory read, for interrupt ack
+        nasRomDataOut           when n_nasRomCS    = '0' else
+        vfcRomDataOut           when n_vfcRomCS    = '0' else
+        nasWSRamDataOut         when n_nasWSRamCS  = '0' else
+        VDURamDataOut           when n_nasVidRamCS = '0' or n_vfcVidRamCS = '0' else
+        sRamData;               -- for external memory read, for interrupt ack
 
 -- ____________________________________________________________________________________
 -- SYSTEM CLOCKS GO HERE
@@ -1198,10 +1196,10 @@ end generate;
     end process;
 
 
--- reset control and jump-on-reset
+    -- reset control and jump-on-reset
 
--- n_reset_clean asserts asynchronously and negates synchronously; this ensures
--- that all blocks come out of reset cleanly and on the same clock.
+    -- n_reset_clean asserts asynchronously and negates synchronously; this ensures
+    -- that all blocks come out of reset cleanly and on the same clock.
     n_reset_clean <= '0' when n_SwRst = '0' or n_SwWarmRst = '0' or n_reset_s2 = '0' else '1';
 
     rst_gen: process (clk, n_SwRst)
