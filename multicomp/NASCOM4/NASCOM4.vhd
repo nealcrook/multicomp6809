@@ -498,7 +498,7 @@ begin
     cpu1 : entity work.T80s
       generic map(mode => 1, t2write => 1, iowait => 0)
       port map(
-            clk_n   => clk,   -- 50MHz master input clock
+            clk     => clk,   -- 50MHz master input clock
             reset_n => n_reset_clean,
             wait_n  => n_WAIT,
             int_n   => n_INT, -- from external I/O sub-system

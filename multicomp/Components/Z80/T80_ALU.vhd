@@ -1,10 +1,26 @@
+--------------------------------------------------------------------------------
+-- ****
+-- T80(c) core. Attempt to finish all undocumented features and provide
+--              accurate timings.
+-- Version 350.
+-- Copyright (c) 2018 Sorgelig
+--  Test passed: ZEXDOC, ZEXALL, Z80Full(*), Z80memptr
+--  (*) Currently only SCF and CCF instructions aren't passed X/Y flags check as
+--      correct implementation is still unclear.
 --
+-- ****
+-- T80(b) core. In an effort to merge and maintain bug fixes ....
+--
+-- Ver 301 parity flag is just parity for 8080, also overflow for Z80, by Sean Riddle
+-- Ver 300 started tidyup
+-- MikeJ March 2005
+-- Latest version from www.fpgaarcade.com (original www.opencores.org)
+--
+-- ****
 -- Z80 compatible microprocessor core
 --
 -- Version : 0247
---
 -- Copyright (c) 2001-2002 Daniel Wallner (jesus@opencores.org)
---
 -- All rights reserved
 --
 -- Redistribution and use in source and synthezised forms, with or without
@@ -38,21 +54,17 @@
 -- you have the latest version of this file.
 --
 -- The latest version of this file can be found at:
---	http://www.opencores.org/cvsweb.shtml/t80/
+--      http://www.opencores.org/cvsweb.shtml/t80/
 --
 -- Limitations :
 --
 -- File history :
 --
---	0214 : Fixed mostly flags, only the block instructions now fail the zex regression test
---
---	0238 : Fixed zero flag for 16 bit SBC and ADC
---
---	0240 : Added GB operations
---
---	0242 : Cleanup
---
---	0247 : Cleanup
+--      0214 : Fixed mostly flags, only the block instructions now fail the zex regression test
+--      0238 : Fixed zero flag for 16 bit SBC and ADC
+--      0240 : Added GB operations
+--      0242 : Cleanup
+--      0247 : Cleanup
 --
 
 library IEEE;
@@ -72,68 +84,81 @@ entity T80_ALU is
 		Flag_S : integer := 7
 	);
 	port(
-		Arith16		: in std_logic;
-		Z16			: in std_logic;
-		ALU_Op		: in std_logic_vector(3 downto 0);
-		IR			: in std_logic_vector(5 downto 0);
-		ISet		: in std_logic_vector(1 downto 0);
-		BusA		: in std_logic_vector(7 downto 0);
-		BusB		: in std_logic_vector(7 downto 0);
-		F_In		: in std_logic_vector(7 downto 0);
-		Q			: out std_logic_vector(7 downto 0);
-		F_Out		: out std_logic_vector(7 downto 0)
+		Arith16         : in  std_logic;
+		Z16             : in  std_logic;
+		WZ              : in  std_logic_vector(15 downto 0);
+		XY_State		    : in  std_logic_vector(1 downto 0);
+		ALU_Op          : in  std_logic_vector(3 downto 0);
+		IR              : in  std_logic_vector(5 downto 0);
+		ISet            : in  std_logic_vector(1 downto 0);
+		BusA            : in  std_logic_vector(7 downto 0);
+		BusB            : in  std_logic_vector(7 downto 0);
+		F_In            : in  std_logic_vector(7 downto 0);
+		Q               : out std_logic_vector(7 downto 0);
+		F_Out           : out std_logic_vector(7 downto 0)
 	);
 end T80_ALU;
 
 architecture rtl of T80_ALU is
 
-	procedure AddSub(A : std_logic_vector;
-					B : std_logic_vector;
-					Sub : std_logic;
-					Carry_In : std_logic;
-					signal Res : out std_logic_vector;
-					signal Carry : out std_logic) is
-		variable B_i		: unsigned(A'length - 1 downto 0);
-		variable Res_i		: unsigned(A'length + 1 downto 0);
+	procedure AddSub(A        : std_logic_vector;
+					 B        : std_logic_vector;
+					 Sub      : std_logic;
+					 Carry_In : std_logic;
+			  signal Res      : out std_logic_vector;
+			  signal Carry    : out std_logic) is
+
+		variable B_i          : unsigned(A'length - 1 downto 0);
+		variable Res_i        : unsigned(A'length + 1 downto 0);
 	begin
 		if Sub = '1' then
 			B_i := not unsigned(B);
 		else
-			B_i := unsigned(B);
+			B_i :=     unsigned(B);
 		end if;
+
 		Res_i := unsigned("0" & A & Carry_In) + unsigned("0" & B_i & "1");
 		Carry <= Res_i(A'length + 1);
 		Res <= std_logic_vector(Res_i(A'length downto 1));
 	end;
 
 	-- AddSub variables (temporary signals)
-	signal	UseCarry		: std_logic;
-	signal	Carry7_v		: std_logic;
-	signal	Overflow_v		: std_logic;
-	signal	HalfCarry_v		: std_logic;
-	signal	Carry_v			: std_logic;
-	signal	Q_v				: std_logic_vector(7 downto 0);
+	signal UseCarry                : std_logic;
+	signal Carry7_v                : std_logic;
+	signal Overflow_v              : std_logic;
+	signal HalfCarry_v             : std_logic;
+	signal Carry_v                 : std_logic;
+	signal Q_v                     : std_logic_vector(7 downto 0);
 
-	signal	BitMask			: std_logic_vector(7 downto 0);
+	signal BitMask                 : std_logic_vector(7 downto 0);
 
 begin
 
 	with IR(5 downto 3) select BitMask <= "00000001" when "000",
-									"00000010" when "001",
-									"00000100" when "010",
-									"00001000" when "011",
-									"00010000" when "100",
-									"00100000" when "101",
-									"01000000" when "110",
-									"10000000" when others;
+										  "00000010" when "001",
+										  "00000100" when "010",
+										  "00001000" when "011",
+										  "00010000" when "100",
+										  "00100000" when "101",
+										  "01000000" when "110",
+										  "10000000" when others;
 
 	UseCarry <= not ALU_Op(2) and ALU_Op(0);
 	AddSub(BusA(3 downto 0), BusB(3 downto 0), ALU_Op(1), ALU_Op(1) xor (UseCarry and F_In(Flag_C)), Q_v(3 downto 0), HalfCarry_v);
 	AddSub(BusA(6 downto 4), BusB(6 downto 4), ALU_Op(1), HalfCarry_v, Q_v(6 downto 4), Carry7_v);
 	AddSub(BusA(7 downto 7), BusB(7 downto 7), ALU_Op(1), Carry7_v, Q_v(7 downto 7), Carry_v);
-	OverFlow_v <= Carry_v xor Carry7_v;
 
-	process (Arith16, ALU_OP, F_In, BusA, BusB, IR, Q_v, Carry_v, HalfCarry_v, OverFlow_v, BitMask, ISet, Z16)
+	-- bug fix - parity flag is just parity for 8080, also overflow for Z80
+	process (Carry_v, Carry7_v, Q_v)
+	begin
+		if(Mode=2) then
+			OverFlow_v <= not (Q_v(0) xor Q_v(1) xor Q_v(2) xor Q_v(3) xor
+					   Q_v(4) xor Q_v(5) xor Q_v(6) xor Q_v(7));  else
+			OverFlow_v <= Carry_v xor Carry7_v;
+		end if;
+	end process;
+
+	process (Arith16, ALU_OP, F_In, BusA, BusB, IR, Q_v, Carry_v, HalfCarry_v, OverFlow_v, BitMask, ISet, Z16, WZ, XY_State)
 		variable Q_t : std_logic_vector(7 downto 0);
 		variable DAA_Q : unsigned(8 downto 0);
 	begin
@@ -176,7 +201,7 @@ begin
 			if Q_t(7 downto 0) = "00000000" then
 				F_Out(Flag_Z) <= '1';
 				if Z16 = '1' then
-					F_Out(Flag_Z) <= F_In(Flag_Z);	-- 16 bit ADC,SBC
+					F_Out(Flag_Z) <= F_In(Flag_Z);      -- 16 bit ADC,SBC
 				end if;
 			else
 				F_Out(Flag_Z) <= '0';
@@ -271,9 +296,10 @@ begin
 			end if;
 			F_Out(Flag_H) <= '1';
 			F_Out(Flag_N) <= '0';
-			F_Out(Flag_X) <= '0';
-			F_Out(Flag_Y) <= '0';
-			if IR(2 downto 0) /= "110" then
+			if IR(2 downto 0) = "110" or XY_State /= "00" then
+				F_Out(Flag_X) <= WZ(11);
+				F_Out(Flag_Y) <= WZ(13);
+			else
 				F_Out(Flag_X) <= BusB(3);
 				F_Out(Flag_Y) <= BusB(5);
 			end if;
@@ -347,5 +373,4 @@ begin
 		end case;
 		Q <= Q_t;
 	end process;
-
 end;
