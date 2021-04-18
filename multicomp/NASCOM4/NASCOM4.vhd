@@ -22,7 +22,6 @@
 -- fix the problem.
 
 -- ** Stuff still to do **
--- Proper debounce on NMI button
 -- Dummy random screen at startup with version number
 -- Cursor keys on PS/2 keyboard
 -- Fn keys on PS/2 keyboard to generate setup events (reset is fiddly)
@@ -30,11 +29,21 @@
 -- Share char gen cleanly so video sources can run simultaneously
 -- - add debug signals to show reads of video/chargen RAM.
 -- Add write port to char gen.. how to decode? Whole of VFC space?
-
+--
+-- Support hardware cursor for 80-column screen. Currently the cursor is there
+-- but no way to control it: emulate 6845 cursor registers? Need to examine VFC
+-- ROM code to see how it handles cursor. Change cursor control to be direct
+-- memory location rather than line/column. Double-buffer high address so that
+-- cursor only updates on low write. <- implemented, not yet tested.
+--
 -- BUG: cannot warm-start PASCAL: it goes back to NAS-SYS. Why?
--- BUG: cannot start up memory test: it leaves SBROM enabled. My theory is that
--- the stack is being overwritten by the loaded program. How to handle
--- non-512-xple image sizes??
+-- BUG: cannot start up memory test: it leaves SBROM enabled - the code is
+-- rounded up to a xple of 512 bytes and overwriting the stack.
+-- How to handle non-512-xple image sizes??
+-- BUG: 300 baud does not work; divider timing is wrong
+-- BUG: High baud speeds are received by NASCOM OK but when sent by NASCOM are
+-- corrupt on the terminal (timing looks fine; may be a problem with TTL-RS232/USB
+-- adaptor.
 
 --------------------------------------------------------------------------------
 -- "NASCOM 4"
@@ -103,11 +112,11 @@
 -- * I/O port E4    - VFC FDC drive select etc.
 -- * I/O port E6    - VFC "parallel" keyboard (maybe; from PS/2 keyboard) - NOT IMPLEMENTED
 -- * I/O port E8    - VFC Alarm (beeper?) output - NOT IMPLEMENTED
--- * I/O port EA    - VFC MC6845 register select - NOT IMPLEMENTED
--- * I/O port EB    - VFC MC6845 data - NOT IMPLEMENTED
+-- * I/O port EA    - VFC MC6845 register select
+-- * I/O port EB    - VFC MC6845 data - PART IMPLEMENTED
 -- * I/O port EC    - VFC mapping register (write-only)
--- * I/O port EE    - VFC read or write to select NASCOM video on output
--- * I/O port EF    - VFC read or write to select VFC video on output
+-- * I/O port EE    - VFC read or write to select VFC video on output
+-- * I/O port EF    - VFC read or write to select NASCOM video on output
 -- * I/O port FE    - MAP80 256KRAM paging/memory mapping (write-only)
 --
 -- Connection off-chip to:
@@ -448,6 +457,15 @@ architecture struct of NASCOM4 is
     signal portE8wr               : std_logic_vector(7 downto 0);
 
     ------------------------------------------------------------------
+    -- Port EA/EB: MC6845
+    signal iopwrEA                : std_logic_vector(4 downto 0);
+    signal ioprdEA                : std_logic_vector(7 downto 0);
+    -- TODO cursor can be narrower; may need to buffer 1st part to stop it from jumping on update
+    signal cursor                 : std_logic_vector(15 downto 0); -- MC6845 R14-H, R15-L, 8-bit WO (MC6845 is R/W)
+    signal cursorStart            : std_logic_vector(6 downto 0); -- MC6845 R10, 7-bit WO
+    signal cursorEnd              : std_logic_vector(4 downto 0); -- MC6845 R11, 5-bit WO
+
+    ------------------------------------------------------------------
     -- Port EC/ED: MAP80 VFC Video Control
     signal iopwrECVfcPage         : std_logic_vector(3 downto 0);
     signal iopwrECRomEnable       : std_logic;
@@ -474,7 +492,13 @@ architecture struct of NASCOM4 is
     -- NMI to CPU and NMI state machine
     signal n_NMI                  : std_logic;
     signal nmi_state              : std_logic_vector(2 downto 0);
-    signal nmi_count              : std_logic_vector(7 downto 0); -- for button debounce
+    -- It's horribly inefficient to be use a 16-bit counter for a single debounce function! A 12-bit counter
+    -- at 50MHz was not enough. However, there is a clock precaler in the SDcard logic and another
+    -- in the bridge, and a big counter in the video logic to generate the cursor flash rate, so
+    -- it would be nice to generate a couple of slow clock enables centrally and use them for multiple
+    -- purposes: even using a 1MHz enable from the bridge would give a factor-of-50 here which should
+    -- allow the counter to go from 16 to 12 bits.
+    signal nmi_count              : std_logic_vector(15 downto 0); -- for button debounce
     signal nmi_button             : std_logic;
 
 begin
@@ -678,6 +702,11 @@ begin
             portE4wr <= x"00";
             portE8wr <= x"00";
 
+            iopwrEA <= "00000";
+            cursor <= x"0000";
+            cursorStart <= "0000000";
+            cursorEnd <= "00000";
+
             iopwrECRomEnable  <= '0';
             iopwrECRamEnable  <= '0';
             iopwrECVfcPage    <= x"0";
@@ -704,6 +733,37 @@ begin
 
             if cpuAddress(7 downto 0) = x"e8" and n_IORQ = '0' and n_WR = '0' then
                 portE8wr <= cpuDataOut;
+            end if;
+
+            if cpuAddress(7 downto 0) = x"ea" and n_IORQ = '0' and n_WR = '0' then
+                iopwrEA <= cpuDataOut(4 downto 0);
+            end if;
+
+            -- TODO cursorStart/cursorEnd/cursor are not yet connected up or implemented in
+            -- the video logic.
+            if cpuAddress(7 downto 0) = x"eb" and iopwrEA = "01010" and n_IORQ = '0' and n_WR = '0' then
+                -- MC6845 R10: bits 4:0 are cursor start scan row
+                -- bits 6:5 encoding:
+                -- 00  non blink
+                -- 01  cursor off
+                -- 10  blink 1/16 field rate
+                -- 11  blink 1/32 field rate
+                cursorStart <= cpuDataOut(6 downto 0);
+            end if;
+
+            if cpuAddress(7 downto 0) = x"eb" and iopwrEA = "01011" and n_IORQ = '0' and n_WR = '0' then
+                -- MC6845 R11: cursor end scan row
+                cursorEnd <= cpuDataOut(4 downto 0);
+            end if;
+
+            if cpuAddress(7 downto 0) = x"eb" and iopwrEA = "01110" and n_IORQ = '0' and n_WR = '0' then
+                -- MC6845 R14: cursor high part
+                cursor(15 downto 8) <= cpuDataOut;
+            end if;
+
+            if cpuAddress(7 downto 0) = x"eb" and iopwrEA = "01111" and n_IORQ = '0' and n_WR = '0' then
+                -- MC6845 R15: cursor low part
+                cursor(7 downto 0) <= cpuDataOut;
             end if;
 
             if cpuAddress(7 downto 0) = x"ec" and n_IORQ = '0' and n_WR = '0' then
@@ -756,15 +816,15 @@ begin
             end if;
 
             -- VFC port switches on read or on write.
-            -- On the real VFC board, link 2 controls which port selects which output. The assignment
-            -- here corresponds to a-b, c-d and matches the assignment used in the program example in
-            -- Section 4 of the MAP VFC documentation
+            -- On the real VFC board, link 2 controls which port selects which output.
+            -- The MAP80 CP/M 2.2 code reads/writes $EE during boot (the CP/M 3 code does not)
+            -- and so the code here uses $EE to select VFC and $EF to select NASCOM video
             if cpuAddress(7 downto 0) = x"ee" and n_IORQ = '0' and (n_WR = '0' or n_RD = '0') then
-                video_map80vfc <= '0';
+                video_map80vfc <= '1';
             end if;
 
             if cpuAddress(7 downto 0) = x"ef" and n_IORQ = '0' and (n_WR = '0' or n_RD = '0') then
-                video_map80vfc <= '1';
+                video_map80vfc <= '0';
             end if;
       end if;
     end process;
@@ -841,15 +901,13 @@ begin
     -- TODO there are some counting states in the SM after NMI asserts that are not needed;
     -- do an RTL sim, give the states names and use some of those states for the button NMI, merging
     -- the button press logic into the SM and getting rid of nmi_button
-    -- TODO 8-bit count value is arbitrary: investigate whether it could be shorter.
-    -- Also, could generate a common prescale/clock enable elsewhere for use here
     proc_sstep: process(clk, n_reset_clean)
     begin
         if n_reset_clean='0' then
             n_NMI <= '1';
             nmi_state <= "000";
 
-            nmi_count <= x"00";
+            nmi_count <= x"0000";
             nmi_button <= '0';
         elsif rising_edge(clk) then
             -- only assert NMI for 1 cycle
@@ -872,15 +930,15 @@ begin
 
             -- nmi_button makes sure we only get 1 NMI per button-press.
             if n_SwNMI = '1' then
-                nmi_count <= x"00";
+                nmi_count <= x"0000";
                 nmi_button <= '0';
-            elsif nmi_count = x"FF" then
+            elsif nmi_count = x"FFFF" then
                 if n_M1 = '0' and n_RD = '0' and n_WAIT = '1' and nmi_button = '0' then
                     n_NMI <= '0';
                     nmi_button <= '1';
                 end if;
             else
-                nmi_count <= nmi_count + x"01";
+                nmi_count <= nmi_count + x"0001";
             end if;
         end if;
     end process;
