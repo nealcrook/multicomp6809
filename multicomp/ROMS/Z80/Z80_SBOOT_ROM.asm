@@ -74,8 +74,8 @@ PORPAGE: EQU     $1B
 REASON: EQU     $1C
 SERCON: EQU     $1D
 ;;; I/O ports VFC
-VIDNAS: EQU     $ee             ;write any data, select 48-col NASCOM output
-VIDMAP: EQU     $ef             ;write any data, select 80-col VFC output
+VIDNAS: EQU     $ef             ;read/write any data, select 48-col NASCOM output
+VIDMAP: EQU     $ee             ;read/write any data, select 80-col VFC output
 
 ;;; SDcard commands
 SDWR:   EQU     $1
