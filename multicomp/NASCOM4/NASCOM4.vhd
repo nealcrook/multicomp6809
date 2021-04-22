@@ -23,9 +23,8 @@
 
 -- ** Stuff still to do **
 -- Dummy random screen at startup with version number
--- Cursor keys on PS/2 keyboard
 -- Fn keys on PS/2 keyboard to generate setup events (reset is fiddly)
--- Full vectored interrupt support
+-- Full vectored interrupt support (maybe using xtra signals from CPU)
 -- Share char gen cleanly so video sources can run simultaneously
 -- - add debug signals to show reads of video/chargen RAM.
 -- Add write port to char gen.. how to decode? Whole of VFC space?
@@ -34,7 +33,7 @@
 -- but no way to control it: emulate 6845 cursor registers? Need to examine VFC
 -- ROM code to see how it handles cursor. Change cursor control to be direct
 -- memory location rather than line/column. Double-buffer high address so that
--- cursor only updates on low write. <- implemented, not yet tested.
+-- cursor only updates on low write. <- part implemented, not yet tested.
 --
 -- BUG: cannot warm-start PASCAL: it goes back to NAS-SYS. Why?
 -- BUG: cannot start up memory test: it leaves SBROM enabled - the code is
