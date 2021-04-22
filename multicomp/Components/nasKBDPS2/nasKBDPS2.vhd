@@ -45,9 +45,7 @@
 -- Test the event interface and integrate it into the NASCOM
 -- Do something with these unused keys: to-the-left-of-1, to-the-left-of-backspace
 -- to-the-left-of-z
--- Decode the prefix byte and handle the extra cursor keys
 -- Consider decoding the numeric pad and the cursor pad
---
 --
 -- Modifications by foofoobedoo@gmail.com
 --
@@ -108,10 +106,12 @@ architecture rtl of nasKBDPS2 is
     signal  kbdclk_d1: std_logic;
 
     -- decode of current ps2ConvertedDS
-    signal  kbdSense: integer range 0 to 7;
     signal  kbdDrive: integer range 0 to 7;
+    signal  kbdSense: integer range 0 to 7;
     signal  kbdMask: std_logic_vector(6 downto 0);
-    signal  msk6 : std_logic_vector(6 downto 0)   := "0000001";
+    constant msk6 : std_logic_vector(6 downto 0)   := "0000001";
+    signal  kbdDriveE0: integer range 0 to 7; -- assuming E0 prefix
+    signal  kbdMaskE0:  std_logic_vector(6 downto 0); -- assuming E0 prefix
 
     signal	kbWatchdogTimer : integer range 0 to 50000000 :=0;
     signal	kbWriteTimer :    integer range 0 to 50000000 :=0;
@@ -175,8 +175,15 @@ architecture rtl of nasKBDPS2 is
     -- print screen just looks like 2 keys pressed and released in succession; easy to ignore like any other ignored E0 ?? pair.
     --
     -- all keys except pause/break auto-repeat and there seems no way to turn it off at the keyboard.
-    -- TODO could I eliminate repeating keys here? Not very easily..
-
+    -- Could I eliminate repeating keys here? Not very easily..
+    --
+    -- The only E0 prefix stuff that's handled is for the NASCOM arrow keys on either side of the space bar:
+    --   nas-key  nas-code key             press/release sequence
+    --    <-      2,6      l-WINDOWS       E0 1F/E0 F0 1F
+    --    ^       1,6      l-ALT           11/F0 11           SIMPLE/DONE
+    --    v       3,6      r-ALT (ALT-GR)  E0 11/E0 F0 11
+    --    ->      4,6      r-CTRL          E0 14/E0 F0 14
+    --
     -- Read the table like this: SPACE is PS/2 keyboard code 92. On the NASCOM it is on drive line 7, sense line 4 and is coded
     -- here as t(7,4) which is converted into a 6-bit value by function t (see definition, above). Shift is treated/encoded like
     -- any other key. Legal drive values are 0-7. Legal sense values are 0-6. The illegal value 7,7 is used to represent a key
@@ -253,12 +260,39 @@ begin
     ps2Data <= ps2DataOut when ps2DataOut='0' else 'Z';
     ps2Clk <= ps2ClkOut when ps2ClkOut='0' else 'Z';
 
-    -- Decode most recent byte
+    -- Decode most recent byte assuming no prefix
     kbdSense <= to_integer(unsigned(ps2ConvertedDS(2 downto 0)));
     kbdDrive <= to_integer(unsigned(ps2ConvertedDS(5 downto 3)));
     -- thing being shifted needs to be the same width as the output
     -- ..for some reason.
     kbdMask  <= std_logic_vector( shift_left(unsigned(msk6), kbdSense) );
+
+    -- Decode most recent byte assuming E0 prefix
+    kbd_E0_decode: process(ps2Byte)
+    begin
+        if ps2Byte = x"1F" or ps2Byte = x"6B" then
+            -- left-arrow: l-WIN or cursor left key, code 2,6
+            kbdDriveE0 <= 2;
+            kbdMaskE0 <= "1000000";
+        elsif ps2Byte = x"11" or ps2Byte = x"72" then
+            -- down-arrow: r-ALT or cursor down key, code 3,6
+            kbdDriveE0 <= 3;
+            kbdMaskE0 <= "1000000";
+        elsif ps2Byte = x"14" or ps2Byte = x"27" or ps2Byte = x"74" then
+            -- right-arrow: r-CTRL or cursor right key, code 4,6
+            -- Expect 0x14 = r-CTRL but it seems to be r-WIN. 0x27 works on my kbd so decode both.
+            kbdDriveE0 <= 4;
+            kbdMaskE0 <= "1000000";
+        elsif ps2Byte = x"75" then
+            -- up-arrow: cursor up key, code 1,6
+            kbdDriveE0 <= 1;
+            kbdMaskE0 <= "1000000";
+        else
+            -- do nothing
+            kbdDriveE0 <= 0;
+            kbdMaskE0 <= "0000000";
+        end if;
+    end process;
 
 
     -- PS2 clock de-glitcher - important because the FPGA is very sensistive
@@ -349,62 +383,52 @@ begin
                         else
                             EventCode(3) <= '0';
                         end if;
-
                     elsif ps2Byte = x"AA" then
                         ps2WriteByte <= x"ED";
-                        ps2WriteByte2(0) <= ps2Scroll;
-                        ps2WriteByte2(1) <= ps2Num;
-                        ps2WriteByte2(2) <= ps2Caps;
-                        ps2WriteByte2(7 downto 3) <= "00000";
+                        ps2WriteByte2 <= "00000" & ps2Caps & ps2Num & ps2Scroll;
                         n_kbWR <= '0';
                         kbWriteTimer<=0;
-                    -- SCROLL-LOCK pressed - set flags and
-                    -- update LEDs
                     elsif ps2Byte = x"7E" then
+                        -- SCROLL-LOCK pressed - set flags and update LEDs
                         if ps2ByteD1 /= x"F0" then
                             ps2Scroll <= not ps2Scroll;
                             ps2WriteByte <= x"ED";
-                            ps2WriteByte2(0) <= not ps2Scroll;
-                            ps2WriteByte2(1) <= ps2Num;
-                            ps2WriteByte2(2) <= ps2Caps;
-                            ps2WriteByte2(7 downto 3) <= "00000";
+                            ps2WriteByte2 <= "00000" & ps2Caps & ps2Num & not ps2Scroll;
                             n_kbWR <= '0';
                             kbWriteTimer<=0;
                         end if;
-                    -- NUM-LOCK pressed - set flags and
-                    -- update LEDs
                     elsif ps2Byte = x"77" then
+                        -- NUM-LOCK pressed - set flags and update LEDs
                         if ps2ByteD1 /= x"F0" then
                             ps2Num <= not ps2Num;
                             ps2WriteByte <= x"ED";
-                            ps2WriteByte2(0) <= ps2Scroll;
-                            ps2WriteByte2(1) <= not ps2Num;
-                            ps2WriteByte2(2) <= ps2Caps;
-                            ps2WriteByte2(7 downto 3) <= "00000";
+                            ps2WriteByte2 <= "00000" & ps2Caps & not ps2Num & ps2Scroll;
                             n_kbWR <= '0';
                             kbWriteTimer<=0;
                         end if;
-                    -- CAPS-LOCK pressed - set flags and
-                    -- update LEDs
                     elsif ps2Byte = x"58" then
+                        -- CAPS-LOCK pressed - set flags and update LEDs
                         if ps2ByteD1 /= x"F0" then
                             ps2Caps <= not ps2Caps;
                             ps2WriteByte <= x"ED";
-                            ps2WriteByte2(0) <= ps2Scroll;
-                            ps2WriteByte2(1) <= ps2Num;
-                            ps2WriteByte2(2) <= not ps2Caps;
-                            ps2WriteByte2(7 downto 3) <= "00000";
+                            ps2WriteByte2 <= "00000" & not ps2Caps & ps2Num & ps2Scroll;
                             n_kbWR <= '0';
                             kbWriteTimer<=0;
                         end if;
-                    -- ACK (from SET-LEDs)
                     elsif ps2Byte = x"FA" then
+                        -- ACK (from SET-LEDs)
                         if ps2WriteByte /= x"FF" then
                             n_kbWR <= '0';
                             kbWriteTimer<=0;
                         end if;
-                    -- ASCII key press - store it in the kbBuffer.
+                    elsif ps2ByteD2 = x"E0" and ps2ByteD1 = x"F0" then
+                        -- E0 F0 xx - RELEASE key so CLEAR bit in kmap. Just decode a small number of keys. Mask is 0 if key not found
+                        kmap(kbdDriveE0) <= kmap(kbdDriveE0) and (not kbdMaskE0);
+                    elsif ps2ByteD1 = x"E0" and ps2Byte /= x"F0" then
+                        -- E0 xx - PRESS key so SET bit in kmap
+                        kmap(kbdDriveE0) <= kmap(kbdDriveE0) or kbdMaskE0;
                     elsif ps2ConvertedDS /= t(7,7) then
+                        -- key press with no prefix: NASCOM scan code decoded from lookup table - update the kmap
                         if ps2ByteD1 = x"F0" then
                             -- RELEASE key so CLEAR bit in kmap
                             kmap(kbdDrive) <= kmap(kbdDrive) and (not kbdMask);
