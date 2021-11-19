@@ -26,10 +26,6 @@
 -- TODO describe the VGA timing
 -- TODO if 2 VGA outputs, allow them to be swapped so that it's OK
 -- to attach a single display.
--- TODO generate debug signals to indicate when the char-gen
--- memories are being read; work out if the char-gen can easily be shared
--- between two render-engines, allowing dual VGA output.
-
 --
 -- NEXT:
 -- add char gen write path?
@@ -47,7 +43,7 @@ library ieee;
 
 entity nasVDU is
 	port (
-		n_reset	: in  std_logic;
+		n_reset	: in  std_logic; -- TODO remove
 		clk    	: in  std_logic;
 
                 video_map80vfc : in std_logic;
@@ -62,7 +58,7 @@ entity nasVDU is
 
 		-- RGB video signals for Primary and Secondary output
 		PriHsync: out std_logic;
-		PriVsync: out std_logic; -- TODO previusly the sync signals were defined as 'buffer'
+		PriVsync: out std_logic; -- TODO previously the sync signals were defined as 'buffer'
 		PriVideo: out std_logic;
 		SecHsync: out std_logic;
 		SecVsync: out std_logic;
@@ -82,8 +78,7 @@ architecture rtl of nasVDU is
         signal  dataOutMap : std_logic_vector(7 downto 0);
         signal  dataOutNas : std_logic_vector(7 downto 0);
 
-        signal  vgimmeChar : std_logic;
-        signal  ngimmeChar : std_logic;
+        signal  ncharAccess : std_logic;
 
         signal  vvideo : std_logic;
         signal  nvideo : std_logic;
@@ -95,18 +90,35 @@ architecture rtl of nasVDU is
         signal  nhSync : std_logic;
 
 begin
+        -- [NAC HACK 2021Jul04] for programmable char gen - not yet
+        -- implemented: need address MUX control and read back path and to change the memory instance.
         wren_charGen <= not(n_MemWr or n_charGenCS);
 
         -- route correct video RAM out for CPU read
         dataOut   <= dataOutMap when n_mapCS='0' else dataOutNas;
 
-        -- route address to char gen based on which vdu is selected
-        -- [NAC HACK 2020Nov30] implement arbitration scheme
-        charAddr <= vcharAddr when video_map80vfc='1' else ncharAddr;
+        -- The character generator is shared between the NASCOM and MAP vdu render state machines. Both
+        -- renderers supply an address; the read data is sent to both. Both renderers have a charAccess
+        -- output and a charClash input.
+        -- The NASCOM renderer has priority. Its charAccess output is asserted for 1 cycle to force
+        -- the address MUX so its address goes to the character generator. Char data come out on the
+        -- next cycle. Its charAccess output also goes to the charClash input of the MAP renderer.
+        -- There, it is used to show that an access (if it co-incided) failed. In this case, the MAP
+        -- renderer repeats its access on the next cycle.
+        -- The charClash input to the NASCOM renderer is tied low, because it has priority.
+        -- The charAccess output from the MAP renderer is unused.
+        -- This works because each renderer accesses once per 8 pixels so neither can access on
+        -- consecutive cycles.
+        -- Both renderer use character generator data with the same timing, as though it was
+        -- delayed by a clash. In other words:
+        -- If the NASCOM renderer drives address on cycle N it will get data on N+1 and register it on
+        -- N+2 but not use it until N+4.
+        -- If the MAP renderer drives address on cycle P it will get data on P+1 (no clash) or
+        -- P+2 (clash) and register it on P+2 or P+3 and use it on P+4.
+        charAddr <= ncharAddr when ncharAccess='1' else vcharAddr;
 
         -- route correct video signal out
-        -- [NAC HACK 2021Mar19] maybe allow same output on both monitors? Still need to implement
-        -- arbitrated access to char generator..
+        -- [NAC HACK 2021Mar19] maybe allow same output on both monitors?
         vid_mux: process (video_map80vfc, vvideo, nvideo, vhSync, nhSync, vvSync, nvSync)
         begin
             if (video_map80vfc = '1') then
@@ -140,8 +152,13 @@ begin
       generic map(
             HWCURSOR => FALSE,
 
-            -- Uses 800x600 mode at half rats so that the effective clock
-            -- is 25MHz, the same as the 80x25 mode.
+            -- Need 48*8 pixels horizontally, 16*16 lines ie 384pixels x 256 lines
+            -- Use a 800x600@50MHz mode and use 2pixels x 2 lines for each native NASCOM
+            -- pixel. CLOCKS_PER_PIXEL=2 does the horizontal doubling, VERT_PIXEL_SCANLINES=2
+            -- does the vertical doubling.
+            -- ..this is actually the 49.5MHz timing (not sure why, given that VGA also
+            -- defines a 50MHz timing setup)
+            -- http://tinyvga.com/vga-timing/800x600@75Hz
             VERT_CHARS => 16,
             HORIZ_CHARS => 48,
             HORIZ_STRIDE => 64, -- for NASCOM screen, stride of 64 locations per row
@@ -158,7 +175,6 @@ begin
             V_SYNC_ACTIVE => '1'
             )
       port map(
-            n_reset => n_reset,
             clk  => clk,
 
             -- memory access to video RAM
@@ -171,7 +187,8 @@ begin
             -- access to shared character generator
             charAddr    => ncharAddr(11 downto 0),
             charData    => charData(7 downto 0),
-            gimmeChar   => ngimmeChar,
+            charAccess  => ncharAccess,
+            charClash   => '0',                -- nascom video has priority so never sees a clash
 
             -- video signals
             hSync       => nhSync,
@@ -185,14 +202,17 @@ begin
       generic map(
             HWCURSOR => TRUE,
 
-            -- 80x25 uses all the internal RAM
+            -- Need 80x8 pixels horizontally, 25*16 lines ie 640pixels x  400 lines
+            -- Use a 640x400@25.175MHz mode
+            -- Actual clock is 50MHz so have to double all the horizontal counts and
+            -- set CLOCKS_PER_PIXEL=2.
             -- This selects 640x400 rather than the default of 640x480
+            -- http://tinyvga.com/vga-timing/640x400@70Hz
             DISPLAY_TOP_SCANLINE => 35,
             VERT_SCANLINES => 448,
             V_SYNC_ACTIVE => '1'
             )
       port map(
-            n_reset => n_reset,
             clk  => clk,
 
             -- memory access to video RAM
@@ -205,7 +225,7 @@ begin
             -- access to shared character generator
             charAddr    => vcharAddr(11 downto 0),
             charData    => charData(7 downto 0),
-            gimmeChar   => vgimmeChar,
+            charClash   => ncharAccess,        -- signal that nascom video used the char gen
 
             -- video signals
             hSync       => vhSync,

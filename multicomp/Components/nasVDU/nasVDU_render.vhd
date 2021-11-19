@@ -22,13 +22,14 @@ entity nasVDU_render is
                 -- vertical scanline duplication. Values of 1 and 2 work. For other values need to
                 -- revisit the character generator addressing (charScanLine)
 		constant VERT_PIXEL_SCANLINES : integer := 1;
+                -- clocks by which to make hACTIVE assert early to compensate for the video pipeline
+                constant VPIPE : integer := 4;
 
 		constant CLOCKS_PER_PIXEL : integer := 2; -- min = 2
 		constant H_SYNC_ACTIVE : std_logic := '0';
 		constant V_SYNC_ACTIVE : std_logic := '0'
 	);
 	port (
-		n_reset	: in  std_logic;
 		clk    	: in  std_logic;
 
                 addr    : in  std_logic_vector(10 downto 0); -- 2Kbytes address range
@@ -40,9 +41,10 @@ entity nasVDU_render is
                 -- Character generator access
                 charAddr : out std_logic_vector(11 downto 0);
                 charData : in  std_logic_vector(7 downto 0);
-                gimmeChar: out std_logic;
+                charAccess: out std_logic;    -- See description in nasVDU.vhd
+                charClash: in std_logic;      -- See description in nasVDU.vhd
 
-                -- RGB video signals
+                -- Video signals
 		video	: out std_logic;
 		hSync  	: buffer  std_logic;
 		vSync  	: buffer  std_logic
@@ -60,6 +62,7 @@ constant CHARS_PER_SCREEN : integer := HORIZ_STRIDE*VERT_CHARS;
 	signal	hActive   : std_logic := '0';
 
 	signal	pixelClockCount: std_logic_vector(3 DOWNTO 0);
+	-- Index the 8 bits of data loaded from the character generator to generate the video output
 	signal	pixelCount: std_logic_vector(2 DOWNTO 0);
 
 	signal	horizCount: std_logic_vector(11 DOWNTO 0);
@@ -73,7 +76,6 @@ constant CHARS_PER_SCREEN : integer := HORIZ_STRIDE*VERT_CHARS;
 -- benefit. Without the +1 the design synthesises and works fine but gives a fatal
 -- error in RTL simulation when the signal goes out of range.
 	signal	charHoriz: integer range 0 to 1+HORIZ_CHAR_MAX;
-	signal	charBit: std_logic_vector(3 DOWNTO 0) := "0000";
 
 	-- top left-hand corner of the display is 0,0 aka "home".
 	signal	cursorVert: integer range 0 to VERT_CHAR_MAX :=0;
@@ -82,10 +84,14 @@ constant CHARS_PER_SCREEN : integer := HORIZ_STRIDE*VERT_CHARS;
 	signal 	dispAddr : integer range 0 to CHARS_PER_SCREEN;
 
 	signal	dispCharData : std_logic_vector(7 downto 0);
-	signal	dispCharDataMap : std_logic_vector(7 downto 0);
-	signal	dispCharDataNas : std_logic_vector(7 downto 0);
-	signal	dispCharWRData : std_logic_vector(7 downto 0);
-	signal	dispCharRDData : std_logic_vector(7 downto 0);
+
+        -- Registered data from character generator ROM. Loaded at one or other of two
+        -- successive clock cycles depending on charClash.
+	signal	charDataR : std_logic_vector(7 downto 0);
+
+	-- Pipe forward 2 cycles to determine which data to load into charData
+	signal	charClashR : std_logic;
+	signal	charClashRR : std_logic;
 
 	signal	cursorOn : std_logic := '0';
 	signal	cursBlinkCount : unsigned(25 downto 0);
@@ -96,6 +102,7 @@ constant CHARS_PER_SCREEN : integer := HORIZ_STRIDE*VERT_CHARS;
 	signal	dispAddr_xx: std_logic_vector(10 downto 0); -- raster access
 
         signal  wren : std_logic;
+
 begin
 
 	dispAddr_xx <= std_logic_vector(to_unsigned(dispAddr,11));
@@ -138,7 +145,7 @@ begin
             );
 end generate GEN_RAM1K;
 
-        -- Character generator addressing
+        -- Character generator memory addressing
         -- dispCharData contributes 8 bits to select 1-of-256 characters.
         -- charScanLine contributes 4 bits to select 1-of-16 rows of the character.
         -- When VERT_PIXEL_SCANLINES=1 there is 1 scanline for each row of the character; charScanLine
@@ -149,23 +156,26 @@ end generate GEN_RAM1K;
         -- adjustment here (and maybe elsewhere, too).
         charAddr <= dispCharData & charScanLine(3+VERT_PIXEL_SCANLINES-1 downto 0+VERT_PIXEL_SCANLINES-1);
 
-	dispAddr <= (charHoriz  +((charVert   + LINE_OFFSET) * HORIZ_STRIDE)+HORIZ_OFFSET) mod CHARS_PER_SCREEN;
+        -- Display memory addressing
+        dispAddr <= (charHoriz  +((charVert   + LINE_OFFSET) * HORIZ_STRIDE)+HORIZ_OFFSET) mod CHARS_PER_SCREEN;
 
 	-- SCREEN RENDERING
 	screen_render: process (clk)
 	begin
 		if rising_edge(clk) then
+			charClashR <= charClash;
+			charClashRR <= charClashR;
 			if horizCount < CLOCKS_PER_SCANLINE then
 				horizCount <= horizCount + 1;
-				if (horizCount < DISPLAY_LEFT_CLOCK) or (horizCount >= (DISPLAY_LEFT_CLOCK + HORIZ_CHARS*CLOCKS_PER_PIXEL*8)) then
+				if (horizCount < DISPLAY_LEFT_CLOCK + VPIPE) or (horizCount >= (DISPLAY_LEFT_CLOCK + HORIZ_CHARS*CLOCKS_PER_PIXEL*8 + 3 + VPIPE)) then
 					hActive <= '0';
 				else
 					hActive <= '1';
 				end if;
 			else
 				horizCount<= (others => '0');
-				pixelCount<= (others => '0');
-				charHoriz<= 0;
+				pixelCount<= (others => '0'); -- reset at end of line; should be just for initialisation
+				charHoriz<= 0; -- reset at end of line, held at 0 between lines.
 				if vertLineCount > (VERT_SCANLINES-1) then
 					vertLineCount <= (others => '0');
 				else
@@ -187,6 +197,7 @@ end generate GEN_RAM1K;
 					vertLineCount <=vertLineCount+1;
 				end if;
 			end if;
+
 			if horizCount < HSYNC_CLOCKS then
 				hSync <= H_SYNC_ACTIVE;
 			else
@@ -199,24 +210,48 @@ end generate GEN_RAM1K;
 			end if;
 
 			if hActive='1' and vActive = '1' then
-				if pixelClockCount <(CLOCKS_PER_PIXEL-1) then
+                                if pixelCount = 0 and pixelClockCount = 0 then
+                                    charAccess <= '1';
+                                else
+                                    charAccess <= '0';
+                                end if;
+
+                                if pixelCount = 7 and pixelClockCount = 0 then
+                                    -- Data from character generator is good iff charClashR is low
+                                    -- but OK to grab it unconditionally
+                                    charDataR <= charData;
+                                end if;
+
+                                if pixelClockCount <(CLOCKS_PER_PIXEL-1) then
 					pixelClockCount <= pixelClockCount+1;
-				else
+                                else
 					pixelClockCount <= (others => '0');
-					if cursorOn = '1' and cursorVert = charVert and cursorHoriz = charHoriz and charScanLine = (SCANLINES_PER_CHAR * VERT_PIXEL_SCANLINES - 1) then
-					   -- Cursor (use current colour because cursor cell not yet written to)
-						video <= '1'; -- Monochrome video out
-					else
-						video <= charData(7-to_integer(unsigned(pixelCount))); -- Monochrome video out
+--					if cursorOn = '1' and cursorVert = charVert and cursorHoriz = charHoriz and charScanLine = (SCANLINES_PER_CHAR * VERT_PIXEL_SCANLINES - 1) then
+						-- Override character generator value with cursor
+--						video <= '1'; -- Monochrome video out
+--					else
+--						video <= charData(7-to_integer(unsigned(pixelCount))); -- Monochrome video out
+--					end if;
+
+					if pixelCount = 1 then
+                                            charHoriz <= charHoriz+1;
 					end if;
-					if pixelCount = 6 then -- move output pipeline back by 1 clock to allow readout on posedge
-						charHoriz <= charHoriz+1;
-					end if;
-					pixelCount <= pixelCount+1;
+
+                                        if pixelCount = 7 and charClashRR = '1' then
+                                            -- Data from character generator was delayed due to clash and
+                                            -- is now good. Grab it and send the 1st bit out
+                                            charDataR <= charData(6 downto 0) & '0';
+                                            video <= charData(7);
+                                        else
+                                            video <= charDataR(7);
+                                            charDataR <= charDataR(6 downto 0) & '0';
+                                        end if;
+
+                                        pixelCount <= pixelCount - 1;
 				end if;
 			else
-				video <= '0';
-                                pixelClockCount <= (others => '0');
+                            video <= '0';
+                            pixelClockCount <= (others => '0');
 			end if;
 		end if;
 	end process;
