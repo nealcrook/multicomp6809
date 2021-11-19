@@ -90,6 +90,11 @@ begin
 
     int_n <= '0' when a_int = '1' else 'Z';
 
+    -- TODO not yet implemented; this is to avoid compilation warnings
+    ieo <= '1';
+    a <= a_out;
+    b <= b_out;
+
     --------------------------------------------------------------------------------
     -- Detect/Generate internal reset
     -- (handled elsewhere)

@@ -600,19 +600,30 @@ begin
 
                 when iat3 =>
                     if clk4t1h = '1' then
-                        BrM1_n <= '1';
-                        BrIORQ_n <= '1';
+--                        BrM1_n <= '1';
+--                        BrIORQ_n <= '1';
 
-                        state <= iat5;
-                    end if;
-
-                when iat5 =>
-                    if clk4t1l = '1' then
-                        BrBufOE_n <= '1';
-
+--                        BrBufOE_n <= '1';   -- end the cycle. CPU grabs vector from read data
                         bridgeDone <= '1';
                         state <= idle;
                     end if;
+
+-- at the end of the intack I need to kick DONE so that the CPU can
+-- grab the vector. Not sure if I then need to make the bridge be busy
+-- eg hold off dummy M1 and any CPU cycle to the bridge -- for a peripheral
+-- recovery time? Need to investigate further once it's working enough
+-- to enter and return from the ISR.
+
+--                        state <= iat5;
+--                    end if;
+--
+--                when iat5 =>
+--                    if clk4t1l = '1' then
+--                        BrBufOE_n <= '1';
+--
+--                        bridgeDone <= '1';
+--                        state <= idle;
+--                    end if;
 
 
                 ---------------------------------------------------------------

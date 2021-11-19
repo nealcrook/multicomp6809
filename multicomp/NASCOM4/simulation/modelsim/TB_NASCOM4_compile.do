@@ -30,3 +30,4 @@ vcom -93 -work work {/home/crook/retro/multicomp6809/multicomp/NASCOM4/NASCOM4.v
 vcom -93 -work work {/home/crook/retro/multicomp6809/multicomp/NASCOM4/Z80_PIO.vhd}
 vcom -93 -work work {/home/crook/retro/multicomp6809/multicomp/NASCOM4/TB_NASCOM4.vhd}
 
+vsim work.tb_nascom4
