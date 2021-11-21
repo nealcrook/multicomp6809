@@ -92,7 +92,7 @@ SBSTART:
 
 ;;; Entry point after reset. No stack, and some NASCOM 4 I/O ports are
 ;;; in an unknown state.
-REENTER: in     a, (REASON)
+REENTER:in     a, (REASON)
         and     $80             ;Cold bit set?
         out     (REASON), a     ;Cold bit is now clear (W1C)
         jr      nz, COLD
@@ -133,13 +133,24 @@ COLD:   out     (VIDNAS), a     ;select NASCOM video output
         ld      sp,$1000        ;like NAS-SYS
         call    STMON           ;initialise NAS-SYS
 
+;;; Display version number on top line
+        ld      de, VER
+        ld      hl, $bca
+PUTVER: ld      a, (de)
+        or      a
+        jr      z, MENU
+        ld      (hl), a
+        inc     de
+        inc     hl
+        jr      PUTVER
+
 ;;; TODO there will be some auto-cold-start options from
 ;;; the reason register (from the PS/2 keyboard FN keys).
 
 ;;; Load and display menu. Menu starts at block 0 and can be xple
 ;;; blocks. It is terminated with a 0. Assume it is well-formed
 ;;; and so keep incrementing block numbers until we get a "0".
-        xor     a
+MENU:   xor     a
         out     (SDLBA2),a      ;high block address is ALWAYS 0
 
         ld      d,a             ;d=0
@@ -420,7 +431,7 @@ SDINIT: in      a,(SDCTRL)
         pop     de
         ret
 
-SDWAIT: in     a,(SDCTRL)      ;get status
+SDWAIT: in      a,(SDCTRL)      ;get status
         cp      $E0             ;read data available
         jr      nz, SDWAIT
         in      a,(SDDATA)
@@ -526,6 +537,8 @@ MEXIT:  ld      a,(de)
         jr      MEXIT
 
 EARG:   DB "Wrong number of arguments",0
+
+VER:    DB "Rev1.1 21Nov2021",0
 
 ;;; pad ROM to 1Kbytes.
 SIZE:   EQU $ - SBSTART
