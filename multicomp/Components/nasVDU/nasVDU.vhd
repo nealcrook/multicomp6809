@@ -20,17 +20,11 @@
 -- character set, or even reprogrammed on a character-by-character basis
 -- (or, for example, to use the SARGON graphics).
 --
--- TODO how to map the character generator into the address space.
--- -> use "tools->megawizard plug-in manager" to create RAM that has
--- pre-initialised content.
 -- TODO describe the VGA timing
 -- TODO if 2 VGA outputs, allow them to be swapped so that it's OK
 -- to attach a single display.
---
--- NEXT:
--- add char gen write path?
 
---
+
 -- This code is derived from Grant Searle's SBCTextDisplayRGB for multicomp
 -- (actually, derived from my version of that code that fixed a couple of
 -- bugs and cleaned up the clocking somewhat).
@@ -48,10 +42,12 @@ entity nasVDU is
 
                 video_map80vfc : in std_logic;
 
-                addr    : in  std_logic_vector(10 downto 0); -- 2Kbytes address range
+                -- use 12 bits (4K) to address character generator, 11 bits (2K) to address
+                -- VFC video RAM and 10 bits (1K) to address NASCOM video RAM
+                addr    : in  std_logic_vector(11 downto 0);
                 n_nasCS : in  std_logic; -- NASCOM 1Kbyte video RAM
                 n_mapCS : in  std_logic; -- MAP80 2Kbyte video RAM
-                n_charGenCS : in  std_logic; -- 2Kbyte character gen space>> or need 4k??
+                n_charGenCS : in  std_logic; -- select character generator (write-only)
 		n_memWr : in  std_logic;
 		dataIn	: in  std_logic_vector(7 downto 0);
 		dataOut	: out std_logic_vector(7 downto 0);
@@ -90,16 +86,15 @@ architecture rtl of nasVDU is
         signal  nhSync : std_logic;
 
 begin
-        -- [NAC HACK 2021Jul04] for programmable char gen - not yet
-        -- implemented: need address MUX control and read back path and to change the memory instance.
+
         wren_charGen <= not(n_MemWr or n_charGenCS);
 
         -- route correct video RAM out for CPU read
         dataOut   <= dataOutMap when n_mapCS='0' else dataOutNas;
 
-        -- The character generator is shared between the NASCOM and MAP vdu render state machines. Both
-        -- renderers supply an address; the read data is sent to both. Both renderers have a charAccess
-        -- output and a charClash input.
+        -- Read-access to the character generator is shared between the NASCOM and MAP vdu render state
+        -- machines. Both renderers supply an address; the read data is sent to both. Both renderers
+        -- have a charAccess output and a charClash input.
         -- The NASCOM renderer has priority. Its charAccess output is asserted for 1 cycle to force
         -- the address MUX so its address goes to the character generator. Char data come out on the
         -- next cycle. Its charAccess output also goes to the charClash input of the MAP renderer.
@@ -115,7 +110,9 @@ begin
         -- N+2 but not use it until N+4.
         -- If the MAP renderer drives address on cycle P it will get data on P+1 (no clash) or
         -- P+2 (clash) and register it on P+2 or P+3 and use it on P+4.
-        charAddr <= ncharAddr when ncharAccess='1' else vcharAddr;
+        -- Write-access to the character generator from CPU when decoded at top-level; takes
+        -- priority over vdu render and no arbitration so may see some "snow" during writes.
+        charAddr <= addr when wren_charGen = '1' else ncharAddr when ncharAccess = '1' else vcharAddr;
 
         -- route correct video signal out
         -- [NAC HACK 2021Mar19] maybe allow same output on both monitors?
@@ -139,12 +136,15 @@ begin
         end process;
 
 -- COMMON CHARACTER GENERATOR
-    fontRom : entity work.nasCharGenRom4K -- 4Kx8 for 256 characters x 16rows x 8pixels
+-- Initialised RAM created using "tools->megawizard plug-in manager"
+    fontRom : entity work.nasCharGenRam4K -- 4Kx8 for 256 characters x 16rows x 8pixels
       port map(
             clock => clk,
 
             address => charAddr, -- 12-bit: 8 (1-of-256 characters) + 4 (1-of-16 rows)
-            q => charData
+            data => dataIn,      -- to reprogram character generator
+            q => charData,
+            wren => wren_charGen
             );
 
 -- RAM AND RENDER ENGINE FOR NASCOM 48x16 SCREEN

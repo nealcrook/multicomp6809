@@ -25,8 +25,6 @@
 -- Dummy random screen at startup with version number
 -- Fn keys on PS/2 keyboard to generate setup events (reset is fiddly)
 -- Full vectored interrupt support (maybe using xtra signals from CPU)
--- Share char gen cleanly so video sources can run simultaneously
--- - add debug signals to show reads of video/chargen RAM.
 -- Add write port to char gen.. how to decode? Whole of VFC space?
 --
 -- Support hardware cursor for 80-column screen. Currently the cursor is there
@@ -274,6 +272,8 @@ architecture struct of NASCOM4 is
     signal n_vfcVidRamCS          : std_logic :='1';
     signal n_vfcRomCS             : std_logic :='1';
 
+    signal n_charGenRamCS         : std_logic :='1';
+
     signal n_sbootRomCS           : std_logic :='1';
 
     signal wren_nasWSRam          : std_logic := '1';
@@ -351,8 +351,8 @@ architecture struct of NASCOM4 is
     -- NOT RESET to allow warm reset flow in SBROM
     -- The initial states below allow a warm reset from SBROM in
     -- RTL simulation.
-    -- B7          unused, read 0
-    -- B6          unused, read 0
+    -- B7          Unused, read 0
+    -- B6          0: decode video RAM in VFC area 1: decode char gen in VFC area
     -- B5          MAP80 VFC autoboot
     -- B4          1: enable NASCOM WS RAM
     -- B3          0: disable NAS-SYS  1: enable NAS-SYS
@@ -370,6 +370,7 @@ architecture struct of NASCOM4 is
     -- * register bit iopwrECRomEnable is reset to a 0.
     -- * ROM enable is autoboot XOR iopwrECRomEnable
 
+    signal iopwr18CharGen         : std_logic := '0'; -- bit 6
     signal iopwr18MAP80AutoBoot   : std_logic := '0'; -- bit 5
     signal iopwr18NasWsRam        : std_logic := '1'; -- bit 4
     signal iopwr18NasSysRom       : std_logic := '1'; -- bit 3
@@ -623,7 +624,8 @@ begin
     -- Inhibit WRITES to external SRAM when the CPU address corresponds to the MAP80 VFC
     -- video RAM or NASCOM video RAM or workspace RAM or to a protected address region.
     n_sRamWE <= '0' when n_WR = '0' and n_MREQ = '0'
-                and n_vfcVidRamCS = '1' and n_nasVidRamCS = '1' and n_nasWSRamCS = '1' and sRamProtect = '0' else '1';
+                and n_vfcVidRamCS = '1' and n_nasVidRamCS = '1' and n_charGenRamCS = '1'
+                and n_nasWSRamCS = '1'  and sRamProtect = '0' else '1';
     n_sRamOE <= '0' when n_RD = '0' and n_MREQ = '0' else '1';
 
 
@@ -787,6 +789,7 @@ begin
     begin
         if rising_edge(clk) then
             if cpuAddress(7 downto 0) = x"18" and n_IORQ = '0' and n_WR = '0' then
+                iopwr18CharGen       <= cpuDataOut(6);
                 iopwr18MAP80AutoBoot <= cpuDataOut(5);
                 iopwr18NasWsRam      <= cpuDataOut(4);
                 iopwr18NasSysRom     <= cpuDataOut(3);
@@ -829,8 +832,8 @@ begin
     end process;
 
     -- Read data for port18
-    ioprd18 <= "00" & iopwr18MAP80AutoBoot & iopwr18NasWsRam
-          & iopwr18NasSysRom & iopwr18SBootRom & iopwr18NasVidHigh & iopwr18NasVidRam;
+    ioprd18 <= '0'           & iopwr18CharGen  & iopwr18MAP80AutoBoot & iopwr18NasWsRam
+          & iopwr18NasSysRom & iopwr18SBootRom & iopwr18NasVidHigh    & iopwr18NasVidRam;
 
     -- Read data for port19
     ioprd19 <= '0' & iopwr19ProtEf8k & iopwr19ProtDf4k & iopwr19ProtCf4k & iopwr19ProtBf4k
@@ -953,11 +956,11 @@ begin
         -- select which video
         video_map80vfc => video_map80vfc,
 
-        -- memory access to video RAM
-        addr        => cpuAddress(10 downto 0),
+        -- memory access to video RAM and character generator
+        addr        => cpuAddress(11 downto 0),
         n_nasCS     => n_nasVidRamCS,
         n_mapCS     => n_vfcVidRamCS,
-        n_charGenCS => '1',    -- TODO paged address space for chargen write path
+        n_charGenCS => n_charGenRamCS,     -- when character generator is selected instead of VFC video RAM
         n_memWr     => n_memWr,
         dataIn      => cpuDataOut,
         dataOut     => VDURamDataOut,
@@ -1154,9 +1157,11 @@ end generate;
     n_sbootRomCS <= '0' when (cpuAddress(15 downto 10) = "000000" and iopwr18SBootRom = '1' and reset_jump = '1')
                           or (cpuAddress(15 downto 10) = "000100" and iopwr18SBootRom = '1'                     ) else '1';
 
-    -- MAP80 VFC video RAM
-    n_vfcVidRamCS <= '0' when cpuAddress(15 downto 12) = iopwrECVfcPage and cpuAddress(11) = '1' and iopwrECRamEnable = '1' else '1';
-    -- MAP80 VFC ROM
+    -- MAP80 VFC video RAM - high half of 4Kbyte window
+    n_vfcVidRamCS  <= '0' when cpuAddress(15 downto 12) = iopwrECVfcPage and cpuAddress(11) = '1' and iopwrECRamEnable = '1' and iopwr18CharGen = '0' else '1';
+    -- Write-only access to character generator in MAP80 VFC 4Kbyte window
+    n_charGenRamCS <= '0' when cpuAddress(15 downto 12) = iopwrECVfcPage                          and iopwrECRamEnable = '1' and iopwr18CharGen = '1' else '1';
+    -- MAP80 VFC ROM - low half of 4Kbyte window
     iopwrECRomEnable_gated <= iopwrECRomEnable xor iopwr18MAP80AutoBoot;
     n_vfcRomCS    <= '0' when cpuAddress(15 downto 12) = iopwrECVfcPage and cpuAddress(11) = '0' and iopwrECRomEnable_gated = '1' else '1';
 

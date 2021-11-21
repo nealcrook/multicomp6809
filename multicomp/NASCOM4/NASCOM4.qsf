@@ -201,7 +201,7 @@ set_global_assignment -name VHDL_FILE ../Components/nasVDU/nasVDU.vhd
 set_global_assignment -name VHDL_FILE ../Components/nasVDU/nasVDU_render.vhd
 set_global_assignment -name QIP_FILE ../Components/nasVDU/DisplayRam1K.qip
 set_global_assignment -name QIP_FILE ../Components/nasVDU/DisplayRam2K.qip
-set_global_assignment -name QIP_FILE ../Components/nasVDU/nasCharGenRom4K.qip
+set_global_assignment -name QIP_FILE ../Components/nasVDU/nasCharGenRam4K.qip
 set_global_assignment -name VHDL_FILE ../Components/Z80/T80s.vhd
 set_global_assignment -name VHDL_FILE ../Components/Z80/T80.vhd
 set_global_assignment -name VHDL_FILE ../Components/Z80/T80_ALU.vhd

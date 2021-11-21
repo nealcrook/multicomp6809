@@ -10,6 +10,7 @@ vmap work rtl_work
 vcom -93 -work work {/home/crook/retro/multicomp6809/multicomp/Components/nasVDU/DisplayRam1K.vhd}
 vcom -93 -work work {/home/crook/retro/multicomp6809/multicomp/Components/nasVDU/DisplayRam2K.vhd}
 vcom -93 -work work {/home/crook/retro/multicomp6809/multicomp/Components/nasVDU/nasCharGenRom4K.vhd}
+vcom -93 -work work {/home/crook/retro/multicomp6809/multicomp/Components/nasVDU/nasCharGenRam4K.vhd}
 vcom -93 -work work {/home/crook/retro/multicomp6809/multicomp/Components/Z80/T80_ALU.vhd}
 vcom -93 -work work {/home/crook/retro/multicomp6809/multicomp/Components/Z80/T80_MCode.vhd}
 vcom -93 -work work {/home/crook/retro/multicomp6809/multicomp/Components/Z80/T80_Pack.vhd}
