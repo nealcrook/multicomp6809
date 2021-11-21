@@ -252,6 +252,7 @@ end generate GEN_RAM1K;
 			else
                             video <= '0';
                             pixelClockCount <= (others => '0');
+                            charDataR <=  (others => '0');
 			end if;
 		end if;
 	end process;
