@@ -42,6 +42,10 @@ entity nasVDU is
 
                 video_map80vfc : in std_logic;
 
+                -- 0: 256 characters are available
+                -- 1: characters 128-255 are inverse-video versions of characters 0-127
+                inv_map80vfc   : in std_logic;
+
                 -- use 12 bits (4K) to address character generator, 11 bits (2K) to address
                 -- VFC video RAM and 10 bits (1K) to address NASCOM video RAM
                 addr    : in  std_logic_vector(11 downto 0);
@@ -184,6 +188,9 @@ begin
             dataIn      => dataIn,
             dataOut     => dataOutNas,
 
+            -- Characters 128-255 are inverse video versions of characters 0-127
+            charInv     => '0',
+
             -- access to shared character generator
             charAddr    => ncharAddr(11 downto 0),
             charData    => charData(7 downto 0),
@@ -221,6 +228,9 @@ begin
             n_memWr     => n_memWr,
             dataIn      => dataIn,
             dataOut     => dataOutMap,
+
+            -- Characters 128-255 are inverse video versions of characters 0-127
+            charInv     => inv_map80vfc,
 
             -- access to shared character generator
             charAddr    => vcharAddr(11 downto 0),

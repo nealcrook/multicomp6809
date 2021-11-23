@@ -467,11 +467,12 @@ architecture struct of NASCOM4 is
 
     ------------------------------------------------------------------
     -- Port EC/ED: MAP80 VFC Video Control
+    -- bit 3 (enable alternate character generator) is not supported
     signal iopwrECVfcPage         : std_logic_vector(3 downto 0);
+    signal iopwrECInvVideo        : std_logic;
     signal iopwrECRomEnable       : std_logic;
     signal iopwrECRamEnable       : std_logic;
     signal iopwrECRomEnable_gated : std_logic;
--- [NAC HACK 2020Nov22] TODO char gen 1 vs 2, inverse video vs upper char set.
 
     ------------------------------------------------------------------
     -- Port EE/EF: MAP80 VFC
@@ -708,6 +709,7 @@ begin
             cursorStart <= "0000000";
             cursorEnd <= "00000";
 
+            iopwrECInvVideo   <= '0';
             iopwrECRomEnable  <= '0';
             iopwrECRamEnable  <= '0';
             iopwrECVfcPage    <= x"0";
@@ -769,6 +771,7 @@ begin
 
             if cpuAddress(7 downto 0) = x"ec" and n_IORQ = '0' and n_WR = '0' then
                 iopwrECVfcPage    <= cpuDataOut(7 downto 4);
+                iopwrECInvVideo   <= cpuDataOut(2);
                 iopwrECRomEnable  <= cpuDataOut(1);
                 iopwrECRamEnable  <= cpuDataOut(0);
             end if;
@@ -955,6 +958,9 @@ begin
 
         -- select which video
         video_map80vfc => video_map80vfc,
+
+        -- make VFC characters 128-255 inverse video versions of characters 0-127
+        inv_map80vfc => iopwrECInvVideo,
 
         -- memory access to video RAM and character generator
         addr        => cpuAddress(11 downto 0),

@@ -38,6 +38,9 @@ entity nasVDU_render is
 		dataIn	: in  std_logic_vector(7 downto 0);
 		dataOut	: out std_logic_vector(7 downto 0);
 
+                -- Characters 128-255 are inverse video versions of characters 0-127
+                charInv : in  std_logic;
+
                 -- Character generator access
                 charAddr : out std_logic_vector(11 downto 0);
                 charData : in  std_logic_vector(7 downto 0);
@@ -70,6 +73,9 @@ constant CHARS_PER_SCREEN : integer := HORIZ_STRIDE*VERT_CHARS;
 
 	signal	charVert: integer range 0 to VERT_CHAR_MAX;
 	signal	charScanLine: std_logic_vector(4 DOWNTO 0) := "00000"; -- needs to accommodate char rows and VERT_PIXEL_SCANLINES
+
+        signal  charAddri: std_logic_vector(11 downto 0);
+        signal  charXMask: std_logic_vector(7 downto 0);
 
 -- functionally this only needs to go to HORIZ_CHAR_MAX. However, at the end of a line
 -- it goes 1 beyond in the hblank time. It could be avoided but it's fiddly with no
@@ -154,8 +160,12 @@ end generate GEN_RAM1K;
         -- counts from 0..31 and the addressing here used bits 4..1
         -- Other power-of-2 values of VERT_PIXEL_SCANLINES are probably OK; anything else will need
         -- adjustment here (and maybe elsewhere, too).
-        charAddr <= dispCharData & charScanLine(3+VERT_PIXEL_SCANLINES-1 downto 0+VERT_PIXEL_SCANLINES-1);
-
+        charAddri <= dispCharData & charScanLine(3+VERT_PIXEL_SCANLINES-1 downto 0+VERT_PIXEL_SCANLINES-1);
+        -- force low half of character set only. Inversion of the returned data is done later..
+        charAddr <= '0' & charAddri(10 downto 0) when charInv = '1' else charAddri;
+        -- xor with data to possibly invert this character. Address is valid for xple cycles and so it's
+        -- g'teed valid at either of the possible cycles on which the data is returned
+        charXMask <= (others => charAddri(11) and charInv);
         -- Display memory addressing
         dispAddr <= (charHoriz  +((charVert   + LINE_OFFSET) * HORIZ_STRIDE)+HORIZ_OFFSET) mod CHARS_PER_SCREEN;
 
@@ -219,7 +229,7 @@ end generate GEN_RAM1K;
                                 if pixelCount = 7 and pixelClockCount = 0 then
                                     -- Data from character generator is good iff charClashR is low
                                     -- but OK to grab it unconditionally
-                                    charDataR <= charData;
+                                    charDataR <= charData xor charXMask;
                                 end if;
 
                                 if pixelClockCount <(CLOCKS_PER_PIXEL-1) then
@@ -240,8 +250,8 @@ end generate GEN_RAM1K;
                                         if pixelCount = 7 and charClashRR = '1' then
                                             -- Data from character generator was delayed due to clash and
                                             -- is now good. Grab it and send the 1st bit out
-                                            charDataR <= charData(6 downto 0) & '0';
-                                            video <= charData(7);
+                                            charDataR <= (charData(6 downto 0) xor charXMask(6 downto 0)) & '0';
+                                            video <= charData(7) xor charXMask(7);
                                         else
                                             video <= charDataR(7);
                                             charDataR <= charDataR(6 downto 0) & '0';
