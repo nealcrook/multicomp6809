@@ -46,6 +46,12 @@ entity nasVDU is
                 -- 1: characters 128-255 are inverse-video versions of characters 0-127
                 inv_map80vfc   : in std_logic;
 
+                -- cursor control (VFC only)
+                -- TODO: NOT CURRENTLY USED; WORK IN PROGRESS
+                cursorAddr     : in std_logic_vector(11 downto 0);
+                cursorStart    : in std_logic_vector(6 downto 0);
+                cursorEnd      : in std_logic_vector(4 downto 0);
+
                 -- use 12 bits (4K) to address character generator, 11 bits (2K) to address
                 -- VFC video RAM and 10 bits (1K) to address NASCOM video RAM
                 addr    : in  std_logic_vector(11 downto 0);

@@ -444,24 +444,21 @@ architecture struct of NASCOM4 is
     signal iopwr1DBaud            : std_logic_vector(3 downto 0); -- bits 3:0
 
     ------------------------------------------------------------------
-    -- Port E4: MAP80 VFC disk control
-    signal portE4wr               : std_logic_vector(7 downto 0);  -- TODO remove this is will be external
+    -- Port E4: MAP80 VFC disk control (read implemented here; write implemented externally)
     signal ioprdE4                : std_logic_vector(7 downto 0);
 
     ------------------------------------------------------------------
-    -- Port E6: MAP80 VFC parallel keyboard
-    signal portE6rd               : std_logic_vector(7 downto 0) := x"00";
+    -- Port E6: MAP80 VFC parallel keyboard: not implemented (read 0)
 
     ------------------------------------------------------------------
-    -- Port E8/E9: MAP80 VFC
-    signal portE8wr               : std_logic_vector(7 downto 0);
+    -- Port E8/E9: MAP80 VFC alarm/beeper: not implemented
 
     ------------------------------------------------------------------
     -- Port EA/EB: MC6845
     signal iopwrEA                : std_logic_vector(4 downto 0);
     signal ioprdEA                : std_logic_vector(7 downto 0);
-    -- TODO cursor can be narrower; may need to buffer 1st part to stop it from jumping on update
-    signal cursor                 : std_logic_vector(15 downto 0); -- MC6845 R14-H, R15-L, 8-bit WO (MC6845 is R/W)
+    -- Only implement 12 bits for cursorAddr to match 2Kbyte video RAM on VFC
+    signal cursorAddr             : std_logic_vector(11 downto 0); -- MC6845 R14-H, R15-L, 8-bit WO (MC6845 is R/W)
     signal cursorStart            : std_logic_vector(6 downto 0); -- MC6845 R10, 7-bit WO
     signal cursorEnd              : std_logic_vector(4 downto 0); -- MC6845 R11, 5-bit WO
 
@@ -701,11 +698,8 @@ begin
             iopwr1AStalls <= x"20";
             --        iopwr1AStalls <= x"04"; -- for RTL simulation
 
-            portE4wr <= x"00";
-            portE8wr <= x"00";
-
             iopwrEA <= "00000";
-            cursor <= x"0000";
+            cursorAddr <= x"000";
             cursorStart <= "0000000";
             cursorEnd <= "00000";
 
@@ -730,20 +724,11 @@ begin
                 iopwr1AStalls <= cpuDataOut(7 downto 0);
             end if;
 
-            if cpuAddress(7 downto 0) = x"e4" and n_IORQ = '0' and n_WR = '0' then
-                portE4wr <= cpuDataOut;
-            end if;
-
-            if cpuAddress(7 downto 0) = x"e8" and n_IORQ = '0' and n_WR = '0' then
-                portE8wr <= cpuDataOut;
-            end if;
-
             if cpuAddress(7 downto 0) = x"ea" and n_IORQ = '0' and n_WR = '0' then
                 iopwrEA <= cpuDataOut(4 downto 0);
             end if;
 
-            -- TODO cursorStart/cursorEnd/cursor are not yet connected up or implemented in
-            -- the video logic.
+            -- cursorStart/cursorEnd/cursorAddr mimic 6845 hardware cursor for VFC
             if cpuAddress(7 downto 0) = x"eb" and iopwrEA = "01010" and n_IORQ = '0' and n_WR = '0' then
                 -- MC6845 R10: bits 4:0 are cursor start scan row
                 -- bits 6:5 encoding:
@@ -761,12 +746,12 @@ begin
 
             if cpuAddress(7 downto 0) = x"eb" and iopwrEA = "01110" and n_IORQ = '0' and n_WR = '0' then
                 -- MC6845 R14: cursor high part
-                cursor(15 downto 8) <= cpuDataOut;
+                cursorAddr(11 downto 8) <= cpuDataOut(3 downto 0);
             end if;
 
             if cpuAddress(7 downto 0) = x"eb" and iopwrEA = "01111" and n_IORQ = '0' and n_WR = '0' then
                 -- MC6845 R15: cursor low part
-                cursor(7 downto 0) <= cpuDataOut;
+                cursorAddr(7 downto 0) <= cpuDataOut;
             end if;
 
             if cpuAddress(7 downto 0) = x"ec" and n_IORQ = '0' and n_WR = '0' then
@@ -854,7 +839,7 @@ begin
 
     -- MUX read data to CPU for IO port read requests
     -- [NAC HACK 2021Apr05] will need changing for external IO read and for interrupt ack cycle?
-    proc_iord: process(cpuAddress, ioprd00, UartDataOut, ioprd18, ioprd19, ioprdE4, portE6rd, sdCardDataOut, sRamData)
+    proc_iord: process(cpuAddress, ioprd00, UartDataOut, ioprd18, ioprd19, ioprd1B, ioprd1C, ioprdE4, sdCardDataOut, sRamData)
     begin
         if cpuAddress(7 downto 0) = x"00" then
             -- Scan data from keyboard. Data from PS/2 keyboard is on ioprd00. Data from NASCOM
@@ -882,8 +867,8 @@ begin
             nasLocalIODataOut  <= ioprd1C;
         elsif cpuAddress(7 downto 0) = x"e4" then
             nasLocalIODataOut  <= ioprdE4;
-        elsif cpuAddress(7 downto 0) = x"e6" then
-            nasLocalIODataOut  <= portE6rd;
+        elsif cpuAddress(7 downto 0) = x"e6" then -- VFC parallel keyboard; not implemented
+            nasLocalIODataOut  <= x"00";
         else
             -- from external I/O bridge TODO is this the best way to do it?? Can it work for iack, too?
             nasLocalIODataOut  <= sRamData;
@@ -961,6 +946,11 @@ begin
 
         -- make VFC characters 128-255 inverse video versions of characters 0-127
         inv_map80vfc => iopwrECInvVideo,
+
+        -- cursor control (VFC only)
+        cursorAddr  => cursorAddr,
+        cursorStart => cursorStart,
+        cursorEnd   => cursorEnd,
 
         -- memory access to video RAM and character generator
         addr        => cpuAddress(11 downto 0),
@@ -1074,7 +1064,7 @@ end generate;
         kbdrst => iopwr00NasKbdRst,
         kbdclk => iopwr00NasKbdClk,
 
-        kbddata => ioprd00 -- [NAC HACK 2021Jan13] need to combine with real NASCOM kbd data in from the outside
+        kbddata => ioprd00 -- combined with real NASCOM kbd data in from the outside
         );
 
 

@@ -1,0 +1,473 @@
+Design Assistant report for NASCOM4
+Sat Nov 28 16:04:19 2020
+Quartus II 64-Bit Version 13.0.1 Build 232 06/12/2013 Service Pack 1 SJ Web Edition
+
+
+---------------------
+; Table of Contents ;
+---------------------
+  1. Legal Notice
+  2. Design Assistant Summary
+  3. Design Assistant Settings
+  4. Critical Violations
+  5. High Violations
+  6. Medium Violations
+  7. Information only Violations
+  8. Design Assistant Messages
+
+
+
+----------------
+; Legal Notice ;
+----------------
+Copyright (C) 1991-2013 Altera Corporation
+Your use of Altera Corporation's design tools, logic functions 
+and other software and tools, and its AMPP partner logic 
+functions, and any output files from any of the foregoing 
+(including device programming or simulation files), and any 
+associated documentation or information are expressly subject 
+to the terms and conditions of the Altera Program License 
+Subscription Agreement, Altera MegaCore Function License 
+Agreement, or other applicable license agreement, including, 
+without limitation, that your use is for the sole purpose of 
+programming logic devices manufactured by Altera and sold by 
+Altera or its authorized distributors.  Please refer to the 
+applicable agreement for further details.
+
+
+
++-------------------------------------------------------------------------+
+; Design Assistant Summary                                                ;
++-----------------------------------+-------------------------------------+
+; Design Assistant Status           ; Analyzed - Sat Nov 28 16:04:19 2020 ;
+; Revision Name                     ; NASCOM4                             ;
+; Top-level Entity Name             ; NASCOM4                             ;
+; Family                            ; Cyclone II                          ;
+; Total Critical Violations         ; 6                                   ;
+; - Rule C101                       ; 6                                   ;
+; Total High Violations             ; 7                                   ;
+; - Rule A108                       ; 4                                   ;
+; - Rule R101                       ; 2                                   ;
+; - Rule S102                       ; 1                                   ;
+; Total Medium Violations           ; 8                                   ;
+; - Rule C103                       ; 5                                   ;
+; - Rule C104                       ; 2                                   ;
+; - Rule R102                       ; 1                                   ;
+; Total Information only Violations ; 92                                  ;
+; - Rule T101                       ; 42                                  ;
+; - Rule T102                       ; 50                                  ;
++-----------------------------------+-------------------------------------+
+
+
++----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+; Design Assistant Settings                                                                                                                                                                                                                                                                                ;
++--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------+----+
+; Option                                                                                                                                                                                                                                                                               ; Setting      ; To ;
++--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------+----+
+; Design Assistant mode                                                                                                                                                                                                                                                                ; Post-Fitting ;    ;
+; Threshold value for clock net not mapped to clock spines rule                                                                                                                                                                                                                        ; 25           ;    ;
+; Minimum number of clock port feed by gated clocks                                                                                                                                                                                                                                    ; 30           ;    ;
+; Minimum number of node fan-out                                                                                                                                                                                                                                                       ; 30           ;    ;
+; Maximum number of nodes to report                                                                                                                                                                                                                                                    ; 50           ;    ;
+; Rule C101: Gated clock should be implemented according to the Altera standard scheme                                                                                                                                                                                                 ; On           ;    ;
+; Rule C102: Logic cell should not be used to generate an inverted clock signal                                                                                                                                                                                                        ; On           ;    ;
+; Rule C103: Gated clock does not feed at least a pre-defined number of clock ports to effectively save power                                                                                                                                                                          ; On           ;    ;
+; Rule C104: Clock signal source should drive only clock input ports                                                                                                                                                                                                                   ; On           ;    ;
+; Rule C105: Clock signal should be a global signal (Rule applies during post-fitting analysis. This rule applies during both post-fitting analysis and post-synthesis analysis if the design targets a MAX 3000 or MAX 7000 device. For more information, see the Help for the rule.) ; On           ;    ;
+; Rule C106: Clock signal source should not drive registers triggered by different clock edges                                                                                                                                                                                         ; On           ;    ;
+; Rule R101: Combinational logic used as a reset signal should be synchronized                                                                                                                                                                                                         ; On           ;    ;
+; Rule R102: External reset signals should be synchronized using two cascaded registers                                                                                                                                                                                                ; On           ;    ;
+; Rule R103: External reset signal should be correctly synchronized                                                                                                                                                                                                                    ; On           ;    ;
+; Rule R104: The reset signal that is generated in one clock domain and used in another clock domain should be correctly synchronized                                                                                                                                                  ; On           ;    ;
+; Rule R105: The reset signal that is generated in one clock domain and used in another clock domain should be synchronized                                                                                                                                                            ; On           ;    ;
+; Rule T101: Nodes with more than the specified number of fan-outs                                                                                                                                                                                                                     ; On           ;    ;
+; Rule T102: Top nodes with the highest number of fan-outs                                                                                                                                                                                                                             ; On           ;    ;
+; Rule A101: Design should not contain combinational loops                                                                                                                                                                                                                             ; On           ;    ;
+; Rule A102: Register output should not drive its own control signal directly or through combinational logic                                                                                                                                                                           ; On           ;    ;
+; Rule A103: Design should not contain delay chains                                                                                                                                                                                                                                    ; On           ;    ;
+; Rule A104: Design should not contain ripple clock structures                                                                                                                                                                                                                         ; On           ;    ;
+; Rule A105: Pulses should not be implemented asynchronously                                                                                                                                                                                                                           ; On           ;    ;
+; Rule A106: Multiple pulses should not be generated in design                                                                                                                                                                                                                         ; On           ;    ;
+; Rule A107: Design should not contain SR latches                                                                                                                                                                                                                                      ; On           ;    ;
+; Rule A108: Design should not contain latches                                                                                                                                                                                                                                         ; On           ;    ;
+; Rule S101: Output enable and input of the same tri-state node should not be driven by same signal source                                                                                                                                                                             ; On           ;    ;
+; Rule S102: Synchronous port and asynchronous port of the same register should not be driven by the same signal source                                                                                                                                                                ; On           ;    ;
+; Rule S103: More than one asynchronous port of a register should not be driven by the same signal source                                                                                                                                                                              ; On           ;    ;
+; Rule S104: Clock port and any other port of a register should not be driven by the same signal source                                                                                                                                                                                ; On           ;    ;
+; Rule D101: Data bits are not synchronized when transferred between asynchronous clock domains                                                                                                                                                                                        ; On           ;    ;
+; Rule D102: Multiple data bits that are transferred across asynchronous clock domains are synchronized, but not all bits may be aligned in the receiving clock domain                                                                                                                 ; On           ;    ;
+; Rule D103: Data bits are not correctly synchronized when transferred between asynchronous clock domains                                                                                                                                                                              ; On           ;    ;
+; Rule M101: Data bits are not synchronized when transferred to the state machine of asynchronous clock domains                                                                                                                                                                        ; Off          ;    ;
+; Rule M102: No reset signal defined to initialize the state machine                                                                                                                                                                                                                   ; Off          ;    ;
+; Rule M103: State machine should not contain an unreachable state                                                                                                                                                                                                                     ; Off          ;    ;
+; Rule M104: State machine should not contain a deadlock state                                                                                                                                                                                                                         ; Off          ;    ;
+; Rule M105: State machine should not contain a dead transition                                                                                                                                                                                                                        ; Off          ;    ;
++--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+--------------+----+
+
+
++--------------------------------------------------------------------------------------------------------------------------+
+; Critical Violations                                                                                                      ;
++--------------------------------------------------------------------------------------+-----------------------------------+
+; Rule name                                                                            ; Name                              ;
++--------------------------------------------------------------------------------------+-----------------------------------+
+; Rule C101: Gated clock should be implemented according to the Altera standard scheme ; n_WR_sd                           ;
+;  Gated clock destination node(s) list                                                ; sd_controller:sd1|host_write_flag ;
+;  Gated clock destination node(s) list                                                ; sd_controller:sd1|block_read      ;
+;  Gated clock destination node(s) list                                                ; sd_controller:sd1|block_write     ;
+;  Gated clock destination node(s) list                                                ; sd_controller:sd1|din_latched[0]  ;
+;  Gated clock destination node(s) list                                                ; sd_controller:sd1|din_latched[1]  ;
+;  Gated clock destination node(s) list                                                ; sd_controller:sd1|din_latched[2]  ;
+;  Gated clock destination node(s) list                                                ; sd_controller:sd1|din_latched[3]  ;
+;  Gated clock destination node(s) list                                                ; sd_controller:sd1|din_latched[4]  ;
+;  Gated clock destination node(s) list                                                ; sd_controller:sd1|din_latched[5]  ;
+;  Gated clock destination node(s) list                                                ; sd_controller:sd1|din_latched[6]  ;
+; Rule C101: Gated clock should be implemented according to the Altera standard scheme ; n_RD_sd                           ;
+;  Gated clock destination node(s) list                                                ; sd_controller:sd1|host_read_flag  ;
+; Rule C101: Gated clock should be implemented according to the Altera standard scheme ; n_WR_uart                         ;
+;  Gated clock destination node(s) list                                                ; bufferedUART:io2|txByteWritten    ;
+;  Gated clock destination node(s) list                                                ; bufferedUART:io2|txByteLatch[5]   ;
+;  Gated clock destination node(s) list                                                ; bufferedUART:io2|txByteLatch[7]   ;
+;  Gated clock destination node(s) list                                                ; bufferedUART:io2|txByteLatch[6]   ;
+;  Gated clock destination node(s) list                                                ; bufferedUART:io2|txByteLatch[4]   ;
+;  Gated clock destination node(s) list                                                ; bufferedUART:io2|txByteLatch[3]   ;
+;  Gated clock destination node(s) list                                                ; bufferedUART:io2|txByteLatch[2]   ;
+;  Gated clock destination node(s) list                                                ; bufferedUART:io2|txByteLatch[1]   ;
+;  Gated clock destination node(s) list                                                ; bufferedUART:io2|txByteLatch[0]   ;
+; Rule C101: Gated clock should be implemented according to the Altera standard scheme ; n_RD_uart                         ;
+;  Gated clock destination node(s) list                                                ; bufferedUART:io2|rxReadPointer[3] ;
+;  Gated clock destination node(s) list                                                ; bufferedUART:io2|rxReadPointer[4] ;
+;  Gated clock destination node(s) list                                                ; bufferedUART:io2|rxReadPointer[5] ;
+;  Gated clock destination node(s) list                                                ; bufferedUART:io2|rxReadPointer[0] ;
+;  Gated clock destination node(s) list                                                ; bufferedUART:io2|rxReadPointer[1] ;
+;  Gated clock destination node(s) list                                                ; bufferedUART:io2|rxReadPointer[2] ;
+; Rule C101: Gated clock should be implemented according to the Altera standard scheme ; n_WR_uart2                        ;
+;  Gated clock destination node(s) list                                                ; bufferedUART:io3|txByteWritten    ;
+;  Gated clock destination node(s) list                                                ; bufferedUART:io3|txByteLatch[0]   ;
+;  Gated clock destination node(s) list                                                ; bufferedUART:io3|txByteLatch[5]   ;
+;  Gated clock destination node(s) list                                                ; bufferedUART:io3|txByteLatch[7]   ;
+;  Gated clock destination node(s) list                                                ; bufferedUART:io3|txByteLatch[6]   ;
+;  Gated clock destination node(s) list                                                ; bufferedUART:io3|txByteLatch[4]   ;
+;  Gated clock destination node(s) list                                                ; bufferedUART:io3|txByteLatch[3]   ;
+;  Gated clock destination node(s) list                                                ; bufferedUART:io3|txByteLatch[2]   ;
+;  Gated clock destination node(s) list                                                ; bufferedUART:io3|txByteLatch[1]   ;
+; Rule C101: Gated clock should be implemented according to the Altera standard scheme ; n_RD_uart2                        ;
+;  Gated clock destination node(s) list                                                ; bufferedUART:io3|rxReadPointer[3] ;
+;  Gated clock destination node(s) list                                                ; bufferedUART:io3|rxReadPointer[2] ;
+;  Gated clock destination node(s) list                                                ; bufferedUART:io3|rxReadPointer[0] ;
+;  Gated clock destination node(s) list                                                ; bufferedUART:io3|rxReadPointer[1] ;
+;  Gated clock destination node(s) list                                                ; bufferedUART:io3|rxReadPointer[4] ;
+;  Gated clock destination node(s) list                                                ; bufferedUART:io3|rxReadPointer[5] ;
++--------------------------------------------------------------------------------------+-----------------------------------+
+
+
++--------------------------------------------------------------------------------------------------------------------------------------------------------+
+; High Violations                                                                                                                                        ;
++-----------------------------------------------------------------------------------------------------------------------+--------------------------------+
+; Rule name                                                                                                             ; Name                           ;
++-----------------------------------------------------------------------------------------------------------------------+--------------------------------+
+; Rule A108: Design should not contain latches - Latch 1                                                                ;                                ;
+;  Latch 1                                                                                                              ; iopwr03NasVidEnable~1          ;
+; Rule A108: Design should not contain latches - Latch 2                                                                ;                                ;
+;  Latch 2                                                                                                              ; iopwr03NasVidHigh~1            ;
+; Rule A108: Design should not contain latches - Latch 3                                                                ;                                ;
+;  Latch 3                                                                                                              ; iopwr03MAP80AutoBoot~1         ;
+; Rule A108: Design should not contain latches - Latch 4                                                                ;                                ;
+;  Latch 4                                                                                                              ; iopwr03NasSysRom~1             ;
+; Rule R101: Combinational logic used as a reset signal should be synchronized                                          ; sd_controller:sd1|wr_cmd_reg~3 ;
+;  Reset signal destination node(s) list                                                                                ; sd_controller:sd1|block_write  ;
+; Rule R101: Combinational logic used as a reset signal should be synchronized                                          ; sd_controller:sd1|ctl_led~0    ;
+;  Reset signal destination node(s) list                                                                                ; sd_controller:sd1|driveLED     ;
+; Rule S102: Synchronous port and asynchronous port of the same register should not be driven by the same signal source ; video_map80vfc~_emulated       ;
+;  Synchronous and reset port source node(s) list                                                                       ; n_reset                        ;
++-----------------------------------------------------------------------------------------------------------------------+--------------------------------+
+
+
++-------------------------------------------------------------------------------------------------------------------------------------------------+
+; Medium Violations                                                                                                                               ;
++-------------------------------------------------------------------------------------------------------------+-----------------------------------+
+; Rule name                                                                                                   ; Name                              ;
++-------------------------------------------------------------------------------------------------------------+-----------------------------------+
+; Rule C103: Gated clock does not feed at least a pre-defined number of clock ports to effectively save power ; n_RD_sd                           ;
+;  Gated clock destination node(s) list                                                                       ; sd_controller:sd1|host_read_flag  ;
+; Rule C103: Gated clock does not feed at least a pre-defined number of clock ports to effectively save power ; n_WR_uart                         ;
+;  Gated clock destination node(s) list                                                                       ; bufferedUART:io2|txByteWritten    ;
+;  Gated clock destination node(s) list                                                                       ; bufferedUART:io2|txByteLatch[5]   ;
+;  Gated clock destination node(s) list                                                                       ; bufferedUART:io2|txByteLatch[7]   ;
+;  Gated clock destination node(s) list                                                                       ; bufferedUART:io2|txByteLatch[6]   ;
+;  Gated clock destination node(s) list                                                                       ; bufferedUART:io2|txByteLatch[4]   ;
+;  Gated clock destination node(s) list                                                                       ; bufferedUART:io2|txByteLatch[3]   ;
+;  Gated clock destination node(s) list                                                                       ; bufferedUART:io2|txByteLatch[2]   ;
+;  Gated clock destination node(s) list                                                                       ; bufferedUART:io2|txByteLatch[1]   ;
+;  Gated clock destination node(s) list                                                                       ; bufferedUART:io2|txByteLatch[0]   ;
+; Rule C103: Gated clock does not feed at least a pre-defined number of clock ports to effectively save power ; n_RD_uart                         ;
+;  Gated clock destination node(s) list                                                                       ; bufferedUART:io2|rxReadPointer[3] ;
+;  Gated clock destination node(s) list                                                                       ; bufferedUART:io2|rxReadPointer[4] ;
+;  Gated clock destination node(s) list                                                                       ; bufferedUART:io2|rxReadPointer[5] ;
+;  Gated clock destination node(s) list                                                                       ; bufferedUART:io2|rxReadPointer[0] ;
+;  Gated clock destination node(s) list                                                                       ; bufferedUART:io2|rxReadPointer[1] ;
+;  Gated clock destination node(s) list                                                                       ; bufferedUART:io2|rxReadPointer[2] ;
+; Rule C103: Gated clock does not feed at least a pre-defined number of clock ports to effectively save power ; n_WR_uart2                        ;
+;  Gated clock destination node(s) list                                                                       ; bufferedUART:io3|txByteWritten    ;
+;  Gated clock destination node(s) list                                                                       ; bufferedUART:io3|txByteLatch[0]   ;
+;  Gated clock destination node(s) list                                                                       ; bufferedUART:io3|txByteLatch[5]   ;
+;  Gated clock destination node(s) list                                                                       ; bufferedUART:io3|txByteLatch[7]   ;
+;  Gated clock destination node(s) list                                                                       ; bufferedUART:io3|txByteLatch[6]   ;
+;  Gated clock destination node(s) list                                                                       ; bufferedUART:io3|txByteLatch[4]   ;
+;  Gated clock destination node(s) list                                                                       ; bufferedUART:io3|txByteLatch[3]   ;
+;  Gated clock destination node(s) list                                                                       ; bufferedUART:io3|txByteLatch[2]   ;
+;  Gated clock destination node(s) list                                                                       ; bufferedUART:io3|txByteLatch[1]   ;
+; Rule C103: Gated clock does not feed at least a pre-defined number of clock ports to effectively save power ; n_RD_uart2                        ;
+;  Gated clock destination node(s) list                                                                       ; bufferedUART:io3|rxReadPointer[3] ;
+;  Gated clock destination node(s) list                                                                       ; bufferedUART:io3|rxReadPointer[2] ;
+;  Gated clock destination node(s) list                                                                       ; bufferedUART:io3|rxReadPointer[0] ;
+;  Gated clock destination node(s) list                                                                       ; bufferedUART:io3|rxReadPointer[1] ;
+;  Gated clock destination node(s) list                                                                       ; bufferedUART:io3|rxReadPointer[4] ;
+;  Gated clock destination node(s) list                                                                       ; bufferedUART:io3|rxReadPointer[5] ;
+; Rule C104: Clock signal source should drive only clock input ports                                          ; n_WR_uart                         ;
+;  Clock ports destination node(s) list                                                                       ; bufferedUART:io2|txByteWritten    ;
+;  Clock ports destination node(s) list                                                                       ; bufferedUART:io2|txByteLatch[5]   ;
+;  Clock ports destination node(s) list                                                                       ; bufferedUART:io2|txByteLatch[7]   ;
+;  Clock ports destination node(s) list                                                                       ; bufferedUART:io2|txByteLatch[6]   ;
+;  Clock ports destination node(s) list                                                                       ; bufferedUART:io2|txByteLatch[4]   ;
+;  Clock ports destination node(s) list                                                                       ; bufferedUART:io2|txByteLatch[3]   ;
+;  Clock ports destination node(s) list                                                                       ; bufferedUART:io2|txByteLatch[2]   ;
+;  Clock ports destination node(s) list                                                                       ; bufferedUART:io2|txByteLatch[1]   ;
+;  Clock ports destination node(s) list                                                                       ; bufferedUART:io2|txByteLatch[0]   ;
+;  Non-clock ports destination node(s) list                                                                   ; bufferedUART:io2|process_1~0      ;
+; Rule C104: Clock signal source should drive only clock input ports                                          ; n_WR_uart2                        ;
+;  Clock ports destination node(s) list                                                                       ; bufferedUART:io3|txByteWritten    ;
+;  Clock ports destination node(s) list                                                                       ; bufferedUART:io3|txByteLatch[0]   ;
+;  Clock ports destination node(s) list                                                                       ; bufferedUART:io3|txByteLatch[5]   ;
+;  Clock ports destination node(s) list                                                                       ; bufferedUART:io3|txByteLatch[7]   ;
+;  Clock ports destination node(s) list                                                                       ; bufferedUART:io3|txByteLatch[6]   ;
+;  Clock ports destination node(s) list                                                                       ; bufferedUART:io3|txByteLatch[4]   ;
+;  Clock ports destination node(s) list                                                                       ; bufferedUART:io3|txByteLatch[3]   ;
+;  Clock ports destination node(s) list                                                                       ; bufferedUART:io3|txByteLatch[2]   ;
+;  Clock ports destination node(s) list                                                                       ; bufferedUART:io3|txByteLatch[1]   ;
+;  Non-clock ports destination node(s) list                                                                   ; bufferedUART:io3|process_1~0      ;
+; Rule R102: External reset signals should be synchronized using two cascaded registers                       ; n_reset                           ;
+;  Reset signal destination node(s) list                                                                      ; T80s:cpu1|T80:u0|A[2]             ;
+;  Reset signal destination node(s) list                                                                      ; T80s:cpu1|T80:u0|TState[0]        ;
+;  Reset signal destination node(s) list                                                                      ; T80s:cpu1|T80:u0|MCycle[2]        ;
+;  Reset signal destination node(s) list                                                                      ; T80s:cpu1|T80:u0|MCycle[1]        ;
+;  Reset signal destination node(s) list                                                                      ; T80s:cpu1|T80:u0|IR[6]            ;
+;  Reset signal destination node(s) list                                                                      ; T80s:cpu1|T80:u0|TState[2]        ;
+;  Reset signal destination node(s) list                                                                      ; T80s:cpu1|T80:u0|MCycle[0]        ;
+;  Reset signal destination node(s) list                                                                      ; T80s:cpu1|T80:u0|ISet[1]          ;
+;  Reset signal destination node(s) list                                                                      ; T80s:cpu1|T80:u0|IR[3]            ;
+;  Reset signal destination node(s) list                                                                      ; iopwr03NasSysRom~_emulated        ;
++-------------------------------------------------------------------------------------------------------------+-----------------------------------+
+
+
++---------------------------------------------------------------------------------------------------------------------------------+
+; Information only Violations                                                                                                     ;
++------------------------------------------------------------------+----------------------------------------------------+---------+
+; Rule name                                                        ; Name                                               ; Fan-Out ;
++------------------------------------------------------------------+----------------------------------------------------+---------+
+; Rule T101: Nodes with more than the specified number of fan-outs ; T80s:cpu1|T80:u0|A[2]                              ; 36      ;
+; Rule T101: Nodes with more than the specified number of fan-outs ; T80s:cpu1|T80:u0|Equal57~0                         ; 35      ;
+; Rule T101: Nodes with more than the specified number of fan-outs ; T80s:cpu1|T80:u0|MCycle[2]                         ; 82      ;
+; Rule T101: Nodes with more than the specified number of fan-outs ; T80s:cpu1|T80:u0|RegAddrA[0]~6                     ; 48      ;
+; Rule T101: Nodes with more than the specified number of fan-outs ; T80s:cpu1|T80:u0|MCycle[1]                         ; 85      ;
+; Rule T101: Nodes with more than the specified number of fan-outs ; T80s:cpu1|T80:u0|IR[6]                             ; 129     ;
+; Rule T101: Nodes with more than the specified number of fan-outs ; T80s:cpu1|T80:u0|process_0~8                       ; 46      ;
+; Rule T101: Nodes with more than the specified number of fan-outs ; T80s:cpu1|Equal0~1                                 ; 55      ;
+; Rule T101: Nodes with more than the specified number of fan-outs ; T80s:cpu1|T80:u0|MCycle[0]                         ; 85      ;
+; Rule T101: Nodes with more than the specified number of fan-outs ; T80s:cpu1|T80:u0|ISet[1]                           ; 72      ;
+; Rule T101: Nodes with more than the specified number of fan-outs ; T80s:cpu1|T80:u0|IR[3]                             ; 169     ;
+; Rule T101: Nodes with more than the specified number of fan-outs ; n_reset                                            ; 250     ;
+; Rule T101: Nodes with more than the specified number of fan-outs ; T80s:cpu1|T80:u0|A[0]                              ; 59      ;
+; Rule T101: Nodes with more than the specified number of fan-outs ; T80s:cpu1|T80:u0|IR[2]                             ; 176     ;
+; Rule T101: Nodes with more than the specified number of fan-outs ; T80s:cpu1|T80:u0|IR[7]                             ; 106     ;
+; Rule T101: Nodes with more than the specified number of fan-outs ; T80s:cpu1|T80:u0|IR[0]                             ; 192     ;
+; Rule T101: Nodes with more than the specified number of fan-outs ; T80s:cpu1|T80:u0|ISet[0]                           ; 44      ;
+; Rule T101: Nodes with more than the specified number of fan-outs ; T80s:cpu1|T80:u0|IR[5]                             ; 112     ;
+; Rule T101: Nodes with more than the specified number of fan-outs ; T80s:cpu1|T80:u0|IR[1]                             ; 228     ;
+; Rule T101: Nodes with more than the specified number of fan-outs ; T80s:cpu1|T80:u0|A[1]                              ; 41      ;
+; Rule T101: Nodes with more than the specified number of fan-outs ; clk~clkctrl                                        ; 760     ;
+; Rule T101: Nodes with more than the specified number of fan-outs ; T80s:cpu1|T80:u0|IR[4]                             ; 124     ;
+; Rule T101: Nodes with more than the specified number of fan-outs ; T80s:cpu1|Equal0~5                                 ; 35      ;
+; Rule T101: Nodes with more than the specified number of fan-outs ; T80s:cpu1|T80:u0|ALU_Op_r[0]                       ; 51      ;
+; Rule T101: Nodes with more than the specified number of fan-outs ; T80s:cpu1|T80:u0|T80_MCode:mcode|Mux255~0          ; 33      ;
+; Rule T101: Nodes with more than the specified number of fan-outs ; T80s:cpu1|T80:u0|ALU_Op_r[1]                       ; 46      ;
+; Rule T101: Nodes with more than the specified number of fan-outs ; T80s:cpu1|T80:u0|RegAddrA[1]~8                     ; 48      ;
+; Rule T101: Nodes with more than the specified number of fan-outs ; T80s:cpu1|T80:u0|RegAddrA[2]~10                    ; 32      ;
+; Rule T101: Nodes with more than the specified number of fan-outs ; T80s:cpu1|T80:u0|RegDIL[0]~0                       ; 32      ;
+; Rule T101: Nodes with more than the specified number of fan-outs ; T80s:cpu1|T80:u0|RegAddrB[1]~2                     ; 48      ;
+; Rule T101: Nodes with more than the specified number of fan-outs ; T80s:cpu1|T80:u0|RegAddrB[0]~1                     ; 48      ;
+; Rule T101: Nodes with more than the specified number of fan-outs ; T80s:cpu1|T80:u0|RegAddrC[1]                       ; 48      ;
+; Rule T101: Nodes with more than the specified number of fan-outs ; T80s:cpu1|T80:u0|RegAddrC[0]                       ; 48      ;
+; Rule T101: Nodes with more than the specified number of fan-outs ; sd_controller:sd1|return_state.cmd0~2              ; 36      ;
+; Rule T101: Nodes with more than the specified number of fan-outs ; sd_controller:sd1|state.receive_byte               ; 52      ;
+; Rule T101: Nodes with more than the specified number of fan-outs ; n_WR_sd~clkctrl                                    ; 43      ;
+; Rule T101: Nodes with more than the specified number of fan-outs ; sd_controller:sd1|Selector104~0                    ; 39      ;
+; Rule T101: Nodes with more than the specified number of fan-outs ; sd_controller:sd1|recv_data[0]~0                   ; 32      ;
+; Rule T101: Nodes with more than the specified number of fan-outs ; sd_controller:sd1|state.write_block_data           ; 31      ;
+; Rule T101: Nodes with more than the specified number of fan-outs ; bufferedUART:io2|func_reset                        ; 40      ;
+; Rule T101: Nodes with more than the specified number of fan-outs ; bufferedUART:io3|func_reset                        ; 40      ;
+; Rule T101: Nodes with more than the specified number of fan-outs ; sd_controller:sd1|cmd_out[55]~35                   ; 42      ;
+; Rule T102: Top nodes with the highest number of fan-outs         ; clk~clkctrl                                        ; 760     ;
+; Rule T102: Top nodes with the highest number of fan-outs         ; n_reset                                            ; 250     ;
+; Rule T102: Top nodes with the highest number of fan-outs         ; T80s:cpu1|T80:u0|IR[1]                             ; 228     ;
+; Rule T102: Top nodes with the highest number of fan-outs         ; T80s:cpu1|T80:u0|IR[0]                             ; 192     ;
+; Rule T102: Top nodes with the highest number of fan-outs         ; T80s:cpu1|T80:u0|IR[2]                             ; 176     ;
+; Rule T102: Top nodes with the highest number of fan-outs         ; T80s:cpu1|T80:u0|IR[3]                             ; 169     ;
+; Rule T102: Top nodes with the highest number of fan-outs         ; T80s:cpu1|T80:u0|IR[6]                             ; 129     ;
+; Rule T102: Top nodes with the highest number of fan-outs         ; T80s:cpu1|T80:u0|IR[4]                             ; 124     ;
+; Rule T102: Top nodes with the highest number of fan-outs         ; T80s:cpu1|T80:u0|IR[5]                             ; 112     ;
+; Rule T102: Top nodes with the highest number of fan-outs         ; T80s:cpu1|T80:u0|IR[7]                             ; 106     ;
+; Rule T102: Top nodes with the highest number of fan-outs         ; T80s:cpu1|T80:u0|MCycle[0]                         ; 85      ;
+; Rule T102: Top nodes with the highest number of fan-outs         ; T80s:cpu1|T80:u0|MCycle[1]                         ; 85      ;
+; Rule T102: Top nodes with the highest number of fan-outs         ; T80s:cpu1|T80:u0|MCycle[2]                         ; 82      ;
+; Rule T102: Top nodes with the highest number of fan-outs         ; T80s:cpu1|T80:u0|ISet[1]                           ; 72      ;
+; Rule T102: Top nodes with the highest number of fan-outs         ; T80s:cpu1|T80:u0|A[0]                              ; 59      ;
+; Rule T102: Top nodes with the highest number of fan-outs         ; T80s:cpu1|Equal0~1                                 ; 55      ;
+; Rule T102: Top nodes with the highest number of fan-outs         ; sd_controller:sd1|state.receive_byte               ; 52      ;
+; Rule T102: Top nodes with the highest number of fan-outs         ; T80s:cpu1|T80:u0|ALU_Op_r[0]                       ; 51      ;
+; Rule T102: Top nodes with the highest number of fan-outs         ; T80s:cpu1|T80:u0|RegAddrB[1]~2                     ; 48      ;
+; Rule T102: Top nodes with the highest number of fan-outs         ; T80s:cpu1|T80:u0|RegAddrC[1]                       ; 48      ;
+; Rule T102: Top nodes with the highest number of fan-outs         ; T80s:cpu1|T80:u0|RegAddrA[0]~6                     ; 48      ;
+; Rule T102: Top nodes with the highest number of fan-outs         ; T80s:cpu1|T80:u0|RegAddrC[0]                       ; 48      ;
+; Rule T102: Top nodes with the highest number of fan-outs         ; T80s:cpu1|T80:u0|RegAddrB[0]~1                     ; 48      ;
+; Rule T102: Top nodes with the highest number of fan-outs         ; T80s:cpu1|T80:u0|RegAddrA[1]~8                     ; 48      ;
+; Rule T102: Top nodes with the highest number of fan-outs         ; T80s:cpu1|T80:u0|process_0~8                       ; 46      ;
+; Rule T102: Top nodes with the highest number of fan-outs         ; T80s:cpu1|T80:u0|ALU_Op_r[1]                       ; 46      ;
+; Rule T102: Top nodes with the highest number of fan-outs         ; T80s:cpu1|T80:u0|ISet[0]                           ; 44      ;
+; Rule T102: Top nodes with the highest number of fan-outs         ; n_WR_sd~clkctrl                                    ; 43      ;
+; Rule T102: Top nodes with the highest number of fan-outs         ; sd_controller:sd1|cmd_out[55]~35                   ; 42      ;
+; Rule T102: Top nodes with the highest number of fan-outs         ; T80s:cpu1|T80:u0|A[1]                              ; 41      ;
+; Rule T102: Top nodes with the highest number of fan-outs         ; bufferedUART:io2|func_reset                        ; 40      ;
+; Rule T102: Top nodes with the highest number of fan-outs         ; bufferedUART:io3|func_reset                        ; 40      ;
+; Rule T102: Top nodes with the highest number of fan-outs         ; sd_controller:sd1|Selector104~0                    ; 39      ;
+; Rule T102: Top nodes with the highest number of fan-outs         ; T80s:cpu1|T80:u0|A[2]                              ; 36      ;
+; Rule T102: Top nodes with the highest number of fan-outs         ; sd_controller:sd1|return_state.cmd0~2              ; 36      ;
+; Rule T102: Top nodes with the highest number of fan-outs         ; T80s:cpu1|T80:u0|Equal57~0                         ; 35      ;
+; Rule T102: Top nodes with the highest number of fan-outs         ; T80s:cpu1|Equal0~5                                 ; 35      ;
+; Rule T102: Top nodes with the highest number of fan-outs         ; T80s:cpu1|T80:u0|T80_MCode:mcode|Mux255~0          ; 33      ;
+; Rule T102: Top nodes with the highest number of fan-outs         ; T80s:cpu1|T80:u0|RegAddrA[2]~10                    ; 32      ;
+; Rule T102: Top nodes with the highest number of fan-outs         ; sd_controller:sd1|recv_data[0]~0                   ; 32      ;
+; Rule T102: Top nodes with the highest number of fan-outs         ; T80s:cpu1|T80:u0|RegDIL[0]~0                       ; 32      ;
+; Rule T102: Top nodes with the highest number of fan-outs         ; sd_controller:sd1|state.write_block_data           ; 31      ;
+; Rule T102: Top nodes with the highest number of fan-outs         ; T80s:cpu1|T80:u0|Equal0~2                          ; 30      ;
+; Rule T102: Top nodes with the highest number of fan-outs         ; T80s:cpu1|T80:u0|TState[2]                         ; 29      ;
+; Rule T102: Top nodes with the highest number of fan-outs         ; T80s:cpu1|Equal0~4                                 ; 29      ;
+; Rule T102: Top nodes with the highest number of fan-outs         ; T80s:cpu1|DI_Reg[7]                                ; 29      ;
+; Rule T102: Top nodes with the highest number of fan-outs         ; T80s:cpu1|T80:u0|ALU_Op_r[2]                       ; 29      ;
+; Rule T102: Top nodes with the highest number of fan-outs         ; T80s:cpu1|T80:u0|T80_ALU:alu|Q_t~105               ; 28      ;
+; Rule T102: Top nodes with the highest number of fan-outs         ; T80s:cpu1|T80:u0|TState[0]                         ; 27      ;
+; Rule T102: Top nodes with the highest number of fan-outs         ; T80s:cpu1|T80:u0|T80_MCode:mcode|Set_Addr_To[1]~27 ; 27      ;
++------------------------------------------------------------------+----------------------------------------------------+---------+
+
+
++---------------------------+
+; Design Assistant Messages ;
++---------------------------+
+Info: *******************************************************************
+Info: Running Quartus II 64-Bit Design Assistant
+    Info: Version 13.0.1 Build 232 06/12/2013 Service Pack 1 SJ Web Edition
+    Info: Processing started: Sat Nov 28 16:04:18 2020
+Info: Command: quartus_drc --read_settings_files=on --write_settings_files=off NASCOM4 -c NASCOM4
+Warning (335093): TimeQuest Timing Analyzer is analyzing 4 combinational loops as latches.
+Info (332104): Reading SDC File: 'NASCOM4.out.sdc'
+Warning (332060): Node: T80s:cpu1|T80:u0|A[10] was determined to be a clock but was found without an associated clock assignment.
+Warning (332060): Node: n_reset was determined to be a clock but was found without an associated clock assignment.
+Critical Warning (308019): (Critical) Rule C101: Gated clock should be implemented according to the Altera standard scheme. Found 6 node(s) related to this rule.
+    Critical Warning (308012): Node  "n_WR_sd"
+    Critical Warning (308012): Node  "n_RD_sd"
+    Critical Warning (308012): Node  "n_WR_uart"
+    Critical Warning (308012): Node  "n_RD_uart"
+    Critical Warning (308012): Node  "n_WR_uart2"
+    Critical Warning (308012): Node  "n_RD_uart2"
+Critical Warning (308055): (High) Rule A108: Design should not contain latches. Found 4 latch(es) related to this rule.
+    Critical Warning (308012): Node  "iopwr03NasVidEnable~1"
+    Critical Warning (308012): Node  "iopwr03NasVidHigh~1"
+    Critical Warning (308012): Node  "iopwr03MAP80AutoBoot~1"
+    Critical Warning (308012): Node  "iopwr03NasSysRom~1"
+Critical Warning (308024): (High) Rule R101: Combinational logic used as a reset signal should be synchronized. Found 2 node(s) related to this rule.
+    Critical Warning (308012): Node  "sd_controller:sd1|wr_cmd_reg~3"
+    Critical Warning (308012): Node  "sd_controller:sd1|ctl_led~0"
+Critical Warning (308074): (High) Rule S102: Synchronous port and asynchronous port of the same register should not be driven by the same signal source. Found 1 node(s) related to this rule.
+    Critical Warning (308012): Node  "video_map80vfc~_emulated"
+Warning (308017): (Medium) Rule C103: Gated clock does not feed at least a pre-defined number of clock ports to effectively save power. (Value defined:30). Found 5 node(s) related to this rule.
+    Warning (308010): Node  "n_RD_sd"
+    Warning (308010): Node  "n_WR_uart"
+    Warning (308010): Node  "n_RD_uart"
+    Warning (308010): Node  "n_WR_uart2"
+    Warning (308010): Node  "n_RD_uart2"
+Warning (308040): (Medium) Rule C104: Clock signal source should drive only clock input ports. Found 2 nodes related to this rule.
+    Warning (308010): Node  "n_WR_uart"
+    Warning (308010): Node  "n_WR_uart2"
+Warning (308023): (Medium) Rule R102: External reset signals should be synchronized using two cascaded registers. Found 1 node(s) related to this rule.
+    Warning (308010): Node  "n_reset"
+Info (308046): (Information) Rule T101: Nodes with more than the specified number of fan-outs. (Value defined:30). Found 42 node(s) with highest fan-out.
+    Info (308011): Node  "T80s:cpu1|T80:u0|A[2]"
+    Info (308011): Node  "T80s:cpu1|T80:u0|Equal57~0"
+    Info (308011): Node  "T80s:cpu1|T80:u0|MCycle[2]"
+    Info (308011): Node  "T80s:cpu1|T80:u0|RegAddrA[0]~6"
+    Info (308011): Node  "T80s:cpu1|T80:u0|MCycle[1]"
+    Info (308011): Node  "T80s:cpu1|T80:u0|IR[6]"
+    Info (308011): Node  "T80s:cpu1|T80:u0|process_0~8"
+    Info (308011): Node  "T80s:cpu1|Equal0~1"
+    Info (308011): Node  "T80s:cpu1|T80:u0|MCycle[0]"
+    Info (308011): Node  "T80s:cpu1|T80:u0|ISet[1]"
+    Info (308011): Node  "T80s:cpu1|T80:u0|IR[3]"
+    Info (308011): Node  "n_reset"
+    Info (308011): Node  "T80s:cpu1|T80:u0|A[0]"
+    Info (308011): Node  "T80s:cpu1|T80:u0|IR[2]"
+    Info (308011): Node  "T80s:cpu1|T80:u0|IR[7]"
+    Info (308011): Node  "T80s:cpu1|T80:u0|IR[0]"
+    Info (308011): Node  "T80s:cpu1|T80:u0|ISet[0]"
+    Info (308011): Node  "T80s:cpu1|T80:u0|IR[5]"
+    Info (308011): Node  "T80s:cpu1|T80:u0|IR[1]"
+    Info (308011): Node  "T80s:cpu1|T80:u0|A[1]"
+    Info (308011): Node  "clk~clkctrl"
+    Info (308011): Node  "T80s:cpu1|T80:u0|IR[4]"
+    Info (308011): Node  "T80s:cpu1|Equal0~5"
+    Info (308011): Node  "T80s:cpu1|T80:u0|ALU_Op_r[0]"
+    Info (308011): Node  "T80s:cpu1|T80:u0|T80_MCode:mcode|Mux255~0"
+    Info (308011): Node  "T80s:cpu1|T80:u0|ALU_Op_r[1]"
+    Info (308011): Node  "T80s:cpu1|T80:u0|RegAddrA[1]~8"
+    Info (308011): Node  "T80s:cpu1|T80:u0|RegAddrA[2]~10"
+    Info (308011): Node  "T80s:cpu1|T80:u0|RegDIL[0]~0"
+    Info (308011): Node  "T80s:cpu1|T80:u0|RegAddrB[1]~2"
+    Info (308002): Truncated list of Design Assistant messages to 30 messages. Go to sections under Design Assistant section of Compilation Report for complete lists of Design Assistant messages generated.
+Info (308044): (Information) Rule T102: Top nodes with the highest number of fan-outs. (Value defined:50). Found 50 node(s) with highest fan-out.
+    Info (308011): Node  "clk~clkctrl"
+    Info (308011): Node  "n_reset"
+    Info (308011): Node  "T80s:cpu1|T80:u0|IR[1]"
+    Info (308011): Node  "T80s:cpu1|T80:u0|IR[0]"
+    Info (308011): Node  "T80s:cpu1|T80:u0|IR[2]"
+    Info (308011): Node  "T80s:cpu1|T80:u0|IR[3]"
+    Info (308011): Node  "T80s:cpu1|T80:u0|IR[6]"
+    Info (308011): Node  "T80s:cpu1|T80:u0|IR[4]"
+    Info (308011): Node  "T80s:cpu1|T80:u0|IR[5]"
+    Info (308011): Node  "T80s:cpu1|T80:u0|IR[7]"
+    Info (308011): Node  "T80s:cpu1|T80:u0|MCycle[0]"
+    Info (308011): Node  "T80s:cpu1|T80:u0|MCycle[1]"
+    Info (308011): Node  "T80s:cpu1|T80:u0|MCycle[2]"
+    Info (308011): Node  "T80s:cpu1|T80:u0|ISet[1]"
+    Info (308011): Node  "T80s:cpu1|T80:u0|A[0]"
+    Info (308011): Node  "T80s:cpu1|Equal0~1"
+    Info (308011): Node  "sd_controller:sd1|state.receive_byte"
+    Info (308011): Node  "T80s:cpu1|T80:u0|ALU_Op_r[0]"
+    Info (308011): Node  "T80s:cpu1|T80:u0|RegAddrB[1]~2"
+    Info (308011): Node  "T80s:cpu1|T80:u0|RegAddrC[1]"
+    Info (308011): Node  "T80s:cpu1|T80:u0|RegAddrA[0]~6"
+    Info (308011): Node  "T80s:cpu1|T80:u0|RegAddrC[0]"
+    Info (308011): Node  "T80s:cpu1|T80:u0|RegAddrB[0]~1"
+    Info (308011): Node  "T80s:cpu1|T80:u0|RegAddrA[1]~8"
+    Info (308011): Node  "T80s:cpu1|T80:u0|process_0~8"
+    Info (308011): Node  "T80s:cpu1|T80:u0|ALU_Op_r[1]"
+    Info (308011): Node  "T80s:cpu1|T80:u0|ISet[0]"
+    Info (308011): Node  "n_WR_sd~clkctrl"
+    Info (308011): Node  "sd_controller:sd1|cmd_out[55]~35"
+    Info (308011): Node  "T80s:cpu1|T80:u0|A[1]"
+    Info (308002): Truncated list of Design Assistant messages to 30 messages. Go to sections under Design Assistant section of Compilation Report for complete lists of Design Assistant messages generated.
+Info (308007): Design Assistant information: finished post-fitting analysis of current design -- generated 92 information messages and 21 warning messages
+Info: Quartus II 64-Bit Design Assistant was successful. 0 errors, 31 warnings
+    Info: Peak virtual memory: 764 megabytes
+    Info: Processing ended: Sat Nov 28 16:04:19 2020
+    Info: Elapsed time: 00:00:01
+    Info: Total CPU time (on all processors): 00:00:01
+
+
