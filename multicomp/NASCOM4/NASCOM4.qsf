@@ -117,11 +117,15 @@ set_location_assignment PIN_100 -to NasKbdClk
 set_location_assignment PIN_99 -to NasKbdRst
 
 set_location_assignment PIN_101 -to SerRxToNas
+set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to SerRxToNas
 set_location_assignment PIN_103 -to SerTxFrNas
 set_location_assignment PIN_93 -to SerRxBdClk
+set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to SerRxBdClk
 set_location_assignment PIN_94 -to SerTxBdClk
+set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to SerTxBdClk
 
 set_location_assignment PIN_97 -to n_INT
+set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to n_INT
 
 set_location_assignment PIN_42 -to sdMISO
 set_instance_assignment -name WEAK_PULL_UP_RESISTOR ON -to sdMISO
