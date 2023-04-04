@@ -174,12 +174,23 @@ begin
             HORIZ_STRIDE => 64, -- for NASCOM screen, stride of 64 locations per row
             HORIZ_OFFSET => 10, -- for NASCOM screen, ignore first 10 and last 6
             LINE_OFFSET => 15,  -- for NASCOM screen, offset by 15 lines so top line is line 16
-            CLOCKS_PER_SCANLINE => 1056,
+
+            -- 49.5MHz @ 75Hz
+            --CLOCKS_PER_SCANLINE => 1056,
+            --DISPLAY_TOP_SCANLINE => 40+30, -- at least vfront+vsync+vback then pad to centralise display
+            --DISPLAY_LEFT_CLOCK => 240+2, -- (HSYNC + HBACK)
+            --VERT_SCANLINES => 625,
+            --VSYNC_SCANLINES => 3,
+            --HSYNC_CLOCKS => 80,
+
+            -- 50.0MHz @ 72Hz
+            CLOCKS_PER_SCANLINE => 1040,
             DISPLAY_TOP_SCANLINE => 40+30, -- at least vfront+vsync+vback then pad to centralise display
-            DISPLAY_LEFT_CLOCK => 240+2, -- (HSYNC + HBACK)*2
-            VERT_SCANLINES => 625,
-            VSYNC_SCANLINES => 3,
-            HSYNC_CLOCKS => 80,
+            DISPLAY_LEFT_CLOCK => 184+2, -- (HSYNC + HBACK)
+            VERT_SCANLINES => 666,
+            VSYNC_SCANLINES => 6,
+            HSYNC_CLOCKS => 120,
+            --
             VERT_PIXEL_SCANLINES => 2,
             H_SYNC_ACTIVE => '1',
             V_SYNC_ACTIVE => '1'
