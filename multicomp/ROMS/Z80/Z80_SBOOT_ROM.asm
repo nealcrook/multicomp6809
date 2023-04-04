@@ -538,7 +538,7 @@ MEXIT:  ld      a,(de)
 
 EARG:   DB "Wrong number of arguments",0
 
-VER:    DB "Rev1.3 03Dec2022",0
+VER:    DB "Rev1.4 04Apr2023",0
 
 ;;; pad ROM to 1Kbytes.
 SIZE:   EQU $ - SBSTART
