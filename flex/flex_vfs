@@ -1,7 +1,8 @@
 #!/usr/bin/perl
 #
 # Manipulator for FLEX disk images. Designed to act as a virtual file system
-# for disk analysis, extract, import, copy, creation, conversion.
+# for disk analysis, extract, import, copy, creation, conversion. Also
+# supports HIER modifications for directories (type 'help hier' for details)
 #
 # Mostly designed for interactive use but also allows limited non-interactive
 # use.
@@ -120,7 +121,7 @@ if ($MINIFLEX) {
 }
 
 
-# Data structure
+# Data structures:
 # $dsk[0..3]
 # $dsk[n]->{mounted} boolean
 # $dsk[n]->{fix} boolean - when true, allows editing of SIR
@@ -132,12 +133,12 @@ if ($MINIFLEX) {
 # $dsk[n]->{bytes_blk} $BYTES_SECTOR for dsk file, 512 for img file
 # $dsk[n]->{blks} number of blocks
 # $dsk[n]->{filename} file name by which file was accessed
-# filled in by rd_sir when disk was mounted:
+# filled in by cache_sir when disk was mounted:
 # $dsk[n]->{sir}->{data} array of data - SIR in binary form
 # $dsk[n]->{sir}->{NAME} decoded fields of SIR.
 #                 ..
 # $dsk[n]->{sir}->{NUM}
-# filled in by rd_dir when disk was mounted:
+# filled in by cache_dir when disk was mounted:
 # $dsk[n]->{dir}->[n]->{NAME} array of directory entries
 # $dsk[n]->{dir}->[n]->{EXT} etc.
 my @dsk;
@@ -256,7 +257,7 @@ sub fix_mount_common {
         $dsk[$drive]->{filename} = $file;
         $dsk[$drive]->{bytes_blk} = $format eq 'dsk' ? $BYTES_SECTOR : 512;
 
-        rd_sir($drive);
+        cache_sir($drive);
 
         # size the disk image: find how many sectors and make sure it is a multiple of the
         # sector size.
@@ -288,8 +289,8 @@ sub fix_mount_common {
             $abort = 1;
         }
 
-        # cache it for easy access
-        rd_dir($drive);
+        # for easy access
+        cache_dir($drive);
 
         if ($mount) {
             if ($abort) {
@@ -333,7 +334,7 @@ sub cmd_edsir {
         if ($param eq 'NAME') {
             # pad/truncate value to correct length
             $value = $value . (chr(0) x 10); # null-terminated/padded.
-            $value = substr $value, 0, 10;
+            $value = substr($value, 0, 10);
             $dsk[$drive]->{sir}->{$param} = $value;
         }
         else {
@@ -532,7 +533,7 @@ sub cmd_new {
                 # maybe could have a better mechanism for messing with the SIR
                 # in general.
 
-                # see rd_sir for decode
+                # see cache_sir for decode
                 $sector[0] = 0;
                 $sector[1] = 0;
                 $sector[16] = ord 'N';
@@ -605,7 +606,7 @@ sub cmd_copy {
         return;
     }
 
-    my $cp_match = filter_dir($src,$file,$ext);
+    my $cp_match = filter_dir($dsk[$src]->{dir},$file,$ext);
     # which of those names already in use at the destination?
     my $rm_match = index_match_dir($src,$cp_match,$dst);
 
@@ -646,8 +647,8 @@ sub cmd_rename {
         return;
     }
 
-    my $old_match = filter_dir($drive, $ofile,$oext);
-    my $new_match = filter_dir($ndrive,$nfile,$next);
+    my $old_match = filter_dir($dsk[$drive]->{dir},$ofile,$oext);
+    my $new_match = filter_dir($dsk[$ndrive]->{dir},$nfile,$next);
 
     if (scalar @$old_match != 1) {
         printf "ERROR source must match exactly 1 file. Matched %d files\n", scalar @$old_match;
@@ -686,7 +687,7 @@ sub cmd_rename {
     }
 
     wr_dir_entry($drive, $old_match->[0], $dir_entry_data);
-    rd_dir($drive);
+    cache_dir($drive);
 }
 
 
@@ -826,7 +827,7 @@ sub type_export_common {
         return;
     }
 
-    my $match = filter_dir($drive,$file,$ext);
+    my $match = filter_dir($dsk[$drive]->{dir},$file,$ext);
 
     printf "INFO %d files match $drive.$file.$ext\n", scalar @$match if scalar @$match != 1;
 
@@ -981,8 +982,8 @@ sub cmd_import {
             # Finally, update the SIR
             wr_sir_start_free($dst, @start_free_tsc);
             # and refresh the local data
-            rd_sir($dst);
-            rd_dir($dst);
+            cache_sir($dst);
+            cache_dir($dst);
         }
         else {
             print "ERROR skipped import of $path$i -- cannot open\n";
@@ -1008,7 +1009,7 @@ sub cmd_hdir {
 }
 
 
-# directory is in $dsk - just filter/print it here.
+# Directory of virtual disk (see also cmd_dirr)
 # All of these are legal:
 # dir 1    dir 1.fred.bin   dir 1.*.bin   dir 2.fr*.*
 # the first (just the drive specified) is a special case and
@@ -1025,12 +1026,37 @@ sub cmd_dir {
         return;
     }
 
-    my $match = filter_dir($drive,$file,$ext);
+    foreach_dir($drive, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1], '', 0, 0, \&do_dir, $file, $ext);
+}
 
-    print "               NAME  ATTR START     END          SIZE    DATE\n";
 
+# Recursive directory of virtual disk
+# Same arguments as cmd_dir but recurses through all/any valid .DIR entries
+sub cmd_dirr {
+    my ($fs) = check_arg('fs', @_);
+    return unless defined($fs);
+
+    my ($drive,$file,$ext) = split /\./, $fs;
+
+    if (not $dsk[$drive]->{mounted}) {
+        print "ERROR drive $drive is not mounted\n";
+        return;
+    }
+
+    foreach_dir($drive, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1], 'home', 1, 1, \&do_dir, $file, $ext);
+}
+
+
+# Callback to report a directory
+# Print the entries from $dir_ref that correspond to the indices in @{$match}.
+# cmd_dir/cmd_dirr use foreach_dir() with this as a callback
+sub do_dir {
+    my ($drive, $dir_ref, $path, $file, $ext) = @_;
+    my $match = filter_dir($dir_ref, $file, $ext);
+
+    print "           NAME      ATTR START     END       SIZE       DATE        $path\n";
     foreach my $i (@{$match}) {
-        my $j = $dsk[$drive]->{dir}->[$i];
+        my $j = $dir_ref->[$i];
         # attributes
         my $attr = "     ";
         if ($j->{ATTR} & 0x80) {substr($attr, 0, 1) = "W"};
@@ -1043,7 +1069,27 @@ sub cmd_dir {
         $j->{FIRST_T}, $j->{FIRST_S}, $j->{LAST_T}, $j->{LAST_S},
         $j->{SIZE}, $j->{DATE_M}, $j->{DATE_D}, $j->{DATE_Y};
     }
+    print "\n";
 }
+
+
+#################################################################
+#################################################################
+# Start of experimental new stuff
+#################################################################
+#################################################################
+
+
+
+
+
+
+
+#################################################################
+#################################################################
+# End of experimental new stuff
+#################################################################
+#################################################################
 
 
 # like cmd_dir but print the hash of the payload of each matched
@@ -1059,7 +1105,7 @@ sub cmd_hash {
         return;
     }
 
-    my $match = filter_dir($drive,$file,$ext);
+    my $match = filter_dir($dsk[$drive]->{dir},$file,$ext);
 
     foreach my $i (@{$match}) {
         my $j = $dsk[$drive]->{dir}->[$i];
@@ -1071,7 +1117,7 @@ sub cmd_hash {
 
 
 # TODO: currently accepts "delete fs". Change it to "delete fs [fs..]" ie multiple file specifiers - each
-# of which is run through the match/rm_files/rd_dir sequence in turn.
+# of which is run through the match/rm_files/cache_dir sequence in turn.
 sub cmd_delete {
     my ($fs) = check_arg('fs', @_);
     return unless defined($fs);
@@ -1083,13 +1129,13 @@ sub cmd_delete {
         return;
     }
 
-    my $match = filter_dir($drive,$file,$ext);
+    my $match = filter_dir($dsk[$drive]->{dir},$file,$ext);
 
     printf "INFO %d files match $drive.$file.$ext\n", scalar @$match if scalar @$match != 1;
 
     rm_files($drive, $match);
     # directory copy is out-of-date now so revise it
-    rd_dir($drive);
+    cache_dir($drive);
 }
 
 
@@ -1104,13 +1150,13 @@ sub cmd_truncate {
         return;
     }
 
-    my $match = filter_dir($drive,$file,$ext);
+    my $match = filter_dir($dsk[$drive]->{dir},$file,$ext);
 
     printf "INFO %d files match $drive.$file.$ext\n", scalar @$match if scalar @$match != 1;
 
     truncate_files($drive, $match, $num);
     # file sizes in directory copy are out-of-date now so revise it
-    rd_dir($drive);
+    cache_dir($drive);
 }
 
 
@@ -1153,7 +1199,7 @@ sub create_gather_common {
         }
     }
 
-    my $match = filter_dir($drive,$file,$ext);
+    my $match = filter_dir($dsk[$drive]->{dir},$file,$ext);
     # if we needed to delete a file first, the free chain would get messed up. We could cope, but better
     # not to get into the bother of it.
     if (scalar @$match != 0) {
@@ -1248,7 +1294,7 @@ sub create_gather_common {
         $end_free_data_ref->[1] = 0;
         wr_dts($drive, $end_free_trk, $end_free_sct, pack("C*", @$end_free_data_ref));
         wr_sir_end_free($drive, $end_free_trk, $end_free_sct, $dsk[$drive]->{sir}->{FREE} - $sectors);
-        rd_sir($drive);
+        cache_sir($drive);
     }
 
     # Create directory entry for the new file, starting with an empty entry
@@ -1272,10 +1318,9 @@ sub create_gather_common {
     $dir_entry_data->[19-4] = $new_file_end_trk;
     $dir_entry_data->[20-4] = $new_file_end_sct;
 
-    # Write the new directory entry it to the directory
     my $index = allocate_dir_entry($drive);
     wr_dir_entry($drive, $index, $dir_entry_data);
-    rd_dir($drive);
+    cache_dir($drive);
 }
 
 
@@ -1290,7 +1335,7 @@ sub cmd_link {
         return;
     }
 
-    my $match = filter_dir($drive,$file,$ext);
+    my $match = filter_dir($dsk[$drive]->{dir},$file,$ext);
 
     if (scalar @$match == 0) {
         print "ERROR no file found matching $drive.$file.$ext\n";
@@ -1397,7 +1442,7 @@ sub cmd_scrub {
             $dir_entry_empty->[0] = $dir_entry_data->[0];
             wr_dir_entry($drive, $index, $dir_entry_empty);
         }
-        rd_dir($drive);
+        cache_dir($drive);
 
         # scrub each sector in the free list
         my $track = $dsk[$drive]->{sir}->{FIRST_T};
@@ -1495,7 +1540,7 @@ sub cmd_check {
     $bad_files = $bad_files + $bad_file;
 
     # Walk the chain for each file
-    my $files = filter_dir($drive,"*","*");
+    my $files = filter_dir($dsk[$drive]->{dir},"*","*");
     foreach my $i (@$files) {
         $bad_file = 0;
         my $ecount;
@@ -2669,11 +2714,11 @@ sub cp_files {
         wr_dir_entry($dst, $index, $dir_entry_data);
     }
 
-    # Finally, update the SIR
+    # Finally, update the SIR..
     wr_sir_start_free($dst, @start_free_tsc);
-    # and refresh the local data
-    rd_sir($dst);
-    rd_dir($dst);
+    # ..and refresh the local data
+    cache_sir($dst);
+    cache_dir($dst);
 }
 
 
@@ -2711,7 +2756,7 @@ sub rm_files {
 
     # Finally, update the SIR and refresh the local copy
     wr_sir_end_free($drive, @end_free_tsc);
-    rd_sir($drive);
+    cache_sir($drive);
 }
 
 
@@ -2768,7 +2813,7 @@ sub truncate_files {
 
     # Finally, update the SIR and refresh the local copy
     wr_sir_end_free($drive, @end_free_tsc);
-    rd_sir($drive);
+    cache_sir($drive);
 }
 
 
@@ -2952,11 +2997,11 @@ sub wr_dts {
 # routines. Those routines have the responsibility for keeping
 # - the binary data structure
 # - the disk image itself
-# in sync. The caller has the responsibility of calling rd_sir
+# in sync. The caller has the responsibility of calling cache_sir
 # afterwards to keep the decoded data structure in sync.
 # (wr_sir_h2b is the exception: the decoded data structure
 # is the starting-point so it remains in sync).
-sub rd_sir {
+sub cache_sir {
     my ($drive) = @_;
 
     my $sir = rd_dts($drive, @FLEX_SIR_TS);
@@ -3103,8 +3148,8 @@ sub describe_sir {
     my ($drive) = @_;
     my $i = "        ";
 
-    printf "$i Image size:     %d blocks (%d bytes)\n",
-    $dsk[$drive]->{blks}, $dsk[$drive]->{blks} * $dsk[$drive]->{bytes_blk};
+    printf "$i Image size:     %d blocks (%d bytes; %d bytes per block)\n",
+    $dsk[$drive]->{blks}, $dsk[$drive]->{blks} * $dsk[$drive]->{bytes_blk}, $dsk[$drive]->{bytes_blk};
 # TODO
 #        printf "%d blocks with data first/second half mismatches\n", $dsk[$drive]->{sir}->{SDMISMATCH};
 
@@ -3149,12 +3194,79 @@ sub describe_ominmax {
 }
 
 
-# read directory and attach data structure to $dsk
-sub rd_dir {
-    my ($drive) = @_;
+# Helper for commands that want to handle all directories. Call from
+# elsewhere, pointing at the root directory
+# $hier=0 -> invoke $callback once
+# $hier=1 -> invoke $callback recursively
+# $verbose=0 and $heir=1 -> report error for each invalid directory
+#
+# $callback is called like this:
+# &{$callback}($drive, $dir_ref, @extra_args)
+#
+# ie with all the leftover args from the original invocation
+sub foreach_dir {
+    my ($drive, $trk, $sct, $name, $verbose, $hier, $callback) = @_;
+    my @extra = splice (@_, 7);
 
-    # Directory format is described in FLEX APG. This is the first sector.
-    my ($trk, $sct) = @FLEX_DIR_TS;
+    my $dir_ref = get_dir_ref($drive, $trk, $sct);
+
+    # do it for this directory
+    &{$callback}($drive, $dir_ref, $name, @extra);
+
+    return if ($hier == 0);
+
+    # look for sub-directories
+    my $match = filter_dir($dir_ref, "*", "DIR");
+    foreach my $i (@{$match}) {
+        my $strk = $dir_ref->[$i]->{FIRST_T};
+        my $ssct = $dir_ref->[$i]->{FIRST_S};
+        my $sname = $dir_ref->[$i]->{NAME};
+        # ONLY do it for valid directories
+        if (hier_dirname($drive, $trk, $sct, $sname, $strk, $ssct, "$name/$sname", $verbose)) {
+            foreach_dir($drive, $strk, $ssct, "$name/$sname", $verbose, 1, \&do_dir, @extra);
+        }
+    }
+}
+
+
+# Check credibility of .DIR file
+# $ptrk, $psct is the ts address of the parent directory
+# $trk, $sct is the ts address of the directory to be checked
+# $name corresponds to an entry ${name}.DIR in directory
+# if
+#     (1) $trk,$sct contains a back-link to $ptrk,$psct
+# and (2) $name matches contents of $trk,$sct at offset 6 onwards
+# then return true, else return false
+sub hier_dirname {
+    my ($drive, $ptrk, $psct, $name, $trk, $sct, $path, $verbose) = @_;
+
+    my $data = rd_dts($drive, $trk, $sct);
+    my @data = unpack("C*", $data);
+    my $xname = substr($data, 6, length($name));
+
+    if (($data[4] == $ptrk) and ($data[5] == $psct) and ($xname eq $name)) {
+        # good back-link and name match
+        return 1;
+    }
+
+    if ($verbose) {
+        print "ERROR directory $path has:";
+        if (($data[4] != $ptrk) or ($data[5] != $psct)) {
+            print " bad back-link";
+        }
+        if ($xname ne $name) {
+            print " mis-matched name";
+        }
+        print " -- skipping\n";
+    }
+    return 0;
+}
+
+
+# Given a (mounted) drive and the track/sector of a directory, return a $dir_ref.
+sub get_dir_ref {
+    my ($drive, $trk, $sct) = @_;
+    # Directory format is described in FLEX APG. $trk,$sct identifies the first sector.
 
     my @dir;
 
@@ -3165,8 +3277,10 @@ sub rd_dir {
         my $data = rd_dts($drive, $trk, $sct);
         my @data = unpack("C*", $data);
 
-        # Each sector contains 5 or 10, 24-byte entries
-        # The first entry starts in the 16th byte.
+        # Each sector contains 10, 24-byte entries. In each sector the first
+        # first 4 bytes contain link/logical record number, as usual, and the
+        # remaining 12 bytes are unused/reserved so that the first entry starts
+        # in the 16th byte.
         my $offset = $DIRENT_OFFSET;
         foreach my $entry(0..($DIRENT_SECTOR-1)) {
             my %d;
@@ -3174,8 +3288,6 @@ sub rd_dir {
             $d{T} = $trk;
             $d{S} = $sct;
             $d{ENTRY} = $entry;
-
-# TODO convert to ONLY use @data instead
 
             # first byte of filename is 0 if it has never been used
             # or has bit 7 set if it has been deleted.
@@ -3222,23 +3334,40 @@ sub rd_dir {
         $trk = $data[0];
         $sct = $data[1];
     }
-    $dsk[$drive]->{dir} = \@dir;
+    # reference to directory data structure
+    return \@dir;
 }
 
 
-# Given a drive number and (potentially wildcarded) file name/extension,
+# Given a (mounted) drive, use get_dir_ref to create a (root) directory structure
+# and attach it to $dsk
+# TODO consider removing this, and removing $dsk[$drive]->{dir}. Then, commands
+# that need $dir_ref create it on demand (but that will not be efficient for stuff like
+# copies, unless the command parent creates $dir_ref and passes it around). Best
+# implementation choice may become evident as and when I add more HIER support
+#
+sub cache_dir {
+    my ($drive) = @_;
+
+    # Directory format is described in FLEX APG. This is the first sector.
+    my $dir_ref = get_dir_ref($drive, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1]);
+    $dsk[$drive]->{dir} = $dir_ref;
+}
+
+
+# Given a dir_ref and (potentially wildcarded) file name/extension,
 # return a reference to a list of the directory entries that match.
 sub filter_dir {
-    my ($drive, $file, $ext) = @_;
+    my ($dir_ref, $file, $ext) = @_;
     my @matches;
 
     # turn the file specifier into a legal PERL regex: * -> [-\w]*
     $file =~ s|\*|\[-\\w\]\*|g;
     $ext =~  s|\*|\[-\\w\]\*|g;
 
-    for my $i (0.. $#{$dsk[$drive]->{dir}}) {
-        if (($dsk[$drive]->{dir}->[$i]->{NAME} =~ /^$file$/)
-            and ($dsk[$drive]->{dir}->[$i]->{EXT} =~ /^$ext$/)) {
+    for my $i (0.. $#{$dir_ref}) {
+        if (($dir_ref->[$i]->{NAME} =~ /^$file$/)
+            and ($dir_ref->[$i]->{EXT} =~ /^$ext$/)) {
             push @matches, $i;
         }
     }
@@ -3457,7 +3586,6 @@ sub rd_file_end_tsc {
 sub sectors {
     my ($drive, $match) = @_;
     my $sum = 0;
-
     foreach my $i (@{$match}) {
         $sum = $sum + $dsk[$drive]->{dir}->[$i]->{SIZE};
     }
@@ -3965,17 +4093,22 @@ EOF
     }
     elsif ($cmd eq 'chain') {
         print <<EOF
-    chain t<num>,s<num>
+    chain <virtual drive number> t<num>,s<num>
 
-    Dump sectors in hex/ASCII format, starting at the specified
-    track/sector and continuing to the end of the chain.
+    Dump sectors from the specified virtual drive in hex/ASCII
+    format, starting at the specified track/sector and continuing
+    to the end of the chain. Tip:
+
+    - the SIR         is at t00,s03
+    - the boot loader is at t00,s01
+    - the directory   is at t00,s05
 
     See also 'rattle'.
 EOF
     }
     elsif ($cmd eq 'rattle') {
         print <<EOF
-    rattle t<num>,s<num>
+    rattle <virtual drive number> t<num>,s<num>
 
     Like 'chain' but prints 1 line per sector rather than the
     whole sector.
@@ -4198,6 +4331,35 @@ exit
     (that's a pity and I'd welcome suggestions that would make that work).
 EOF
     } #'
+    elsif ($cmd eq 'hier') {
+        print <<EOF
+    flex_vfs provides some support for Roy Goff's "HIER" modifications
+    which allows a hierarchy of directories rather than the single directory
+    provided by standard FLEX.
+
+    The format of a HIER disk differs from standard FLEX in the following
+    ways:
+
+    - The standard FLEX directory is now named 'home'. The first sector
+      allocated to the directory has, (1) at offset 4,5 the values 0,0 and
+      (2) from offset 6 the text 'home' (these bytes are unused in standard
+      FLEX).
+
+    - Any directory can contain a file with the extension .DIR which is
+      a 4-sector chain with the same format as the standard FLEX directory
+      except that the first sector allocated to the directory has (1) at
+      offset 4,5 the trk,sct of the parent directory and (2) from offset
+      6 the name of the directory (which match the name of the file; so
+      FRED.DIR would have the string FRED starting at offset 6)
+
+    New commands:
+
+    dirr - recursive (hierarchical) directory
+
+    Modified commands:
+    TODO
+EOF
+    } #'
     else {
         # no more to say about info, help, exit (or any non-existent command)
         print <<EOF
@@ -4264,7 +4426,7 @@ Commands are:
     quit       - synonym for exit
     help       - this is it.
 
-Other help topics: comments formats scripts conversions
+Other help topics: comments formats conversions scripts hier
 
 Type help <command name> or help <topic> for more help.
 EOF
