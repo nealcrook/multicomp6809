@@ -138,10 +138,11 @@ if ($MINIFLEX) {
 # $dsk[n]->{sir}->{NAME} decoded fields of SIR.
 #                 ..
 # $dsk[n]->{sir}->{NUM}
-# filled in by cache_dir when disk was mounted:
-# $dsk[n]->{dir}->[n]->{NAME} array of directory entries
-# $dsk[n]->{dir}->[n]->{EXT} etc.
 my @dsk;
+
+# transient data structure created on demand by get_dir_ref for a directory:
+# $dir_ref->[n]->{NAME} array of directory entries
+# $dir_ref->[n]->{EXT} etc.
 
 # Boot sector. Binary string. Undefined if not loaded.
 my $boot;
@@ -284,9 +285,6 @@ sub fix_mount_common {
                 ($dsk[$drive]->{sir}->{MAX_T} + 1) * $dsk[$drive]->{sir}->{MAX_S};
             $abort = 1;
         }
-
-        # for easy access
-        cache_dir($drive);
 
         if ($mount) {
             if ($abort) {
@@ -583,21 +581,24 @@ sub cmd_copy {
         return;
     }
 
-    my $cp_match = filter_dir($dsk[$src]->{dir},$file,$ext);
+    my $src_dir_ref = get_dir_ref($src, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1]);
+    my $dst_dir_ref = get_dir_ref($dst, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1]);
+
+    my $cp_match = filter_dir($src_dir_ref,$file,$ext);
     # which of those names already in use at the destination?
     my $rm_match = index_match_dir($src,$cp_match,$dst);
 
     print "INFO 0 files match $src.$file.$ext\n" if scalar @$cp_match == 0;
 
     # is there enough space for the copy?
-    my $dst_free = $dsk[$dst]->{sir}->{FREE} + sectors($dst, $rm_match);
-    if ($dst_free < sectors($src, $cp_match)) {
+    my $dst_free = $dsk[$dst]->{sir}->{FREE} + sectors($dst, $dst_dir_ref, $rm_match);
+    if ($dst_free < sectors($src, $src_dir_ref, $cp_match)) {
         print "ERROR insufficient space for copy\n";
         return;
     }
 
     # are there enough directory entries for the copy?
-    my $dst_dir_entries = dir_entries($dsk[$dst]->{dir}) + scalar(@$rm_match);
+    my $dst_dir_entries = dir_entries($dst_dir_ref) + scalar(@$rm_match);
     if (scalar(@$cp_match) > $dst_dir_entries) {
         print "ERROR insufficient directory entries for copy\n";
         return;
@@ -622,8 +623,10 @@ sub cmd_rename {
         return;
     }
 
-    my $old_match = filter_dir($dsk[$drive]->{dir},$ofile,$oext);
-    my $new_match = filter_dir($dsk[$ndrive]->{dir},$nfile,$next);
+    my $dir_ref = get_dir_ref($drive, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1]);
+
+    my $old_match = filter_dir($dir_ref,$ofile,$oext);
+    my $new_match = filter_dir($dir_ref,$nfile,$next);
 
     if (scalar @$old_match != 1) {
         printf "ERROR source must match exactly 1 file. Matched %d files\n", scalar @$old_match;
@@ -638,16 +641,16 @@ sub cmd_rename {
         return;
     }
 
-    my $dir_entry_data = rd_dir_entry($drive, $dsk[$drive]->{dir}, $old_match->[0]);
+    my $dir_entry_data = rd_dir_entry($drive, $dir_ref, $old_match->[0]);
 
     if (scalar @$new_match == 1) {
         # copy exact name (8+3 characters) from matching entry. Need to do this
         # because $nfile, $next may be wildcarded.
-        my $tmp_dir_entry_data = rd_dir_entry($drive, $dsk[$drive]->{dir}, $new_match->[0]);
+        my $tmp_dir_entry_data = rd_dir_entry($drive, $dir_ref, $new_match->[0]);
         for my $i (0..10) {
             $dir_entry_data->[$i] = $tmp_dir_entry_data->[$i];
         }
-        rm_files($ndrive, $new_match);
+        rm_files($drive, $new_match);
     }
     else {
         my $flex_name = "$nfile.$next";
@@ -661,8 +664,7 @@ sub cmd_rename {
         }
     }
 
-    wr_dir_entry($drive, $dsk[$drive]->{dir}, $old_match->[0], $dir_entry_data);
-    cache_dir($drive);
+    wr_dir_entry($drive, $dir_ref, $old_match->[0], $dir_entry_data);
 }
 
 
@@ -785,7 +787,8 @@ sub type_export_common {
     my ($drive,$file,$ext) = split /\./, $fs;
     return unless mounted($drive, '');
 
-    my $match = filter_dir($dsk[$drive]->{dir},$file,$ext);
+    my $dir_ref = get_dir_ref($drive, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1]);
+    my $match = filter_dir($dir_ref, $file, $ext);
 
     printf "INFO %d files match $drive.$file.$ext\n", scalar @$match if scalar @$match != 1;
 
@@ -797,6 +800,8 @@ sub cmd_import {
     my ($dst, $hf_names, $path, $conv_ref) = check_arg('v hfw oic', @_);
     return unless mounted($dst, '');
 
+    my $dir_ref = get_dir_ref($dst, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1]);
+
     # defaults for 'import'
     $conv_ref->{xxx} = exists $conv_ref->{xxx} ? $conv_ref->{xxx} : "raw";
 
@@ -805,7 +810,7 @@ sub cmd_import {
     my $rm_match = name_match_dir($dst,$hf_names, $UPCASE);
 
     # is there enough space for the import?
-    my $dst_free = $dsk[$dst]->{sir}->{FREE} + sectors($dst, $rm_match);
+    my $dst_free = $dsk[$dst]->{sir}->{FREE} + sectors($dst, $dir_ref, $rm_match);
     my $sectors = 0;
     foreach my $file (@$hf_names) {
         my $bytes = -s "$path$file";
@@ -817,7 +822,7 @@ sub cmd_import {
     }
 
     # are there enough directory entries for the import?
-    my $dst_dir_entries = dir_entries($dsk[$dst]->{dir}) + scalar(@$rm_match);
+    my $dst_dir_entries = dir_entries($dir_ref) + scalar(@$rm_match);
     if (scalar(@$hf_names) > $dst_dir_entries) {
         print "ERROR insufficient directory entries for import\n";
         return;
@@ -929,14 +934,13 @@ sub cmd_import {
                 $start_free_tsc[$SCT] = $nxt_sct;
                 $start_free_tsc[$SIZ] = $start_free_tsc[$SIZ] - 1;
             }
-            my $index = allocate_dir_entry($dsk[$dst]->{dir});
-            wr_dir_entry($dst, $dsk[$dst]->{dir}, $index, $dir_entry_data);
+            my $index = allocate_dir_entry($dir_ref);
+            wr_dir_entry($dst, $dir_ref, $index, $dir_entry_data);
 
             # Finally, update the SIR
             wr_sir_start_free($dst, @start_free_tsc);
             # and refresh the local data
             cache_sir($dst);
-            cache_dir($dst);
         }
         else {
             print "ERROR skipped import of $path$i -- cannot open\n";
@@ -1027,10 +1031,11 @@ sub cmd_hash {
     my ($drive,$file,$ext) = split /\./, $fs;
     return unless mounted($drive, '');
 
-    my $match = filter_dir($dsk[$drive]->{dir},$file,$ext);
+    my $dir_ref = get_dir_ref($drive, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1]);
+    my $match = filter_dir($dir_ref, $file, $ext);
 
     foreach my $i (@{$match}) {
-        my $j = $dsk[$drive]->{dir}->[$i];
+        my $j = $dir_ref->[$i];
         my $payload = rd_chain_dts($drive, $j->{FIRST_T}, $j->{FIRST_S});
         printf "%s % 15s.%-3s %s\n",
             md5_hex($payload), $j->{NAME}, $j->{EXT}, $dsk[$drive]->{filename}
@@ -1039,7 +1044,7 @@ sub cmd_hash {
 
 
 # TODO: currently accepts "delete fs". Change it to "delete fs [fs..]" ie multiple file specifiers - each
-# of which is run through the match/rm_files/cache_dir sequence in turn.
+# of which is run through the match/rm_files sequence in turn.
 sub cmd_delete {
     my ($fs) = check_arg('fs', @_);
     return unless defined($fs);
@@ -1047,13 +1052,12 @@ sub cmd_delete {
     my ($drive,$file,$ext) = split /\./, $fs;
     return unless mounted($drive, '');
 
-    my $match = filter_dir($dsk[$drive]->{dir},$file,$ext);
+    my $dir_ref = get_dir_ref($drive, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1]);
+    my $match = filter_dir($dir_ref, $file, $ext);
 
     printf "INFO %d files match $drive.$file.$ext\n", scalar @$match if scalar @$match != 1;
 
     rm_files($drive, $match);
-    # directory copy is out-of-date now so revise it
-    cache_dir($drive);
 }
 
 
@@ -1064,15 +1068,13 @@ sub cmd_truncate {
     my ($drive,$file,$ext) = split /\./, $fs;
     return unless mounted($drive, '');
 
-    my $match = filter_dir($dsk[$drive]->{dir},$file,$ext);
+    my $dir_ref = get_dir_ref($drive, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1]);
+    my $match = filter_dir($dir_ref, $file, $ext);
 
     printf "INFO %d files match $drive.$file.$ext\n", scalar @$match if scalar @$match != 1;
 
     truncate_files($drive, $match, $num);
-    # file sizes in directory copy are out-of-date now so revise it
-    cache_dir($drive);
 }
-
 
 
 sub cmd_create {
@@ -1109,7 +1111,8 @@ sub create_gather_common {
         }
     }
 
-    my $match = filter_dir($dsk[$drive]->{dir},$file,$ext);
+    my $dir_ref = get_dir_ref($drive, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1]);
+    my $match = filter_dir($dir_ref, $file, $ext);
     # if we needed to delete a file first, the free chain would get messed up. We could cope, but better
     # not to get into the bother of it.
     if (scalar @$match != 0) {
@@ -1117,7 +1120,7 @@ sub create_gather_common {
         return;
     }
 
-    if (dir_entries($dsk[$drive]->{dir}) == 0) {
+    if (dir_entries($dir_ref) == 0) {
         print "ERROR insufficient directory entries for create\n";
         return;
     }
@@ -1228,9 +1231,8 @@ sub create_gather_common {
     $dir_entry_data->[19-4] = $new_file_end_trk;
     $dir_entry_data->[20-4] = $new_file_end_sct;
 
-    my $index = allocate_dir_entry($dsk[$drive]->{dir});
-    wr_dir_entry($drive, $dsk[$drive]->{dir}, $index, $dir_entry_data);
-    cache_dir($drive);
+    my $index = allocate_dir_entry($dir_ref);
+    wr_dir_entry($drive, $dir_ref, $index, $dir_entry_data);
 }
 
 
@@ -1241,7 +1243,8 @@ sub cmd_link {
     my ($drive,$file,$ext) = split /\./, $fs;
     return unless mounted($drive, '');
 
-    my $match = filter_dir($dsk[$drive]->{dir},$file,$ext);
+    my $dir_ref = get_dir_ref($drive, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1]);
+    my $match = filter_dir($dir_ref, $file, $ext);
 
     if (scalar @$match == 0) {
         print "ERROR no file found matching $drive.$file.$ext\n";
@@ -1252,8 +1255,8 @@ sub cmd_link {
     else {
         my $data = rd_dts($drive, @FLEX_LDR_TS);
         my @data = unpack("C*", $data);
-        $data[5] = $dsk[$drive]->{dir}->[$match->[0]]->{FIRST_T};
-        $data[6] = $dsk[$drive]->{dir}->[$match->[0]]->{FIRST_S};
+        $data[5] = $dir_ref->[$match->[0]]->{FIRST_T};
+        $data[6] = $dir_ref->[$match->[0]]->{FIRST_S};
         wr_dts($drive, @FLEX_LDR_TS, pack("C*", @data));
     }
 }
@@ -1320,7 +1323,6 @@ sub cmd_scrub {
     return unless mounted($drive, '');
 
     foreach_dir($drive, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1], '', 1, 1, \&do_scrub, "*", "*");
-    cache_dir($drive);
 
     # scrub each sector in the free list
     my $track = $dsk[$drive]->{sir}->{FIRST_T};
@@ -1404,6 +1406,8 @@ sub cmd_check {
     my $bad_files = 0;
     my %f;
 
+    my $dir_ref = get_dir_ref($drive, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1]);
+
     # Reserved sectors
     $map[$FLEX_SIR_TS[0]][$FLEX_SIR_TS[1]]   = "%SIR.SIR";
     $map[$FLEX_SIR_TS[0]][$FLEX_SIR_TS[1]+1] = "%SIR.SIR";
@@ -1437,13 +1441,13 @@ sub cmd_check {
     $bad_files = $bad_files + $bad_file;
 
     # Walk the chain for each file
-    my $files = filter_dir($dsk[$drive]->{dir},"*","*");
+    my $files = filter_dir($dir_ref, "*", "*");
     foreach my $i (@$files) {
         $bad_file = 0;
         my $ecount;
-        my $j = $dsk[$drive]->{dir}->[$i];
+        my $j = $dir_ref->[$i];
         $f{name} = "$j->{NAME}.$j->{EXT}";
-        ($f{trk}, $f{sct}, $ecount) = rd_file_start_tsc($drive, $i);
+        ($f{trk}, $f{sct}, $ecount) = rd_file_start_tsc($drive, $dir_ref, $i);
         $count = walk_chain(\@map, \%f);
         if ($count == -1) {
             printf "ERROR %12s chain has double-assigned sector(s)\n", $f{name};
@@ -1455,7 +1459,7 @@ sub cmd_check {
         }
 
         # verify that the end sector for the file matches the values in the directory entry
-        my ($etrk, $esct, undef) = rd_file_end_tsc($drive, $i);
+        my ($etrk, $esct, undef) = rd_file_end_tsc($drive, $dir_ref, $i);
         if (($etrk != $f{prev_trk}) or ($esct != $f{prev_sct})) {
             printf "ERROR %12s chain finished at t%02d,s%02d but directory entry says it ends at t%02d,s%02d\n",
                 $f{name}, $f{prev_trk}, $f{prev_sct}, $etrk, $esct;
@@ -1913,11 +1917,13 @@ sub extract_date {
 sub export_files {
     my ($drive, $match, $conv_ref, $lpp, $path, $export) = @_;
 
+    my $dir_ref = get_dir_ref($drive, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1]);
+
     foreach my $i (@{$match}) {
         # build a data structure for use by the converter
         my %f;
-        $f{name} = $dsk[$drive]->{dir}->[$i]->{NAME} . "." .
-            $dsk[$drive]->{dir}->[$i]->{EXT};
+        $f{name} = $dir_ref->[$i]->{NAME} . "." .
+            $dir_ref->[$i]->{EXT};
         if ($export) {
             if (not open $f{handle}, '>', "$path$f{name}") {
                 print "ERROR could not open file $path$f{name}\n";
@@ -1930,7 +1936,7 @@ sub export_files {
         }
 
         $f{drive} = $drive;
-        ($f{trk}, $f{sct}) = rd_file_start_tsc($drive,$i);
+        ($f{trk}, $f{sct}) = rd_file_start_tsc($drive, $dir_ref, $i);
         $f{converters} = $conv_ref;
         $f{converter} = ""; # subroutine ref
         $f{export} = $export;
@@ -2551,6 +2557,7 @@ sub legal_flex_name {
     return $name =~ /^[a-zA-Z][a-zA-Z\d\-\_]{0,7}\.[a-zA-Z][a-zA-Z\d\-\_]{0,2}$/;
 }
 
+
 # copy zero or more files
 # files specified by list of directory indices
 sub cp_files {
@@ -2563,8 +2570,11 @@ sub cp_files {
                           $dsk[$dst]->{sir}->{FIRST_S},
                           $dsk[$dst]->{sir}->{FREE});
 
+    my $src_dir_ref = get_dir_ref($src, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1]);
+    my $dst_dir_ref = get_dir_ref($dst, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1]);
+
     foreach my $i (@{$match}) {
-        my @src_start_file_tsc = rd_file_start_tsc($src,$i);
+        my @src_start_file_tsc = rd_file_start_tsc($src, $src_dir_ref, $i);
         my $trk = $src_start_file_tsc[$TRK];
         my $sct = $src_start_file_tsc[$SCT];
         my $copied = 0;
@@ -2572,7 +2582,7 @@ sub cp_files {
         # Use directory entry from src as starting point.
         # *must* update start ts, end ts. Everything else
         # can stay as-is.
-        my $dir_entry_data = rd_dir_entry($src, $dsk[$src]->{dir}, $i);
+        my $dir_entry_data = rd_dir_entry($src, $src_dir_ref, $i);
 
         # copied file starts at first sector of
         # destination free-list.
@@ -2624,21 +2634,19 @@ sub cp_files {
             print "ERROR - copied file chain longer than file declared\n";
         }
 
-        my $index = allocate_dir_entry($dsk[$dst]->{dir});
-        wr_dir_entry($dst, $dsk[$dst]->{dir}, $index, $dir_entry_data);
+        my $index = allocate_dir_entry($dst_dir_ref);
+        wr_dir_entry($dst, $dst_dir_ref, $index, $dir_entry_data);
     }
 
     # Finally, update the SIR..
     wr_sir_start_free($dst, @start_free_tsc);
     # ..and refresh the local data
     cache_sir($dst);
-    cache_dir($dst);
 }
 
 
 # delete zero or more files
 # files specified by list of directory indices
-# caller is responsible for calling cache_dir to keep end-state consistent
 sub rm_files {
     my ($drive, $match) = @_;
     my $TRK = 0;
@@ -2648,11 +2656,14 @@ sub rm_files {
     my @end_free_tsc = ($dsk[$drive]->{sir}->{LAST_T},
                         $dsk[$drive]->{sir}->{LAST_S},
                         $dsk[$drive]->{sir}->{FREE});
-    foreach my $i (@{$match}) {
-        my @start_file_tsc = rd_file_start_tsc($drive,$i);
-        my @end_file_tsc = rd_file_end_tsc($drive,$i);
 
-        rm_dir_entry($drive, $i);
+    my $dir_ref = get_dir_ref($drive, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1]);
+
+    foreach my $i (@{$match}) {
+        my @start_file_tsc = rd_file_start_tsc($drive, $dir_ref, $i);
+        my @end_file_tsc = rd_file_end_tsc($drive, $dir_ref, $i);
+
+        rm_dir_entry($drive, $dir_ref, $i);
 
         # 2 steps to add sectors that used to belong to the file onto
         # the end of the free list (adding to the end gives more chance
@@ -2687,16 +2698,18 @@ sub truncate_files {
                         $dsk[$drive]->{sir}->{LAST_S},
                         $dsk[$drive]->{sir}->{FREE});
 
+    my $dir_ref = get_dir_ref($drive, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1]);
+
     foreach my $i (@{$match}) {
-        my @start_file_tsc = rd_file_start_tsc($drive,$i);
-        my @end_file_tsc = rd_file_end_tsc($drive,$i);
+        my @start_file_tsc = rd_file_start_tsc($drive, $dir_ref, $i);
+        my @end_file_tsc = rd_file_end_tsc($drive, $dir_ref, $i);
 
         my $new_size = $start_file_tsc[$SIZ] - $num;
 
         if ($new_size < 1) {
             printf "ERROR cannot truncate %s.%s that much\n",
-            $dsk[$drive]->{dir}->[$i]->{NAME},
-            $dsk[$drive]->{dir}->[$i]->{EXT};
+            $dir_ref->[$i]->{NAME},
+            $dir_ref->[$i]->{EXT};
         }
         else {
             # find trk, sct of new end sector for file
@@ -2707,12 +2720,12 @@ sub truncate_files {
             }
 
             # undate directory entry with new file size and end sector
-            my $dir_entry_data = rd_dir_entry($drive, $dsk[$drive]->{dir}, $i);
+            my $dir_entry_data = rd_dir_entry($drive, $dir_ref, $i);
             $dir_entry_data->[19-4] = $trk;
             $dir_entry_data->[20-4] = $sct;
             $dir_entry_data->[21+0-4] = $new_size >> 8;
             $dir_entry_data->[21+1-4] = $new_size & 0xff;
-            wr_dir_entry($drive, $dsk[$drive]->{dir}, $i, $dir_entry_data);
+            wr_dir_entry($drive, $dir_ref, $i, $dir_entry_data);
 
             # extract link from new end sector, and set its link to 0
             ($trk, $sct) = rdwr_link($drive, $trk, $sct, 0, 0);
@@ -3254,23 +3267,6 @@ sub get_dir_ref {
 }
 
 
-# Given a (mounted) drive, use get_dir_ref to create a (root) directory structure
-# and attach it to $dsk
-# TODO consider removing this, and removing $dsk[$drive]->{dir}. Then, commands
-# that need $dir_ref create it on demand (but that will not be efficient for stuff like
-# copies, unless the command parent creates $dir_ref and passes it around).. I am
-# slowly changing low-level subroutines to work in that way (eg, dir_enries). Best
-# implementation choice may become evident as and when I add more HIER support
-#
-sub cache_dir {
-    my ($drive) = @_;
-
-    # Directory format is described in FLEX APG. This is the first sector.
-    my $dir_ref = get_dir_ref($drive, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1]);
-    $dsk[$drive]->{dir} = $dir_ref;
-}
-
-
 # Given a dir_ref and (potentially wildcarded) file name/extension,
 # return a reference to a list of the directory entries that match.
 sub filter_dir {
@@ -3300,14 +3296,17 @@ sub index_match_dir {
     my @matches;
     my %drive1_names;
 
+    my $drive1_dir_ref = get_dir_ref($drive1, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1]);
+    my $drive2_dir_ref = get_dir_ref($drive2, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1]);
+
     # build a hash of the names we're looking for
     foreach my $i (@{$files}) {
-        my $name = "$dsk[$drive1]->{dir}->[$i]->{NAME}.$dsk[$drive1]->{dir}->[$i]->{EXT}";
+        my $name = "$drive1_dir_ref->[$i]->{NAME}.$drive1_dir_ref->[$i]->{EXT}";
         $drive1_names{$name} = 1;
     }
 
-    for my $i (0.. $#{$dsk[$drive2]->{dir}}) {
-        my $name = "$dsk[$drive2]->{dir}->[$i]->{NAME}.$dsk[$drive2]->{dir}->[$i]->{EXT}";
+    for my $i (0.. $#{$drive2_dir_ref}) {
+        my $name = "$drive2_dir_ref->[$i]->{NAME}.$drive2_dir_ref->[$i]->{EXT}";
         if (exists $drive1_names{$name}) {
             push @matches, $i;
         }
@@ -3328,6 +3327,8 @@ sub name_match_dir {
     my @matches;
     my %names;
 
+    my $dir_ref = get_dir_ref($drive, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1]);
+
     # build a hash of the names we're looking for
     foreach my $i (@{$names}) {
         if ($toupper) {
@@ -3338,8 +3339,8 @@ sub name_match_dir {
         }
     }
 
-    for my $i (0.. $#{$dsk[$drive]->{dir}}) {
-        my $name = "$dsk[$drive]->{dir}->[$i]->{NAME}.$dsk[$drive]->{dir}->[$i]->{EXT}";
+    for my $i (0.. $#{$dir_ref}) {
+        my $name = "$dir_ref->[$i]->{NAME}.$dir_ref->[$i]->{EXT}";
         if (exists $names{$name}) {
             push @matches, $i;
         }
@@ -3351,18 +3352,14 @@ sub name_match_dir {
 
 # delete an entry from the directory by editing the sector
 sub rm_dir_entry {
-    my ($drive, $index) = @_;
+    my ($drive, $dir_ref, $index) = @_;
 
-    my $trk = $dsk[$drive]->{dir}->[$index]->{T};
-    my $sct = $dsk[$drive]->{dir}->[$index]->{S};
-    my $entry = $dsk[$drive]->{dir}->[$index]->{ENTRY};
+    my $trk = $dir_ref->[$index]->{T};
+    my $sct = $dir_ref->[$index]->{S};
+    my $entry = $dir_ref->[$index]->{ENTRY};
 
     # first byte of the directory entry (first byte of the name)
     my $offset = 16 + ($entry * 24);
-
-    # keep local data structure intact
-    $dsk[$drive]->{dir}->[$index]->{NAME} = "%DELETED";
-    $dsk[$drive]->{dir}->[$index]->{EXT} = "%";
 
     my $data = rd_dts($drive, $trk, $sct);
     my @data = unpack("C*", $data);
@@ -3388,6 +3385,11 @@ sub empty_dir_entry {
 # by empty_dir_entry() or rd_dir_entry()
 sub name_dir_entry {
     my ($flex_name, $dir_entry_data) = @_;
+
+    # zero out existing name/extension, if any
+    for my $i (0..10) {
+        $dir_entry_data->[$i] = 0;
+    }
 
     my $findex = 0;
     my $sindex = 0;
@@ -3480,30 +3482,30 @@ sub wr_dir_entry {
 
 # return start track/sector and sector count for specified file
 sub rd_file_start_tsc {
-    my ($drive, $index) = @_;
+    my ($drive, $dir_ref, $index) = @_;
 
-    return ($dsk[$drive]->{dir}->[$index]->{FIRST_T},
-            $dsk[$drive]->{dir}->[$index]->{FIRST_S},
-            $dsk[$drive]->{dir}->[$index]->{SIZE});
+    return ($dir_ref->[$index]->{FIRST_T},
+            $dir_ref->[$index]->{FIRST_S},
+            $dir_ref->[$index]->{SIZE});
 }
 
 
 # return last track/sector and sector count for specified file
 sub rd_file_end_tsc {
-    my ($drive, $index) = @_;
+    my ($drive, $dir_ref, $index) = @_;
 
-    return ($dsk[$drive]->{dir}->[$index]->{LAST_T},
-            $dsk[$drive]->{dir}->[$index]->{LAST_S},
-            $dsk[$drive]->{dir}->[$index]->{SIZE});
+    return ($dir_ref->[$index]->{LAST_T},
+            $dir_ref->[$index]->{LAST_S},
+            $dir_ref->[$index]->{SIZE});
 }
 
 
 # sum the sectors needed to hold the specified files
 sub sectors {
-    my ($drive, $match) = @_;
+    my ($drive, $dir_ref, $match) = @_;
     my $sum = 0;
     foreach my $i (@{$match}) {
-        $sum = $sum + $dsk[$drive]->{dir}->[$i]->{SIZE};
+        $sum = $sum + $dir_ref->[$i]->{SIZE};
     }
 
     return $sum;
