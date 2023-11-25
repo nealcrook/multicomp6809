@@ -220,16 +220,12 @@ while (1) {
 
 sub cmd_fix {
     my ($drive, $file, $format) = check_arg('v h of', @_);
-    return unless defined($drive);
-
     fix_mount_common($drive, $file, $format, 0);
 }
 
 
 sub cmd_mount {
     my ($drive, $file, $format) = check_arg('v h of', @_);
-    return unless defined($drive);
-
     fix_mount_common($drive, $file, $format, 1);
 }
 
@@ -312,12 +308,8 @@ sub fix_mount_common {
 
 sub cmd_edsir {
     my ($drive, $param, $value) = check_arg('v osk oa', @_);
-    return unless defined($drive);
+    return unless mounted($drive, '');
 
-    if (not $dsk[$drive]->{mounted}) {
-        print "ERROR virtual drive $drive is not mounted.\n";
-        return;
-    }
     if (not $dsk[$drive]->{fix}) {
         print "ERROR virtual drive $drive must be mounted using the 'fix' command.\n";
         return;
@@ -361,12 +353,8 @@ sub cmd_edsir {
 
 sub cmd_edlink {
     my ($drive, $trk, $sct, $newtrk, $newsct) = check_arg('v ts ots', @_);
-    return unless defined($drive);
+    return unless mounted($drive, '');
 
-    if (not $dsk[$drive]->{mounted}) {
-        print "ERROR virtual drive $drive is not mounted.\n";
-        return;
-    }
     if (not $dsk[$drive]->{fix}) {
         print "ERROR virtual drive $drive must be mounted using the 'fix' command.\n";
         return;
@@ -394,12 +382,7 @@ sub cmd_edlink {
 
 sub cmd_clone {
     my ($drive, $file, $format) = check_arg('v nh of', @_);
-    return unless defined($drive);
-
-    if (not $dsk[$drive]->{mounted}) {
-        print "ERROR virtual drive $drive is not mounted.\n";
-        return;
-    }
+    return unless mounted($drive, '');
 
     my $bb_in = $dsk[$drive]->{bytes_blk};
     my $bb_out = $format eq 'dsk' ? $BYTES_SECTOR : 512;
@@ -592,15 +575,9 @@ sub cmd_copy {
     return unless defined($fs);
 
     my ($src,$file,$ext) = split /\./, $fs;
+    return unless mounted($src, '');
+    return unless mounted($dst, 'destination ');
 
-    if (not $dsk[$src]->{mounted}) {
-        print "ERROR source drive $src is not mounted\n";
-        return;
-    }
-    if (not $dsk[$dst]->{mounted}) {
-        print "ERROR destination drive $dst is not mounted\n";
-        return;
-    }
     if ($src == $dst) {
         print "ERROR cannot copy to the same drive\n";
         return;
@@ -638,10 +615,8 @@ sub cmd_rename {
     my ($drive, $ofile,$oext) = split /\./, $old;
     my ($ndrive,$nfile,$next) = split /\./, $new;
 
-    if (not $dsk[$drive]->{mounted}) {
-        print "ERROR drive $drive is not mounted\n";
-        return;
-    }
+    return unless mounted($drive, '');
+
     if ($drive != $ndrive) {
         print "ERROR cannot rename across drives. Use copy instead\n";
         return;
@@ -693,51 +668,38 @@ sub cmd_rename {
 
 sub cmd_label {
     my ($drive,$label,$vol,$mm, $dd, $yy) = check_arg('v l ovy',@_);
-    return unless defined($drive);
+    return unless mounted($drive, '');
 
-    if ($dsk[$drive]->{mounted}) {
-        # label MUST be present otherwise we would not get this far
-        wr_sir_label($drive, $label);
+    # label MUST be present otherwise we would not get this far
+    wr_sir_label($drive, $label);
 
-        # volume number optional - else leave it unchanged
-        if (defined $vol) {
-            wr_sir_vol($drive, $vol);
-        }
-
-        # date optional - else leave it unchanged
-        if (defined $mm) {
-            wr_sir_date($drive, $mm, $dd, $yy);
-        }
+    # volume number optional - else leave it unchanged
+    if (defined $vol) {
+        wr_sir_vol($drive, $vol);
     }
-    else {
-        print "ERROR virtual drive $drive is not mounted\n";
+
+    # date optional - else leave it unchanged
+    if (defined $mm) {
+        wr_sir_date($drive, $mm, $dd, $yy);
     }
 }
 
 
 sub cmd_chain {
     my ($drive, $trk, $sct) = check_arg('v ts', @_);
-    return unless defined($drive);
-
     chain_rattle_common($drive, $trk, $sct, $BYTES_SECTOR/16);
 }
 
 
 sub cmd_rattle {
     my ($drive, $trk, $sct) = check_arg('v ts', @_);
-    return unless defined($drive);
-
     chain_rattle_common($drive, $trk, $sct, 1);
 }
 
 
 sub chain_rattle_common {
     my ($drive, $trk, $sct, $lines_to_display) = @_;
-
-    if (not $dsk[$drive]->{mounted}) {
-        print "ERROR drive $drive is not mounted\n";
-        return;
-    }
+    return unless mounted($drive, '');
 
     while (1) {
         my $data = rd_dts($drive, $trk, $sct);
@@ -821,11 +783,7 @@ sub type_export_common {
     my ($fs, $conv_ref, $lpp, $path, $export) = @_;
 
     my ($drive,$file,$ext) = split /\./, $fs;
-
-    if (not $dsk[$drive]->{mounted}) {
-        print "ERROR drive $drive is not mounted\n";
-        return;
-    }
+    return unless mounted($drive, '');
 
     my $match = filter_dir($dsk[$drive]->{dir},$file,$ext);
 
@@ -837,12 +795,7 @@ sub type_export_common {
 
 sub cmd_import {
     my ($dst, $hf_names, $path, $conv_ref) = check_arg('v hfw oic', @_);
-    return unless defined($dst);
-
-    if (not $dsk[$dst]->{mounted}) {
-        print "ERROR drive $dst is not mounted\n";
-        return;
-    }
+    return unless mounted($dst, '');
 
     # defaults for 'import'
     $conv_ref->{xxx} = exists $conv_ref->{xxx} ? $conv_ref->{xxx} : "raw";
@@ -1020,11 +973,7 @@ sub cmd_dir {
     return unless defined($fs);
 
     my ($drive,$file,$ext) = split /\./, $fs;
-
-    if (not $dsk[$drive]->{mounted}) {
-        print "ERROR drive $drive is not mounted\n";
-        return;
-    }
+    return unless mounted($drive, '');
 
     foreach_dir($drive, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1], '', 0, 0, \&do_dir, $file, $ext);
 }
@@ -1037,11 +986,7 @@ sub cmd_dirr {
     return unless defined($fs);
 
     my ($drive,$file,$ext) = split /\./, $fs;
-
-    if (not $dsk[$drive]->{mounted}) {
-        print "ERROR drive $drive is not mounted\n";
-        return;
-    }
+    return unless mounted($drive, '');
 
     foreach_dir($drive, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1], 'home', 1, 1, \&do_dir, $file, $ext);
 }
@@ -1099,11 +1044,7 @@ sub cmd_hash {
     return unless defined($fs);
 
     my ($drive,$file,$ext) = split /\./, $fs;
-
-    if (not $dsk[$drive]->{mounted}) {
-        print "ERROR drive $drive is not mounted\n";
-        return;
-    }
+    return unless mounted($drive, '');
 
     my $match = filter_dir($dsk[$drive]->{dir},$file,$ext);
 
@@ -1123,11 +1064,7 @@ sub cmd_delete {
     return unless defined($fs);
 
     my ($drive,$file,$ext) = split /\./, $fs;
-
-    if (not $dsk[$drive]->{mounted}) {
-        print "ERROR drive $drive is not mounted\n";
-        return;
-    }
+    return unless mounted($drive, '');
 
     my $match = filter_dir($dsk[$drive]->{dir},$file,$ext);
 
@@ -1144,11 +1081,7 @@ sub cmd_truncate {
     return unless defined($fs);
 
     my ($drive,$file,$ext) = split /\./, $fs;
-
-    if (not $dsk[$drive]->{mounted}) {
-        print "ERROR drive $drive is not mounted\n";
-        return;
-    }
+    return unless mounted($drive, '');
 
     my $match = filter_dir($dsk[$drive]->{dir},$file,$ext);
 
@@ -1186,11 +1119,7 @@ sub create_gather_common {
     my $end_free_data_ref;
 
     my ($drive,$file,$ext) = split /\./, $fs;
-
-    if (not $dsk[$drive]->{mounted}) {
-        print "ERROR drive $drive is not mounted\n";
-        return;
-    }
+    return unless mounted($drive, '');
 
     if ($do_create==0) {
         if (not $dsk[$drive]->{fix}) {
@@ -1329,11 +1258,7 @@ sub cmd_link {
     return unless defined($fs);
 
     my ($drive,$file,$ext) = split /\./, $fs;
-
-    if (not $dsk[$drive]->{mounted}) {
-        print "ERROR drive $drive is not mounted\n";
-        return;
-    }
+    return unless mounted($drive, '');
 
     my $match = filter_dir($dsk[$drive]->{dir},$file,$ext);
 
@@ -1355,31 +1280,21 @@ sub cmd_link {
 
 sub cmd_rdboot {
     my ($drive) = check_arg('v', @_);
-    return unless defined($drive);
+    return unless mounted($drive, '');
 
-    if ($dsk[$drive]->{mounted}) {
-        my $data = rd_dts($drive, @FLEX_LDR_TS);
-        if (defined $data) {
-            $boot = $data;
-        }
-    }
-    else {
-        print "ERROR virtual drive $drive is not mounted\n";
+    my $data = rd_dts($drive, @FLEX_LDR_TS);
+    if (defined $data) {
+        $boot = $data;
     }
 }
 
 
 sub cmd_wrboot {
     my ($drive) = check_arg('v', @_);
-    return unless defined($drive);
+    return unless mounted($drive, '');
 
     if (defined $boot) {
-        if ($dsk[$drive]->{mounted}) {
-            wr_dts($drive, @FLEX_LDR_TS, $boot);
-        }
-        else {
-            print "ERROR virtual drive $drive is not mounted\n";
-        }
+        wr_dts($drive, @FLEX_LDR_TS, $boot);
     }
     else {
         print "ERROR boot sector not loaded. Use rdboot or rdbootfile\n";
@@ -1421,51 +1336,47 @@ sub cmd_repair {
 
 sub cmd_scrub {
     my ($drive) = check_arg('v', @_);
-    return unless defined($drive);
+    return unless mounted($drive, '');
 
     my $dir_entry_empty = empty_dir_entry();
-    if ($dsk[$drive]->{mounted}) {
-        # scrub each unused directory entry
-        my $to_scrub = dir_entries($drive);
-        for my $i (1..$to_scrub) {
-            my $index = allocate_dir_entry($drive);
-            # An unallocated directory entry takes 2 forms:
-            # - if it has *never* been used, the first byte of the filename is 0.
-            # - if it has ever been used, the first byte of the filename has bit7=1.
-            # FLEX will not search the directory beyond the first never-used directory
-            # entry (presumably a speed optimisation). Therefore, when scrubbing the
-            # disk, cannot set the first byte to 0 if it wasn't already 0, otherwise
-            # subsequent files in the directory will become invisible and inaccessible.
-            # Likewise, don't want to blindly set it to non-zero as this will defeat the
-            # optimisation. Therefore, scrub all but the first byte.
-            my $dir_entry_data = rd_dir_entry($drive,$index);
-            $dir_entry_empty->[0] = $dir_entry_data->[0];
-            wr_dir_entry($drive, $index, $dir_entry_empty);
-        }
-        cache_dir($drive);
 
-        # scrub each sector in the free list
-        my $track = $dsk[$drive]->{sir}->{FIRST_T};
-        my $sector = $dsk[$drive]->{sir}->{FIRST_S};
-        my @empty_sector;
-        for my $i (0..($BYTES_SECTOR-1)) {
-            $empty_sector[$i] = 0;
-        }
-
-        while (($track != 0) or ($sector != 0)) {
-            my $data = rd_dts($drive, $track, $sector);
-            my @data = unpack("C*", $data);
-            # rewrite this sector with only the link intact
-            $empty_sector[0] = $data[0];
-            $empty_sector[1] = $data[1];
-            wr_dts($drive, $track, $sector, pack("C*", @empty_sector));
-            # next
-            $track = $data[0];
-            $sector = $data[1];
-        }
+    # scrub each unused directory entry
+    my $to_scrub = dir_entries($drive);
+    for my $i (1..$to_scrub) {
+        my $index = allocate_dir_entry($drive);
+        # An unallocated directory entry takes 2 forms:
+        # - if it has *never* been used, the first byte of the filename is 0.
+        # - if it has ever been used, the first byte of the filename has bit7=1.
+        # FLEX will not search the directory beyond the first never-used directory
+        # entry (presumably a speed optimisation). Therefore, when scrubbing the
+        # disk, cannot set the first byte to 0 if it wasn't already 0, otherwise
+        # subsequent files in the directory will become invisible and inaccessible.
+        # Likewise, don't want to blindly set it to non-zero as this will defeat the
+        # optimisation. Therefore, scrub all but the first byte.
+        my $dir_entry_data = rd_dir_entry($drive,$index);
+        $dir_entry_empty->[0] = $dir_entry_data->[0];
+        wr_dir_entry($drive, $index, $dir_entry_empty);
     }
-    else {
-        print "ERROR virtual drive $drive is not mounted\n";
+    cache_dir($drive);
+
+    # scrub each sector in the free list
+    my $track = $dsk[$drive]->{sir}->{FIRST_T};
+    my $sector = $dsk[$drive]->{sir}->{FIRST_S};
+    my @empty_sector;
+    for my $i (0..($BYTES_SECTOR-1)) {
+        $empty_sector[$i] = 0;
+    }
+
+    while (($track != 0) or ($sector != 0)) {
+        my $data = rd_dts($drive, $track, $sector);
+        my @data = unpack("C*", $data);
+        # rewrite this sector with only the link intact
+        $empty_sector[0] = $data[0];
+        $empty_sector[1] = $data[1];
+        wr_dts($drive, $track, $sector, pack("C*", @empty_sector));
+        # next
+        $track = $data[0];
+        $sector = $data[1];
     }
 }
 
@@ -1494,12 +1405,7 @@ sub cmd_scrub {
 # Finally, go through the map and report any unused sectors.
 sub cmd_check {
     my ($drive) = check_arg('v', @_);
-    return unless defined($drive);
-
-    if (not $dsk[$drive]->{mounted}) {
-        print "ERROR virtual drive $drive is not mounted.\n";
-        return;
-    }
+    return unless mounted($drive, '');
 
     my @map;
     my $count;
@@ -1972,6 +1878,23 @@ sub check_arg {
 
     # Phew! Success!
     return @_;
+}
+
+
+# return true if $drive is mounted
+# print error message and return false if $drive not mounted
+# silently return false if $drive is not defined
+sub mounted {
+    my ($drive, $msg) = @_;
+    return 0 unless defined($drive);
+
+    if ($dsk[$drive]->{mounted}) {
+        return 1;
+    }
+    else {
+        print "ERROR ${msg}drive $drive is not mounted\n";
+        return 0;
+    }
 }
 
 
