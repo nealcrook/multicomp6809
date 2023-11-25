@@ -597,7 +597,7 @@ sub cmd_copy {
     }
 
     # are there enough directory entries for the copy?
-    my $dst_dir_entries = dir_entries($dst) + scalar(@$rm_match);
+    my $dst_dir_entries = dir_entries($dsk[$dst]->{dir}) + scalar(@$rm_match);
     if (scalar(@$cp_match) > $dst_dir_entries) {
         print "ERROR insufficient directory entries for copy\n";
         return;
@@ -638,12 +638,12 @@ sub cmd_rename {
         return;
     }
 
-    my $dir_entry_data = rd_dir_entry($drive, $old_match->[0]);
+    my $dir_entry_data = rd_dir_entry($drive, $dsk[$drive]->{dir}, $old_match->[0]);
 
     if (scalar @$new_match == 1) {
         # copy exact name (8+3 characters) from matching entry. Need to do this
         # because $nfile, $next may be wildcarded.
-        my $tmp_dir_entry_data = rd_dir_entry($drive, $new_match->[0]);
+        my $tmp_dir_entry_data = rd_dir_entry($drive, $dsk[$drive]->{dir}, $new_match->[0]);
         for my $i (0..10) {
             $dir_entry_data->[$i] = $tmp_dir_entry_data->[$i];
         }
@@ -661,7 +661,7 @@ sub cmd_rename {
         }
     }
 
-    wr_dir_entry($drive, $old_match->[0], $dir_entry_data);
+    wr_dir_entry($drive, $dsk[$drive]->{dir}, $old_match->[0], $dir_entry_data);
     cache_dir($drive);
 }
 
@@ -817,7 +817,7 @@ sub cmd_import {
     }
 
     # are there enough directory entries for the import?
-    my $dst_dir_entries = dir_entries($dst) + scalar(@$rm_match);
+    my $dst_dir_entries = dir_entries($dsk[$dst]->{dir}) + scalar(@$rm_match);
     if (scalar(@$hf_names) > $dst_dir_entries) {
         print "ERROR insufficient directory entries for import\n";
         return;
@@ -929,8 +929,8 @@ sub cmd_import {
                 $start_free_tsc[$SCT] = $nxt_sct;
                 $start_free_tsc[$SIZ] = $start_free_tsc[$SIZ] - 1;
             }
-            my $index = allocate_dir_entry($dst);
-            wr_dir_entry($dst, $index, $dir_entry_data);
+            my $index = allocate_dir_entry($dsk[$dst]->{dir});
+            wr_dir_entry($dst, $dsk[$dst]->{dir}, $index, $dir_entry_data);
 
             # Finally, update the SIR
             wr_sir_start_free($dst, @start_free_tsc);
@@ -1016,25 +1016,6 @@ sub do_dir {
     }
     print "\n";
 }
-
-
-#################################################################
-#################################################################
-# Start of experimental new stuff
-#################################################################
-#################################################################
-
-
-
-
-
-
-
-#################################################################
-#################################################################
-# End of experimental new stuff
-#################################################################
-#################################################################
 
 
 # like cmd_dir but print the hash of the payload of each matched
@@ -1136,7 +1117,7 @@ sub create_gather_common {
         return;
     }
 
-    if (dir_entries($drive) == 0) {
+    if (dir_entries($dsk[$drive]->{dir}) == 0) {
         print "ERROR insufficient directory entries for create\n";
         return;
     }
@@ -1247,8 +1228,8 @@ sub create_gather_common {
     $dir_entry_data->[19-4] = $new_file_end_trk;
     $dir_entry_data->[20-4] = $new_file_end_sct;
 
-    my $index = allocate_dir_entry($drive);
-    wr_dir_entry($drive, $index, $dir_entry_data);
+    my $index = allocate_dir_entry($dsk[$drive]->{dir});
+    wr_dir_entry($drive, $dsk[$drive]->{dir}, $index, $dir_entry_data);
     cache_dir($drive);
 }
 
@@ -1338,25 +1319,7 @@ sub cmd_scrub {
     my ($drive) = check_arg('v', @_);
     return unless mounted($drive, '');
 
-    my $dir_entry_empty = empty_dir_entry();
-
-    # scrub each unused directory entry
-    my $to_scrub = dir_entries($drive);
-    for my $i (1..$to_scrub) {
-        my $index = allocate_dir_entry($drive);
-        # An unallocated directory entry takes 2 forms:
-        # - if it has *never* been used, the first byte of the filename is 0.
-        # - if it has ever been used, the first byte of the filename has bit7=1.
-        # FLEX will not search the directory beyond the first never-used directory
-        # entry (presumably a speed optimisation). Therefore, when scrubbing the
-        # disk, cannot set the first byte to 0 if it wasn't already 0, otherwise
-        # subsequent files in the directory will become invisible and inaccessible.
-        # Likewise, don't want to blindly set it to non-zero as this will defeat the
-        # optimisation. Therefore, scrub all but the first byte.
-        my $dir_entry_data = rd_dir_entry($drive,$index);
-        $dir_entry_empty->[0] = $dir_entry_data->[0];
-        wr_dir_entry($drive, $index, $dir_entry_empty);
-    }
+    foreach_dir($drive, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1], '', 1, 1, \&do_scrub, "*", "*");
     cache_dir($drive);
 
     # scrub each sector in the free list
@@ -1377,6 +1340,34 @@ sub cmd_scrub {
         # next
         $track = $data[0];
         $sector = $data[1];
+    }
+}
+
+
+# Callback to scrub the entries in a directory
+# cmd_scrub uses foreach_dir() with this as a callback
+sub do_scrub {
+    my ($drive, $dir_ref, $path, $file, $ext) = @_;
+
+    my $dir_entry_empty = empty_dir_entry();
+
+    # scrub each unused directory entry
+    my $to_scrub = dir_entries($dir_ref);
+
+    for my $i (1..$to_scrub) {
+        my $index = allocate_dir_entry($dir_ref);
+        # An unallocated directory entry takes 2 forms:
+        # - if it has *never* been used, the first byte of the filename is 0.
+        # - if it has ever been used, the first byte of the filename has bit7=1.
+        # FLEX will not search the directory beyond the first never-used directory
+        # entry (presumably a speed optimisation). Therefore, when scrubbing the
+        # disk, cannot set the first byte to 0 if it wasn't already 0, otherwise
+        # subsequent files in the directory will become invisible and inaccessible.
+        # Likewise, don't want to blindly set it to non-zero as this will defeat the
+        # optimisation. Therefore, scrub all but the first byte.
+        my $dir_entry_data = rd_dir_entry($drive, $dir_ref, $index);
+        $dir_entry_empty->[0] = $dir_entry_data->[0];
+        wr_dir_entry($drive, $dir_ref, $index, $dir_entry_empty);
     }
 }
 
@@ -2581,7 +2572,7 @@ sub cp_files {
         # Use directory entry from src as starting point.
         # *must* update start ts, end ts. Everything else
         # can stay as-is.
-        my $dir_entry_data = rd_dir_entry($src, $i);
+        my $dir_entry_data = rd_dir_entry($src, $dsk[$src]->{dir}, $i);
 
         # copied file starts at first sector of
         # destination free-list.
@@ -2633,8 +2624,8 @@ sub cp_files {
             print "ERROR - copied file chain longer than file declared\n";
         }
 
-        my $index = allocate_dir_entry($dst);
-        wr_dir_entry($dst, $index, $dir_entry_data);
+        my $index = allocate_dir_entry($dsk[$dst]->{dir});
+        wr_dir_entry($dst, $dsk[$dst]->{dir}, $index, $dir_entry_data);
     }
 
     # Finally, update the SIR..
@@ -2647,6 +2638,7 @@ sub cp_files {
 
 # delete zero or more files
 # files specified by list of directory indices
+# caller is responsible for calling cache_dir to keep end-state consistent
 sub rm_files {
     my ($drive, $match) = @_;
     my $TRK = 0;
@@ -2715,12 +2707,12 @@ sub truncate_files {
             }
 
             # undate directory entry with new file size and end sector
-            my $dir_entry_data = rd_dir_entry($drive, $i);
+            my $dir_entry_data = rd_dir_entry($drive, $dsk[$drive]->{dir}, $i);
             $dir_entry_data->[19-4] = $trk;
             $dir_entry_data->[20-4] = $sct;
             $dir_entry_data->[21+0-4] = $new_size >> 8;
             $dir_entry_data->[21+1-4] = $new_size & 0xff;
-            wr_dir_entry($drive, $i, $dir_entry_data);
+            wr_dir_entry($drive, $dsk[$drive]->{dir}, $i, $dir_entry_data);
 
             # extract link from new end sector, and set its link to 0
             ($trk, $sct) = rdwr_link($drive, $trk, $sct, 0, 0);
@@ -3146,7 +3138,7 @@ sub foreach_dir {
         my $sname = $dir_ref->[$i]->{NAME};
         # ONLY do it for valid directories
         if (hier_dirname($drive, $trk, $sct, $sname, $strk, $ssct, "$name/$sname", $verbose)) {
-            foreach_dir($drive, $strk, $ssct, "$name/$sname", $verbose, 1, \&do_dir, @extra);
+            foreach_dir($drive, $strk, $ssct, "$name/$sname", $verbose, 1, $callback, @extra);
         }
     }
 }
@@ -3266,7 +3258,8 @@ sub get_dir_ref {
 # and attach it to $dsk
 # TODO consider removing this, and removing $dsk[$drive]->{dir}. Then, commands
 # that need $dir_ref create it on demand (but that will not be efficient for stuff like
-# copies, unless the command parent creates $dir_ref and passes it around). Best
+# copies, unless the command parent creates $dir_ref and passes it around).. I am
+# slowly changing low-level subroutines to work in that way (eg, dir_enries). Best
 # implementation choice may become evident as and when I add more HIER support
 #
 sub cache_dir {
@@ -3418,25 +3411,25 @@ sub name_dir_entry {
 # be allocated. Use dir_entries() before to make sure that
 # an unallocated entry exists; there is no check here.
 sub allocate_dir_entry {
-    my ($drive) = @_;
+    my ($dir_ref) = @_;
 
     # first try for a never-used entry
-    for my $i (0.. $#{$dsk[$drive]->{dir}}) {
-        my $j = $dsk[$drive]->{dir}->[$i];
+    for my $i (0.. $#{$dir_ref}) {
+        my $j = $dir_ref->[$i];
         if ($j->{NAME} eq "%UNUSED") {
             # keep local data structure intact
             $j->{NAME} = "%ALLOCATED";
-            return $i
+            return $i;
         }
     }
 
     # otherwise a deleted entry
-    for my $i (0.. $#{$dsk[$drive]->{dir}}) {
-        my $j = $dsk[$drive]->{dir}->[$i];
+    for my $i (0.. $#{$dir_ref}) {
+        my $j = $dir_ref->[$i];
         if ($j->{NAME} eq "%DELETED") {
             # keep local data structure intact
             $j->{NAME} = "%ALLOCATED";
-            return $i
+            return $i;
         }
     }
     die "FATAL internal error - no unused directory entry\n";
@@ -3446,11 +3439,11 @@ sub allocate_dir_entry {
 # return a reference to a 24-element array that is the directory
 # data for the specified index/drive. Read from disk.
 sub rd_dir_entry {
-    my ($drive, $index) = @_;
+    my ($drive, $dir_ref, $index) = @_;
 
-    my $trk = $dsk[$drive]->{dir}->[$index]->{T};
-    my $sct = $dsk[$drive]->{dir}->[$index]->{S};
-    my $entry = $dsk[$drive]->{dir}->[$index]->{ENTRY};
+    my $trk = $dir_ref->[$index]->{T};
+    my $sct = $dir_ref->[$index]->{S};
+    my $entry = $dir_ref->[$index]->{ENTRY};
 
     # first byte of the directory entry
     my $offset = 16 + ($entry * 24);
@@ -3467,11 +3460,11 @@ sub rd_dir_entry {
 # and it's written to the specified index/drive. Writes to disk.
 # Local copy of directory structure is NOT kept coherent.
 sub wr_dir_entry {
-    my ($drive, $index, $dir_data) = @_;
+    my ($drive, $dir_ref, $index, $dir_data) = @_;
 
-    my $trk = $dsk[$drive]->{dir}->[$index]->{T};
-    my $sct = $dsk[$drive]->{dir}->[$index]->{S};
-    my $entry = $dsk[$drive]->{dir}->[$index]->{ENTRY};
+    my $trk = $dir_ref->[$index]->{T};
+    my $sct = $dir_ref->[$index]->{S};
+    my $entry = $dir_ref->[$index]->{ENTRY};
 
     # first byte of the directory entry
     my $offset = 16 + ($entry * 24);
@@ -3519,11 +3512,11 @@ sub sectors {
 
 # count the number of free directory entries
 sub dir_entries {
-    my ($drive) = @_;
+    my ($dir_ref) = @_;
     my $sum = 0;
 
-    for my $i (0.. $#{$dsk[$drive]->{dir}}) {
-        my $j = $dsk[$drive]->{dir}->[$i];
+    for my $i (0.. $#{$dir_ref}) {
+        my $j = $dir_ref->[$i];
         if (($j->{NAME} eq "%UNUSED") or ($j->{NAME} eq "%DELETED")) {
             $sum = $sum + 1;
         }
@@ -4280,6 +4273,9 @@ EOF
     dirr - recursive (hierarchical) directory
 
     Modified commands:
+
+    scrub - now recurses into any/all directories
+
     TODO
 EOF
     } #'
