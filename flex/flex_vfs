@@ -427,6 +427,8 @@ sub cmd_info {
             describe_sir($drive);
             describe_link($drive);
             describe_ominmax($drive);
+            describe_dir($drive);
+            print "\n";
         }
         else {
             print "not mounted\n";
@@ -979,7 +981,7 @@ sub cmd_dir {
     my ($drive,$file,$ext) = split /\./, $fs;
     return unless mounted($drive, '');
 
-    foreach_dir($drive, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1], '', 0, 0, \&do_dir, $file, $ext);
+    foreach_dir($drive, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1], '', 0, 0, undef, \&do_dir, $file, $ext);
 }
 
 
@@ -992,7 +994,7 @@ sub cmd_dirr {
     my ($drive,$file,$ext) = split /\./, $fs;
     return unless mounted($drive, '');
 
-    foreach_dir($drive, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1], 'home', 1, 1, \&do_dir, $file, $ext);
+    foreach_dir($drive, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1], 'home', 1, 1, undef, \&do_dir, $file, $ext);
 }
 
 
@@ -1322,7 +1324,7 @@ sub cmd_scrub {
     my ($drive) = check_arg('v', @_);
     return unless mounted($drive, '');
 
-    foreach_dir($drive, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1], '', 1, 1, \&do_scrub, "*", "*");
+    foreach_dir($drive, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1], '', 1, 1, undef, \&do_scrub);
 
     # scrub each sector in the free list
     my $track = $dsk[$drive]->{sir}->{FIRST_T};
@@ -1349,7 +1351,7 @@ sub cmd_scrub {
 # Callback to scrub the entries in a directory
 # cmd_scrub uses foreach_dir() with this as a callback
 sub do_scrub {
-    my ($drive, $dir_ref, $path, $file, $ext) = @_;
+    my ($drive, $dir_ref) = @_;
 
     my $dir_entry_empty = empty_dir_entry();
 
@@ -1389,7 +1391,7 @@ sub do_scrub {
 #
 # Start by creating a sector map of the whole disk. Then walk
 # the linked lists associated with:
-# - the directory, marking allocated sectors with the pseudo
+# - every valid directory, marking allocated sectors with the pseudo
 #   file-name "directory_list_chain"
 # - each file, marking allocated sectors with their file name
 # - the free list, marking them with the pseudo file name "free_list_chain"
@@ -1402,8 +1404,6 @@ sub cmd_check {
 
     my @map;
     my $count;
-    my $bad_file;
-    my $bad_files = 0;
     my %f;
 
     my $dir_ref = get_dir_ref($drive, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1]);
@@ -1414,66 +1414,44 @@ sub cmd_check {
     $map[$FLEX_LDR_TS[0]][$FLEX_LDR_TS[1]]   = "%LDR.LDR";
     $map[$FLEX_LDR_TS[0]][$FLEX_LDR_TS[1]+1] = "%LDR.LDR";
 
-    # Walk the directory chain
+    # Global counts used at end
+    $f{missing} = 0;
+    $f{bad_files} = 0;
+
+    # Walk/mark the sectors associated with the directory (which is the home
+    # directory of a HIER disk)
     $f{drive} = $drive;
-    $f{name} = "directory_list_chain";
+    $f{name} = "home_directory_chain";
     $f{trk} = $FLEX_DIR_TS[0];
     $f{sct} = $FLEX_DIR_TS[1];
     if (walk_chain(\@map, \%f) == -1) {
-        print "ERROR directory chain has double-assigned sector(s)\n";
-        $bad_files++;
+        print "ERROR home directory chain has double-assigned sector(s)\n";
+        $f{bad_files}++;
     }
 
-    # Walk the free list chain
-    $bad_file = 0;
+    # Walk/mark the sectors associated with every file -- in the case of a HIER disk, this
+    # includes every file in every valid directory, including the .DIR files themselves.
+    foreach_dir($drive, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1], 'home', 1, 1, undef, \&do_check, \%f, \@map);
+
+    # Walk/mark the free list chain
     $f{name} = "free_list_chain";
     $f{trk} = $dsk[$drive]->{sir}->{FIRST_T};
     $f{sct} = $dsk[$drive]->{sir}->{FIRST_S};
     $count = walk_chain(\@map, \%f);
     if ($count == -1) {
         print "ERROR free-list chain has double-assigned sector(s)\n";
-        $bad_file = 1;
+        $f{bad_files}++;
     }
     elsif ($count != $dsk[$drive]->{sir}->{FREE}) {
         print "ERROR free-list chain has $count sector(s) but SIR claims $dsk[$drive]->{sir}->{FREE}\n";
-        $bad_file = 1;
-    }
-    $bad_files = $bad_files + $bad_file;
-
-    # Walk the chain for each file
-    my $files = filter_dir($dir_ref, "*", "*");
-    foreach my $i (@$files) {
-        $bad_file = 0;
-        my $ecount;
-        my $j = $dir_ref->[$i];
-        $f{name} = "$j->{NAME}.$j->{EXT}";
-        ($f{trk}, $f{sct}, $ecount) = rd_file_start_tsc($drive, $dir_ref, $i);
-        $count = walk_chain(\@map, \%f);
-        if ($count == -1) {
-            printf "ERROR %12s chain has double-assigned sector(s)\n", $f{name};
-            $bad_file = 1;
-        }
-        elsif ($count != $ecount) {
-            printf "ERROR %12s chain was $count sector(s), but directory entry claims $ecount sector(s)\n", $f{name};
-            $bad_file = 1;
-        }
-
-        # verify that the end sector for the file matches the values in the directory entry
-        my ($etrk, $esct, undef) = rd_file_end_tsc($drive, $dir_ref, $i);
-        if (($etrk != $f{prev_trk}) or ($esct != $f{prev_sct})) {
-            printf "ERROR %12s chain finished at t%02d,s%02d but directory entry says it ends at t%02d,s%02d\n",
-                $f{name}, $f{prev_trk}, $f{prev_sct}, $etrk, $esct;
-            $bad_file = 1;
-        }
-        $bad_files = $bad_files + $bad_file;
+        $f{bad_files}++;
     }
 
     # Now look through @map and report what's missing
-    my $missing = 0;
     for my $trk (0..$dsk[$drive]->{sir}->{MAX_T}) {
         for my $sct (1..$dsk[$drive]->{sir}->{MAX_S}) {
             if (not defined $map[$trk][$sct]) {
-                $missing = $missing + 1;
+                $f{missing}++;
                 $f{trk} = $trk;
                 $f{sct} = $sct;
                 rd_nxt_sct(\%f);
@@ -1487,11 +1465,52 @@ sub cmd_check {
         }
     }
 
-    if ($missing != 0) {
-        print "ERROR found $missing unchained sectors\n";
+    if ($f{missing} != 0) {
+        print "ERROR found $f{missing} unchained sectors\n";
     }
-    if ($bad_files != 0) {
-        print "ERROR found $bad_files bad files\n";
+    if ($f{bad_files} != 0) {
+        print "ERROR found $f{bad_files} bad files\n";
+    }
+}
+
+
+# Callback to walk file chains in a directory
+# cmd_check uses foreach_dir() with this as a callback
+# modifies values in $f_ref (notably, bad_files)
+# modifies values in $map_ref
+sub do_check {
+    my ($drive, $dir_ref, $name, $f_ref, $map_ref) = @_;
+
+    # $name reports where we are in the hierarchy; it is a standard arg to the call-back
+    # but is unused here.
+
+    # Walk the chain for each file, including any .DIR file
+    my $files = filter_dir($dir_ref, "*", "*");
+    foreach my $i (@$files) {
+        my $bad_file = 0;
+        my $count;  # actual
+        my $ecount; # expected
+        my $j = $dir_ref->[$i];
+        $f_ref->{name} = "$j->{NAME}.$j->{EXT}";
+        ($f_ref->{trk}, $f_ref->{sct}, $ecount) = rd_file_start_tsc($drive, $dir_ref, $i);
+        $count = walk_chain($map_ref, $f_ref);
+        if ($count == -1) {
+            printf "ERROR %12s chain has double-assigned sector(s)\n", $f_ref->{name};
+            $bad_file = 1;
+        }
+        elsif ($count != $ecount) {
+            printf "ERROR %12s chain was $count sector(s), but directory entry claims $ecount sector(s)\n", $f_ref->{name};
+            $bad_file = 1;
+        }
+
+        # verify that the end sector for the file matches the values in the directory entry
+        my ($etrk, $esct, undef) = rd_file_end_tsc($drive, $dir_ref, $i);
+        if (($etrk != $f_ref->{prev_trk}) or ($esct != $f_ref->{prev_sct})) {
+            printf "ERROR %12s chain finished at t%02d,s%02d but directory entry says it ends at t%02d,s%02d\n",
+                $f_ref->{name}, $f_ref->{prev_trk}, $f_ref->{prev_sct}, $etrk, $esct;
+            $bad_file = 1;
+        }
+        $f_ref->{bad_files} = $f_ref->{bad_files} + $bad_file;
     }
 }
 
@@ -3122,19 +3141,44 @@ sub describe_ominmax {
 }
 
 
+sub describe_dir {
+    my ($drive) = @_;
+
+    my %stats;
+    $stats{is_hier} = 0;
+    $stats{good_dir} = 1; # count the root directory
+    $stats{bad_dir} = 0;
+
+    # A valid HIER disk has the name 'home' in the unused area of the main directory
+    my $data = rd_dts($drive, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1]);
+    if ('home' eq substr($data, 6, length('home'))) {
+        $stats{is_hier} = 1;
+    }
+
+    # Look at any other directories
+    foreach_dir($drive, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1], 'home', 0, 1, \%stats, \&do_nothing, 'fred');
+
+    printf "         HIER disk :     %s\n", $stats{is_hier} ? "yes (main directory named 'home')" : "no (main directory not named 'home'";
+    printf "         Directories :   %d\n", $stats{good_dir};
+    printf "         Bad .DIR :      %d (bad backlink and/or name does not match filename)\n", $stats{bad_dir};
+}
+
+
 # Helper for commands that want to handle all directories. Call from
 # elsewhere, pointing at the root directory
 # $hier=0 -> invoke $callback once
 # $hier=1 -> invoke $callback recursively
 # $verbose=0 and $heir=1 -> report error for each invalid directory
+# $stats_ref if undefined, do nothing with it
+#            if defined, a hash reference, populate {good_dir} {bad_dir}
 #
 # $callback is called like this:
-# &{$callback}($drive, $dir_ref, @extra_args)
+# &{$callback}($drive, $dir_ref, $name, @extra_args)
 #
-# ie with all the leftover args from the original invocation
+# ie with any additional args from the original invocation
 sub foreach_dir {
-    my ($drive, $trk, $sct, $name, $verbose, $hier, $callback) = @_;
-    my @extra = splice (@_, 7);
+    my ($drive, $trk, $sct, $name, $verbose, $hier, $stats_ref, $callback) = @_;
+    my @extra = splice (@_, 8);
 
     my $dir_ref = get_dir_ref($drive, $trk, $sct);
 
@@ -3151,9 +3195,18 @@ sub foreach_dir {
         my $sname = $dir_ref->[$i]->{NAME};
         # ONLY do it for valid directories
         if (hier_dirname($drive, $trk, $sct, $sname, $strk, $ssct, "$name/$sname", $verbose)) {
-            foreach_dir($drive, $strk, $ssct, "$name/$sname", $verbose, 1, $callback, @extra);
+            if (defined $stats_ref) { $stats_ref->{good_dir}++; }
+            foreach_dir($drive, $strk, $ssct, "$name/$sname", $verbose, 1, $stats_ref, $callback, @extra);
+        }
+        else {
+            if (defined $stats_ref) { $stats_ref->{bad_dir}++; }
         }
     }
+}
+
+
+# Dummy callback
+sub do_nothing {
 }
 
 
@@ -4276,7 +4329,9 @@ EOF
 
     Modified commands:
 
-    scrub - now recurses into any/all directories
+    scrub - recurses into any/all directories
+    check - recurses into any/all directories
+    info - identifies HIER disks and reports good/bad directories
 
     TODO
 EOF
