@@ -133,6 +133,7 @@ if ($MINIFLEX) {
 # $dsk[n]->{bytes_blk} $BYTES_SECTOR for dsk file, 512 for img file
 # $dsk[n]->{blks} number of blocks
 # $dsk[n]->{filename} file name by which file was accessed
+# $dsk[n]->{hier} 0 if not HIER disk, 1 if HIER disk
 # filled in by cache_sir when disk was mounted:
 # $dsk[n]->{sir}->{data} array of data - SIR in binary form
 # $dsk[n]->{sir}->{NAME} decoded fields of SIR.
@@ -255,6 +256,15 @@ sub fix_mount_common {
         $dsk[$drive]->{bytes_blk} = $format eq 'dsk' ? $BYTES_SECTOR : 512;
 
         cache_sir($drive);
+
+        # A valid HIER disk has the name 'home' in the unused area of the main directory
+        my $data = rd_dts($drive, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1]);
+        if ('home' eq substr($data, 6, length('home'))) {
+            $dsk[$drive]->{hier} = 1;
+        }
+        else {
+            $dsk[$drive]->{hier} = 0;
+        }
 
         # size the disk image: find how many sectors and make sure it is a multiple of the
         # sector size.
@@ -407,7 +417,7 @@ sub cmd_clone {
             }
             else {
                 close $handle;
-                die "FATAL internal error - failed to read data\n";
+                die "FATAL internal error in cmd_clone - failed to read data\n";
             }
         }
         close $handle;
@@ -571,13 +581,13 @@ sub cmd_new {
 
 
 sub cmd_copy {
-    my ($fs, $dst) = check_arg('fs v', @_);
+    my ($fs, $dst) = check_arg('fs ev', @_);
     return unless defined($fs);
 
     my ($src,$file,$ext) = split /\./, $fs;
     return unless mounted($src, '');
     return unless mounted($dst, 'destination ');
-
+    print "Src: $src\nDst: $dst\n";
     if ($src == $dst) {
         print "ERROR cannot copy to the same drive\n";
         return;
@@ -809,7 +819,7 @@ sub cmd_import {
 
     # which (if any) files already exist? Need to take into account the
     # file name that will be used - which means taking $UPCASE into account
-    my $rm_match = name_match_dir($dst,$hf_names, $UPCASE);
+    my $rm_match = name_match_dir($dst,$dir_ref,$hf_names, $UPCASE);
 
     # is there enough space for the import?
     my $dst_free = $dsk[$dst]->{sir}->{FREE} + sectors($dst, $dir_ref, $rm_match);
@@ -968,7 +978,7 @@ sub cmd_hdir {
 }
 
 
-# Directory of virtual disk (see also cmd_dirr)
+# Directory of virtual drive (see also cmd_dirr)
 # All of these are legal:
 # dir 1    dir 1.fred.bin   dir 1.*.bin   dir 2.fr*.*
 # the first (just the drive specified) is a special case and
@@ -985,7 +995,7 @@ sub cmd_dir {
 }
 
 
-# Recursive directory of virtual disk
+# Recursive directory of virtual drive
 # Same arguments as cmd_dir but recurses through all/any valid .DIR entries
 sub cmd_dirr {
     my ($fs) = check_arg('fs', @_);
@@ -1515,6 +1525,170 @@ sub do_check {
 }
 
 
+sub cmd_mkdir {
+    my ($drive, $path) = check_arg('ev', @_);
+    return unless mounted($drive, '');
+
+    unless ($dsk[$drive]->{hier}) {
+        print "ERROR virtual drive $drive is not a HIER disk -- try 'help hier'\n";
+        return;
+    }
+
+    # break path into pieces
+    # must be at least 1 piece: the name of the new directory.
+    my @bits = split /\//, $path;
+    unless (defined($bits[0])) {
+        print "ERROR you must specify a new directory name -- try 'help mkdir'\n";
+        return;
+    }
+    my $name = $bits[-1];
+
+    # default is the parent directory. If any longer path is given, each part must exist;
+    # walk down it from directory to directory
+    my ($trk, $sct) = @FLEX_DIR_TS;
+    my $dir_ref = get_dir_ref($drive, $trk, $sct);
+    for my $i (0.. $#bits-1) {
+        my @name = ("$bits[$i].DIR");
+        my $indx_ref = name_match_dir($drive, $dir_ref, \@name, $UPCASE);
+        unless (defined($indx_ref->[0])) {
+            print "ERROR cannot find path to $bits[$i]\n";
+            return;
+        }
+        # wildcarding is not allowed (rejected by check_arg) so ambiguity is "impossible"
+        if (defined($indx_ref->[2])) {
+            die "FATAL internal error in cmd_mkdir - got >1 match for $bits[$i]\n";
+        }
+
+        print "The file index for the directory is $indx_ref->[0]\n";
+        ($trk, $sct, undef) = rd_file_start_tsc($drive, $dir_ref, $indx_ref->[0]);
+        print "Got $trk $sct\n";
+        $dir_ref = get_dir_ref($drive, $trk, $sct);
+    }
+
+    # now $dir_ref is the parent for the new directory, and must not already contain a directory of this name
+    my $matches = filter_dir($dir_ref, $name, "DIR");
+    if (defined $matches->[0]) {
+        print "ERROR parent directory already contains directory file $name.DIR\n";
+        return;
+    }
+
+    # Size of a hier directory
+    my $DIRSECT=4;
+
+    # going to grab $DIRSECT sectors from the free chain
+    my $TRK = 0;
+    my $SCT = 1;
+    my $SIZ = 2;
+    my @start_free_tsc = ($dsk[$drive]->{sir}->{FIRST_T},
+                          $dsk[$drive]->{sir}->{FIRST_S},
+                          $dsk[$drive]->{sir}->{FREE});
+
+    if ($start_free_tsc[$SIZ] < $DIRSECT) {
+        print "ERROR insufficient free sectors on disk -- cannot create new directory\n";
+        return;
+    }
+
+    # Start with an empty directory entry
+    # This will be stored in the current directory and will reference the created directory $name
+    my $dir_entry_data = empty_dir_entry();
+
+    # Populate file name and extension
+    name_dir_entry("$name.DIR", $dir_entry_data);
+
+    # Populate attributes: D
+    $dir_entry_data->[15-4] = 0x40;
+
+    # Populate file length (low byte only)
+    $dir_entry_data->[21+1-4] = 4;
+
+    # Populate date
+    $dir_entry_data->[25+0-4] = $mon;
+    $dir_entry_data->[25+1-4] = $mday;
+    $dir_entry_data->[25+2-4] = $year;
+
+    # Populate first t/s
+    $dir_entry_data->[17-4] = $start_free_tsc[$TRK];
+    $dir_entry_data->[18-4] = $start_free_tsc[$SCT];
+
+    for my $sector (1..$DIRSECT) {
+        my $data = rd_dts($drive,
+                          $start_free_tsc[$TRK],
+                          $start_free_tsc[$SCT]);
+        my @data = unpack("C*", $data);
+
+        # ALL SECTORS OF DIRECTORY
+        # leave existing link (bytes 0,1) intact.
+        # update index bytes
+        $data[2] = 0;
+        $data[3] = $sector;
+        # zero out the other bytes
+        for my $byte ($DATA_OFFSET..($BYTES_SECTOR-1)) {
+            $data[$byte] = 0;
+        }
+
+        my $nxt_trk = $data[0];
+        my $nxt_sct = $data[1];
+
+        if ($sector == 1) {
+            # FIRST SECTOR OF DIRECTORY
+
+            # insert parent directory link
+            $data[4] = $trk;
+            $data[5] = $sct;
+            # insert directory name
+            foreach my $i (0..length($name)-1) {
+                $data[6 + $i] = ord(substr($name, $i, 1));
+            }
+        }
+
+        if ($sector == $DIRSECT) {
+            # LAST SECTOR OF DIRECTORY
+
+            # Populate last t/s
+            $dir_entry_data->[19-4] = $start_free_tsc[$TRK];
+            $dir_entry_data->[20-4] = $start_free_tsc[$SCT];
+            # break link
+            $data[0] = 0;
+            $data[1] = 0;
+        }
+
+        wr_dts($drive, $start_free_tsc[$TRK], $start_free_tsc[$SCT], pack("C*", @data));
+
+        # update free list
+        $start_free_tsc[$TRK] = $nxt_trk;
+        $start_free_tsc[$SCT] = $nxt_sct;
+        $start_free_tsc[$SIZ] = $start_free_tsc[$SIZ] - 1;
+    }
+    # Create the entry in the parent directory
+    my $index = allocate_dir_entry($dir_ref);
+    wr_dir_entry($drive, $dir_ref, $index, $dir_entry_data);
+
+    # Finally, update the SIR
+    wr_sir_start_free($drive, @start_free_tsc);
+    # and refresh the local data
+    cache_sir($drive);
+}
+
+
+sub cmd_mkhier {
+    my ($drive) = check_arg('v', @_);
+    return unless mounted($drive, '');
+
+    # A valid HIER disk has the name 'home' in the unused area of the main directory
+    my $data = rd_dts($drive, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1]);
+    substr($data, 6, length('home'), 'home');
+    wr_dts($drive, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1], $data);
+
+    # Imagine the case where a non-hier disk has some files named blah.DIR and this
+    # command it run on it.. you can see that it's wise to do a complete check
+    # and not simply set the {hier} flag.
+    my $file = $dsk[$drive]->{filename};
+    my $format = $dsk[$drive]->{bytes_blk} == $BYTES_SECTOR ? 'dsk' : 'img';
+    cmd_umount($drive);
+    cmd_mount($drive, $file, $format);
+}
+
+
 sub cmd_quit {
     cmd_exit();
 }
@@ -1573,7 +1747,8 @@ sub cmd_uppercase {
 # additional values get inserted. See case-by-case comments.
 #
 # argument formats:
-# v - virtual drive number
+# v - virtual drive specifier: 0 1 2 3
+# ev - extended virtual drive specifier: 0 or 0.dir1/dir2/
 # h - existing file in host filesystem
 # hfw - wildcard in host filesystem. Only recognise files that are
 #      valid FLEX file names and non-zero in size. Must match at
@@ -1582,6 +1757,7 @@ sub cmd_uppercase {
 # od - optional directory in host filesystem (must exist) default to .
 # of - optional file format: dsk or img, also inferred from h
 # fs - FLEX file specifier: 1 or 1.foo.bar
+# efs - FLEX extended file specifier: 1 or 1.foo.bar or 1.dir1/dir2/foo.bar
 # l - disk label (truncated to 16 characters)
 # i - integer
 # oi - optional integer
@@ -1605,12 +1781,39 @@ sub check_arg {
     foreach my $f (@expected) {
         if ($f eq 'v') {
             if (not defined $_[$i]) {
-                print "ERROR missing argument - expected virtual drive number\n";
+                print "ERROR missing argument - expected virtual drive specifier\n";
                 return;
             }
             if (($_[$i] ne "0") and ($_[$i] ne "1") and
                 ($_[$i] ne "2") and ($_[$i] ne "3")) {
-                print "ERROR $_[$i] is not a legal virtual drive number\n";
+                print "ERROR $_[$i] is not a legal virtual drive specifier\n";
+                return;
+            }
+        }
+        elsif ($f eq 'ev') {
+            # returns ($drive, $path)
+            if (not defined $_[$i]) {
+                print "ERROR missing argument - expected extended virtual drive specifier\n";
+                return;
+            }
+            if ($_[$i] =~ /^[1234]$/) {
+                # 1
+                # turn 1 arg into 2 args: drive, path
+                splice @_, $i+1, 0, "";
+                $i = $i + 1;
+            }
+            elsif ($_[$i] =~ /^([0123])\.([\w\-]{1,8}\/){0,20}$/) {
+                # 1.dir1/ or 1.dir1/dir2/ etc.
+                # final slash is required.
+                # turn 1 arg into 2 args: drive, path
+                my $drive = $1;
+                my $path = substr $_[$i], 2; # skip drive number and dot
+                $_[$i] = $drive;
+                splice @_, $i+1, 0, $path;
+                $i = $i + 1;
+            }
+            else {
+                print "ERROR $_[$i] is not a legal extended virtual drive specifier\n";
                 return;
             }
         }
@@ -1781,7 +1984,11 @@ sub check_arg {
             }
         }
         elsif ($f eq 'fs') {
-            # FLEX file specifier
+            # FLEX file specifier. From FLEX User Manual:
+            # 0-3 for drive, 1-8 character name, 1-3 character extension
+            # extension must start with a letter
+            # otherwise both can contain 0-9 a-z A-Z _ -
+            # in addition, name and extension can contain * to wildcard.
             if (not defined $_[$i]) {
                 print "ERROR missing argument - expected FLEX file specifier\n";
                 return;
@@ -1794,14 +2001,41 @@ sub check_arg {
                 # make it more regular and we're done
                 $_[$i] = "$_[$i].*.*";
             }
-            # From FLEX User Manual
+            if ($_[$i] !~ /^[0123]\.[\*\w\-]{1,8}\.[\*a-zA-Z][\*\w\-]{0,2}$/) {
+                print "ERROR $_[$i] is not a legal file specifier\n";
+                return;
+            }
+        }
+        elsif ($f eq 'efs') {
+            # FLEX extended file specifier. From FLEX User Manual:
             # 0-3 for drive, 1-8 character name, 1-3 character extension
             # extension must start with a letter
             # otherwise both can contain 0-9 a-z A-Z _ -
             # in addition, name and extension can contain * to wildcard.
-            if ($_[$i] !~ /^[0123]\.[\*\w\-]{1,8}\.[\*a-zA-Z][\*\w\-]{0,2}$/) {
-                print "ERROR $_[$i] is not a legal file specifier\n";
+            if (not defined $_[$i]) {
+                print "ERROR missing argument - expected FLEX extended file specifier\n";
                 return;
+            }
+            if ($UPCASE) {
+                $_[$i] = uc $_[$i];
+            }
+            if ($_[$i] =~ /^[0123]$/) {
+                # 1 (implicitly 1.*.*)
+                # ie, just drive number: make it more regular and we're done
+                $_[$i] = "$_[$i].*.*";
+            }
+            elsif ($_[$i] =~ /^[0123]\.([\w\-]{1,8}\/){0,20}$/) {
+                # 1.dir1/ (implicitly 1.dir1/*.*)
+                # ie, drive number and path, with trailing slash: make it more regular and we're done
+                $_[$i] = "$_[$i]*.*";
+            }
+            elsif ($_[$i] =~ /^[0123]\.([\w\-]{1,8}\/){0,20}[\*\w\-]{1,8}\.[\*a-zA-Z][\*\w\-]{0,2}$/) {
+                # 1.dir1/foo.bar or 1.dir1/dir2/foo.bar etc.
+                # ie, drive number, optional path, file name and extension. Wildcarding is allowed
+                # (only) for the final filename and extension
+            }
+            else {
+                print "ERROR $_[$i] is not a legal extended file specifier\n";
             }
         }
         elsif ($f eq 'l') {
@@ -1880,7 +2114,7 @@ sub check_arg {
             }
         }
         else {
-            die "FATAL internal error - unknown format $f\n";
+            die "FATAL internal error in check_arg - unknown format $f\n";
         }
         $i = $i + 1;
     }
@@ -2108,7 +2342,7 @@ sub set_converter {
 
     # make sure it's being used as expected
     if ($f_ref->{index} != 4) {
-        die "FATAL ERROR set_converter expects full sector to play with";
+        die "FATAL internl error in set_converter - expect full sector to play with";
     }
 
     if ($f_ref->{data}->[4] == 0x02) {
@@ -2159,7 +2393,7 @@ sub raw_sraw_common {
     # cheat: simply emit in per-sector chunks
     # make sure it's being used as expected
     if ($f_ref->{index} != 4) {
-        die "FATAL ERROR set_converter expects full sector to play with";
+        die "FATAL interal error in set_converter - expect full sector to play with";
     }
 
     my $more_data = 1;
@@ -2825,10 +3059,10 @@ sub rd_dts {
     }
     else {
         if ($trk > $dsk[$drive]->{sir}->{MAX_T}) {
-            die "FATAL ERROR track $trk is out of range";
+            #die "FATAL ERROR track $trk is out of range";
         }
         if ($sct > $dsk[$drive]->{sir}->{MAX_S}) {
-            die "FATAL ERROR sector $sct is out of range";
+            #die "FATAL ERROR sector $sct is out of range";
         }
 
         $seek = (($sct - 1) + ($trk * $dsk[$drive]->{sir}->{MAX_S})) * $dsk[$drive]->{bytes_blk};
@@ -2883,7 +3117,7 @@ sub rd_nxt_chr {
     my ($f_ref) = @_;
 
     if ($f_ref->{eof}) {
-        die "FATAL ERROR call to rd_nxt_sct past eof";
+        die "FATAL internal error in rd_nxt_sct - read past eof";
     }
     else {
         my $byte = $f_ref->{data}->[$f_ref->{index}];
@@ -2914,10 +3148,10 @@ sub wr_dts {
     }
     else {
         if ($trk > $dsk[$drive]->{sir}->{MAX_T}) {
-            die "FATAL ERROR track $trk is out of range";
+            die "FATAL internal error in wr_dts - track $trk is out of range\n";
         }
         if ($sct > $dsk[$drive]->{sir}->{MAX_S}) {
-            die "FATAL ERROR sector $sct is out of range";
+            die "FATAL internal error in wr_dts - sector $sct is out of range\n";
         }
 
         $seek = (($sct - 1) + ($trk * $dsk[$drive]->{sir}->{MAX_S})) * $dsk[$drive]->{bytes_blk};
@@ -3145,20 +3379,13 @@ sub describe_dir {
     my ($drive) = @_;
 
     my %stats;
-    $stats{is_hier} = 0;
     $stats{good_dir} = 1; # count the root directory
     $stats{bad_dir} = 0;
-
-    # A valid HIER disk has the name 'home' in the unused area of the main directory
-    my $data = rd_dts($drive, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1]);
-    if ('home' eq substr($data, 6, length('home'))) {
-        $stats{is_hier} = 1;
-    }
 
     # Look at any other directories
     foreach_dir($drive, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1], 'home', 0, 1, \%stats, \&do_nothing, 'fred');
 
-    printf "         HIER disk :     %s\n", $stats{is_hier} ? "yes (main directory named 'home')" : "no (main directory not named 'home'";
+    printf "         HIER disk :     %s\n", $dsk[$drive]->{hier} ? "yes (main directory named 'home')" : "no (main directory not named 'home'";
     printf "         Directories :   %d\n", $stats{good_dir};
     printf "         Bad .DIR :      %d (bad backlink and/or name does not match filename)\n", $stats{bad_dir};
 }
@@ -3376,11 +3603,9 @@ sub index_match_dir {
 # If $toupper is true, entries in $names will be forced to
 # upper case before attempting a match.
 sub name_match_dir {
-    my ($drive, $names, $toupper) = @_;
+    my ($drive, $dir_ref, $names, $toupper) = @_;
     my @matches;
     my %names;
-
-    my $dir_ref = get_dir_ref($drive, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1]);
 
     # build a hash of the names we're looking for
     foreach my $i (@{$names}) {
@@ -3487,7 +3712,7 @@ sub allocate_dir_entry {
             return $i;
         }
     }
-    die "FATAL internal error - no unused directory entry\n";
+    die "FATAL internal error in allocate_dir_entry - no unused directory entry\n";
 }
 
 
@@ -3589,11 +3814,11 @@ sub help_for {
     my ($cmd) = @_;
     if ($cmd eq 'mount') {
         print <<EOF
-    mount <virtual drive number> <file on host filesystem> [format]
+    mount <virtual drive specifier> <file on host filesystem> [format]
 
-    Associate a file on the host filesystem with a virtual drive number.
+    Associate a file on the host filesystem with a virtual drive.
 
-    Virtual drive number is 0,1,2 or 3.
+    Virtual drive is 0,1,2 or 3.
 
     Legal formats are dsk and img (use 'help formats' for
     more information).
@@ -3614,10 +3839,10 @@ EOF
     }
     elsif ($cmd eq 'umount') {
         print <<EOF
-    umount <virtual drive number>
+    umount <virtual drive specifier>
 
-    Close file associated with virtual drive number and make that virtual
-    drive number available for reuse.
+    Close file associated with virtual drive and make that virtual drive
+    number available for reuse.
 
     Examples:
     umount 0
@@ -3626,11 +3851,11 @@ EOF
 }
     elsif ($cmd eq 'clone') {
         print <<EOF
-    clone <virtual drive number> <file on host filesystem> [format]
+    clone <virtual drive specifier> <file on host filesystem> [format]
 
     Make a copy of a virtual drive as a file on the host filesystem
 
-    Virtual drive number is 0,1,2 or 3.
+    Virtual drive is 0,1,2 or 3.
     Legal formats are 'dsk' (256 bytes per sector) and 'img' (256
     bytes per sector but doubled, on a 512-byte boundary)
 
@@ -3730,12 +3955,12 @@ EOF
     }
     elsif ($cmd eq 'label') {
         print <<EOF
-    label <virtual drive number> mylabel [ myvolume [ mydate]]
+    label <virtual drive specifier> mylabel [ myvolume [ mydate]]
 
-    Change the label for the specified virtual drive number.
-    label is truncated after 11 characters. The label cannot
-    contain spaces (this is not a FLEX restriction; it is a
-    restriction/bug in flex_vfs).
+    Change the label for the specified virtual drive. The label is
+    truncated after 11 characters. The label cannot contain spaces
+    (this is not a FLEX restriction; it is a restriction/bug in
+    flex_vfs).
 
     Optionally also change the volume number. Volume number is
     a 16-bit value expressed in decimal (ie, 0-65535).
@@ -3793,7 +4018,7 @@ EOF
     }
     elsif ($cmd eq 'import') {
         print <<EOF
-    import <virtual drive number> <file on host filesystem> [<conversions>]
+    import <virtual drive specifier> <file on host filesystem> [<conversions>]
 
     Copy the specified file(s) to the specified virtual drive from
     the host filesystem. Files can be specified using wildcarding
@@ -3879,7 +4104,7 @@ EOF
     }
     elsif ($cmd eq 'dir') {
         print <<EOF
-    dir <virtual drive number> | <file specifier>
+    dir <virtual drive specifier> | <file specifier>
 
     List all of the files on the specified virtual drive, or
     all of the files that match the file specifier. The file
@@ -3893,9 +4118,26 @@ EOF
     dir 1.*A*.*
 EOF
     }
+    elsif ($cmd eq 'dirr') {
+        print <<EOF
+    dirr <virtual drive specifier> | <file specifier>
+
+    List all of the files recursively on all directories of the virtual drive,
+    or all of the files that match the file specifier. The file specifier can
+    include * used as a wildcard. This command works on HIER and non-HIER images.
+    This command does not support extended specifiers.
+
+    Examples:
+    dirr 2
+    dirr 1.FLEX.SYS
+    dirr 1.F*.*
+    dirr 1.*.DIR
+    dirr 1.*A*.*
+EOF
+    }
     elsif ($cmd eq 'hash') {
         print <<EOF
-    hash <virtual drive number> | <file specifier>
+    hash <virtual drive specifier | <file specifier>
 
     List all of the files on the specified virtual drive, or
     all of the files that match the file specifier. The file
@@ -3927,9 +4169,36 @@ EOF
     hdir -al ../
 EOF
     }
+    elsif ($cmd eq 'mkdir') {
+        print <<EOF
+    mkdir <extended virtual drive specifier>
+
+    Create a new directory. A directory FRED appears as a file FRED.DIR
+    This command works on HIER images only.
+
+    Examples:
+    mkdir 0.FRED/           - create directory FRED in root of disk
+    mkdir 0.FRED/SAM/       - create directory SAM. FRED must already exist
+EOF
+    }
+    elsif ($cmd eq 'mkhier') {
+        print <<EOF
+    mkhier <virtual drive specifier>
+
+    Modify the root directory of the virtual drive to make it compatible with
+    HIER, then re-mount the image in order to trigger re-run of the disk checks
+    so that the image will be checked as/recognised as a HIER disk.
+
+    The bytes modified by this command are not used by FLEX; after running this
+    command on a FLEX image, the modified image is still compatible with FLEX.
+
+    Example:
+    mkhier 0
+EOF
+    }
     elsif ($cmd eq 'delete') {
         print <<EOF
-    delete <virtual drive number> | <file specifier>
+    delete <virtual drive specifier> | <file specifier>
 
     Delete all of the files on the specified virtual drive, or
     all of the files that match the file specifier. The file
@@ -4024,7 +4293,7 @@ EOF
     }
     elsif ($cmd eq 'fix') {
         print <<EOF
-    fix <virtual drive number> <file on host filesystem> [format]
+    fix <virtual drive specifier> <file on host filesystem> [format]
 
     Associate a file on the host filesystem with a virtual drive number.
 
@@ -4038,8 +4307,8 @@ EOF
     }
     elsif ($cmd eq 'edsir') {
         print <<EOF
-    edsir <virtual drive number>
-    edsir <virtual drive number> KEY VAL
+    edsir <virtual drive specifier>
+    edsir <virtual drive specifier> KEY VAL
 
     The first form prints the SIR as a set of key-value pairs.
     The second form allows you to modify any key to a new value.
@@ -4050,8 +4319,8 @@ EOF
     }
     elsif ($cmd eq 'edlink') {
         print <<EOF
-    edlink <virtual drive number> t<num>,s<num>
-    edlink <virtual drive number> t<num>,s<num> t<newnum>,s<newnum>
+    edlink <virtual drive specifier> t<num>,s<num>
+    edlink <virtual drive specifier> t<num>,s<num> t<newnum>,s<newnum>
 
     The first form reports the link in the specified track/sector
 
@@ -4064,7 +4333,7 @@ EOF
     }
     elsif ($cmd eq 'chain') {
         print <<EOF
-    chain <virtual drive number> t<num>,s<num>
+    chain <virtual drive specifier> t<num>,s<num>
 
     Dump sectors from the specified virtual drive in hex/ASCII
     format, starting at the specified track/sector and continuing
@@ -4079,7 +4348,7 @@ EOF
     }
     elsif ($cmd eq 'rattle') {
         print <<EOF
-    rattle <virtual drive number> t<num>,s<num>
+    rattle <virtual drive specifier> t<num>,s<num>
 
     Like 'chain' but prints 1 line per sector rather than the
     whole sector.
@@ -4087,7 +4356,7 @@ EOF
     }
     elsif ($cmd eq 'rdboot') {
         print <<EOF
-    rdboot <virtual drive number>
+    rdboot <virtual drive specifier>
 
     Read the boot sector from the specified virtual drive. It is
     then available for use by 'wrboot'.
@@ -4095,12 +4364,12 @@ EOF
     }
     elsif ($cmd eq 'wrboot') {
         print <<EOF
-    wrboot <virtual drive number>
+    wrboot <virtual drive specifier>
 
     Write the current boot loader (read using the 'rdboot' or
-    'rdbootfile') to the boot sector of the specified
-    virtual drive. After doing this, you will need to use 'link'
-    in order to make the disk bootable.
+    'rdbootfile') to the boot sector of the virtual drive. After
+    doing this, you will need to use 'link' in order to make the
+    disk bootable.
 
     Examples:
     rdboot 2
@@ -4134,9 +4403,9 @@ EOF
     }
     elsif ($cmd eq 'check') {
         print <<EOF
-    check <virtual drive number>
+    check <virtual drive specifier>
 
-    Perform integrity check on the specified virtual drive: walk the
+    Perform integrity check on the virtual drive: walk the
     directory chain, the free chain and the chain for each file. Verify that:
 
     - the free chain is the same size as described in the SIR
@@ -4148,7 +4417,7 @@ EOF
     }
     elsif ($cmd eq 'scrub') {
         print <<EOF
-    scrub <virtual drive number>
+    scrub <virtual drive specifier>
 
     Over-write every unused directory entry and every unused sector
     with 0x00 values. This is intended to remove all trace of deleted
@@ -4323,15 +4592,26 @@ EOF
       6 the name of the directory (which match the name of the file; so
       FRED.DIR would have the string FRED starting at offset 6)
 
-    New commands:
+    In order to support HIER:
+
+    - a file specifier (eg, 1 1.foo.bar 1.*.bar 1.foo.* 2.*.*) is replaced
+      in some commands by an extended file specifier (eg, adding support
+      for 1.mydir/ 1.mydir/somedir/*.bar etc). Just as 1 is equivalent to
+      1.*.* so 1.mydir/ is equivalent to 1.mydir/*.* -- the trailing '/'
+      is required. A directory name never includes a '.'
+
+    - a virtual drive specifier (eg, 0 1 2 3) is replaced in some commands
+      by an extended virtual drive specifier (eg, adding support
+      for 1.mydir/ 1.mydir/somedir/ etc). The trailing '/' is required.
+      A directory name never includes a '.'
+
+    Some (but not all) commands support these extended specifiers.
+
+    New commands, specific for HIER-related functions:
 
     dirr - recursive (hierarchical) directory
-
-    Modified commands:
-
-    scrub - recurses into any/all directories
-    check - recurses into any/all directories
-    info - identifies HIER disks and reports good/bad directories
+    mkdir - create new directory
+    mkhier - convert a disk image into a HIER-capable image
 
     TODO
 EOF
@@ -4366,7 +4646,7 @@ Usage:
 
 Commands are:
 
-    mount      - associate disk image with virtual drive number
+    mount      - associate disk image with virtual drive
     umount     - disconnect disk image from drive number
     info       - report virtual drives currently mounted
     clone      - make copy of virtual drive (optional format conversion)
@@ -4379,8 +4659,11 @@ Commands are:
     import     - copy file from local file system to virtual drive (optional format conversion)
     date       - set date
     dir        - directory of virtual drive
+    dirr       - directory (recursive) of virtual drive
     hash       - like directory but prints MD5SUM of each matched file
     hdir       - directory of local file system
+    mkdir      - make HIER directory on virtual drive
+    mkhier     - convert virtual drive to HIER-capable virtual drive
     delete     - delete file(s) from virtual drive
     truncate   - delete sector(s) from file(s) from virtual drive
     create     - create file from sector(s) on the free list
