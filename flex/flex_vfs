@@ -175,7 +175,7 @@ if (defined $ARGV[0]) {
             else {
                 cmd_check(0);
                 cmd_info("");
-                cmd_dir($drive);
+                cmd_dir($drive, "*.*");
             }
             cmd_umount(0);
             print "\n";
@@ -616,7 +616,7 @@ sub cmd_copy {
         return;
     }
 
-    rm_files($dst, $rm_match);
+    rm_files($dst, $dst_dir_ref, $rm_match);
     cp_files($src, $cp_match, $dst);
 }
 
@@ -662,7 +662,7 @@ sub cmd_rename {
         for my $i (0..10) {
             $dir_entry_data->[$i] = $tmp_dir_entry_data->[$i];
         }
-        rm_files($drive, $new_match);
+        rm_files($drive, $dir_ref, $new_match);
     }
     else {
         my $flex_name = "$nfile.$next";
@@ -840,7 +840,7 @@ sub cmd_import {
         return;
     }
 
-    rm_files($dst, $rm_match);
+    rm_files($dst, $dir_ref, $rm_match);
 
     my $skip = 0;
     foreach my $i (@$hf_names) {
@@ -985,13 +985,13 @@ sub cmd_hdir {
 # is converted (by check_arg) into 1.*.* so that can be treated
 # in the same way as the other forms.
 sub cmd_dir {
-    my ($fs) = check_arg('fs', @_);
-    return unless defined($fs);
-
-    my ($drive,$file,$ext) = split /\./, $fs;
+    my ($drive, $path) = check_arg('efs', @_);
     return unless mounted($drive, '');
+    return unless defined($path);
 
-    foreach_dir($drive, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1], '', 0, 0, undef, \&do_dir, $file, $ext);
+    my ($trk, $sct, $dir_ref, $file, $ext) = walk_path($drive, $path);
+
+    foreach_dir($drive, $trk, $sct, '', 0, 0, undef, \&do_dir, $file, $ext);
 }
 
 
@@ -1055,21 +1055,17 @@ sub cmd_hash {
 }
 
 
-# TODO: currently accepts "delete fs". Change it to "delete fs [fs..]" ie multiple file specifiers - each
-# of which is run through the match/rm_files sequence in turn.
 sub cmd_delete {
-    my ($fs) = check_arg('fs', @_);
-    return unless defined($fs);
-
-    my ($drive,$file,$ext) = split /\./, $fs;
+    my ($drive, $path) = check_arg('efs', @_);
     return unless mounted($drive, '');
+    return unless defined($path);
 
-    my $dir_ref = get_dir_ref($drive, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1]);
+    my ($trk, $sct, $dir_ref, $file, $ext) = walk_path($drive, $path);
+
     my $match = filter_dir($dir_ref, $file, $ext);
-
     printf "INFO %d files match $drive.$file.$ext\n", scalar @$match if scalar @$match != 1;
 
-    rm_files($drive, $match);
+    rm_files($drive, $dir_ref, $match);
 }
 
 
@@ -1541,34 +1537,13 @@ sub cmd_mkdir {
         print "ERROR you must specify a new directory name -- try 'help mkdir'\n";
         return;
     }
-    my $name = $bits[-1];
 
-    # default is the parent directory. If any longer path is given, each part must exist;
-    # walk down it from directory to directory
-    my ($trk, $sct) = @FLEX_DIR_TS;
-    my $dir_ref = get_dir_ref($drive, $trk, $sct);
-    for my $i (0.. $#bits-1) {
-        my @name = ("$bits[$i].DIR");
-        my $indx_ref = name_match_dir($drive, $dir_ref, \@name, $UPCASE);
-        unless (defined($indx_ref->[0])) {
-            print "ERROR cannot find path to $bits[$i]\n";
-            return;
-        }
-        # wildcarding is not allowed (rejected by check_arg) so ambiguity is "impossible"
-        if (defined($indx_ref->[2])) {
-            die "FATAL internal error in cmd_mkdir - got >1 match for $bits[$i]\n";
-        }
-
-        print "The file index for the directory is $indx_ref->[0]\n";
-        ($trk, $sct, undef) = rd_file_start_tsc($drive, $dir_ref, $indx_ref->[0]);
-        print "Got $trk $sct\n";
-        $dir_ref = get_dir_ref($drive, $trk, $sct);
-    }
+    my ($trk, $sct, $dir_ref, $file, $ext) = walk_path($drive, $path);
 
     # now $dir_ref is the parent for the new directory, and must not already contain a directory of this name
-    my $matches = filter_dir($dir_ref, $name, "DIR");
+    my $matches = filter_dir($dir_ref, $file, "DIR");
     if (defined $matches->[0]) {
-        print "ERROR parent directory already contains directory file $name.DIR\n";
+        print "ERROR parent directory already contains directory file $file.DIR\n";
         return;
     }
 
@@ -1593,7 +1568,7 @@ sub cmd_mkdir {
     my $dir_entry_data = empty_dir_entry();
 
     # Populate file name and extension
-    name_dir_entry("$name.DIR", $dir_entry_data);
+    name_dir_entry("$file.DIR", $dir_entry_data);
 
     # Populate attributes: D
     $dir_entry_data->[15-4] = 0x40;
@@ -1636,8 +1611,8 @@ sub cmd_mkdir {
             $data[4] = $trk;
             $data[5] = $sct;
             # insert directory name
-            foreach my $i (0..length($name)-1) {
-                $data[6 + $i] = ord(substr($name, $i, 1));
+            foreach my $i (0..length($file)-1) {
+                $data[6 + $i] = ord(substr($file, $i, 1));
             }
         }
 
@@ -2007,6 +1982,7 @@ sub check_arg {
             }
         }
         elsif ($f eq 'efs') {
+            # returns ($drive, $path)
             # FLEX extended file specifier. From FLEX User Manual:
             # 0-3 for drive, 1-8 character name, 1-3 character extension
             # extension must start with a letter
@@ -2021,18 +1997,30 @@ sub check_arg {
             }
             if ($_[$i] =~ /^[0123]$/) {
                 # 1 (implicitly 1.*.*)
-                # ie, just drive number: make it more regular and we're done
-                $_[$i] = "$_[$i].*.*";
+                # turn 1 arg into 2 args: drive, path
+                splice @_, $i+1, 0, "*.*";
+                $i = $i + 1;
             }
-            elsif ($_[$i] =~ /^[0123]\.([\w\-]{1,8}\/){0,20}$/) {
+            elsif ($_[$i] =~ /^([0123])\.([\w\-]{1,8}\/){0,20}$/) {
                 # 1.dir1/ (implicitly 1.dir1/*.*)
-                # ie, drive number and path, with trailing slash: make it more regular and we're done
-                $_[$i] = "$_[$i]*.*";
+                # ie, drive number and path, with trailing slash
+                # turn 1 arg into 2 args: drive, path
+                my $drive = $1;
+                my $path = substr $_[$i], 2; # skip drive number and dot
+                $_[$i] = $drive;
+                splice @_, $i+1, 0, "${path}*.*";
+                $i = $i + 1;
             }
-            elsif ($_[$i] =~ /^[0123]\.([\w\-]{1,8}\/){0,20}[\*\w\-]{1,8}\.[\*a-zA-Z][\*\w\-]{0,2}$/) {
+            elsif ($_[$i] =~ /^([0123])\.([\w\-]{1,8}\/){0,20}[\*\w\-]{1,8}\.[\*a-zA-Z][\*\w\-]{0,2}$/) {
                 # 1.dir1/foo.bar or 1.dir1/dir2/foo.bar etc.
                 # ie, drive number, optional path, file name and extension. Wildcarding is allowed
                 # (only) for the final filename and extension
+                # turn 1 arg into 2 args: drive, path
+                my $drive = $1;
+                my $path = substr $_[$i], 2; # skip drive number and dot
+                $_[$i] = $drive;
+                splice @_, $i+1, 0, $path;
+                $i = $i + 1;
             }
             else {
                 print "ERROR $_[$i] is not a legal extended file specifier\n";
@@ -2898,10 +2886,42 @@ sub cp_files {
 }
 
 
+# Given a path, walk from the root directory to the final directory
+# return (trk, sct, dir_ref, file, ext) where the first 3 refer to the final
+# directory and the last 2 are a filename (which might be a wildcard) there.
+# On error, print error message and return an undefined value
+sub walk_path {
+    my ($drive, $path) = @_;
+
+    my @bits = split /\//, $path;
+    my ($file, $ext) = split /\./, $bits[-1];
+
+    my ($trk, $sct) = @FLEX_DIR_TS; # always start in home directory
+    my $dir_ref = get_dir_ref($drive, $trk, $sct);
+
+    for my $i (0.. $#bits-1) {
+        my @name = ("$bits[$i].DIR");
+        my $indx_ref = name_match_dir($drive, $dir_ref, \@name, $UPCASE);
+        unless (defined($indx_ref->[0])) {
+            print "ERROR cannot find path to $bits[$i]\n";
+            return (undef);
+        }
+        # wildcarding is not allowed (rejected by check_arg) so ambiguity is "impossible"
+        if (defined($indx_ref->[2])) {
+            die "FATAL internal error in cmd_mkdir - got >1 match for $bits[$i]\n";
+        }
+
+        ($trk, $sct, undef) = rd_file_start_tsc($drive, $dir_ref, $indx_ref->[0]);
+        $dir_ref = get_dir_ref($drive, $trk, $sct);
+    }
+    return ($trk, $sct, $dir_ref, $file, $ext);
+}
+
+
 # delete zero or more files
 # files specified by list of directory indices
 sub rm_files {
-    my ($drive, $match) = @_;
+    my ($drive, $dir_ref, $match) = @_;
     my $TRK = 0;
     my $SCT = 1;
     my $SIZ = 2;
@@ -2909,8 +2929,6 @@ sub rm_files {
     my @end_free_tsc = ($dsk[$drive]->{sir}->{LAST_T},
                         $dsk[$drive]->{sir}->{LAST_S},
                         $dsk[$drive]->{sir}->{FREE});
-
-    my $dir_ref = get_dir_ref($drive, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1]);
 
     foreach my $i (@{$match}) {
         my @start_file_tsc = rd_file_start_tsc($drive, $dir_ref, $i);
@@ -4104,7 +4122,7 @@ EOF
     }
     elsif ($cmd eq 'dir') {
         print <<EOF
-    dir <virtual drive specifier> | <file specifier>
+    dir <extended virtual drive specifier> | <extended file specifier>
 
     List all of the files on the specified virtual drive, or
     all of the files that match the file specifier. The file
@@ -4116,6 +4134,8 @@ EOF
     dir 1.F*.*
     dir 1.*.CMD
     dir 1.*A*.*
+    dir 0.DIST/VED/*.DOC                 -- on HIER disk
+    dir 0.DIST/                          -- on HIER disk
 EOF
     }
     elsif ($cmd eq 'dirr') {
@@ -4198,7 +4218,7 @@ EOF
     }
     elsif ($cmd eq 'delete') {
         print <<EOF
-    delete <virtual drive specifier> | <file specifier>
+    delete <extended virtual drive specifier> | <extended file specifier>
 
     Delete all of the files on the specified virtual drive, or
     all of the files that match the file specifier. The file
@@ -4209,12 +4229,17 @@ EOF
 
     BE CAREFUL BECAUSE NO CONFIRMATION IS ASKED FOR!
 
+    ON A HIER DISK YOU CAN DELETE A DIRECTORY (SEE EXAMPLE) BUT THERE
+    IS NO CHECK (YET!) THAT THE DIRECTORY IS EMPTY.. SO BE CAREFUL!
+
     Examples:
     delete 2
     delete 1.FLEX.SYS
     delete 1.F*.*
     delete 1.*.CMD
     delete 1.*A*.*
+    delete 0.DIST/BENCH/*.C              -- on HIER disk
+    delete 0.NEAL/FOO/BAR.DIR            -- on HIER disk danger! See note above
 EOF
     }
     elsif ($cmd eq 'truncate') {
