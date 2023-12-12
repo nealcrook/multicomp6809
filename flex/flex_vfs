@@ -766,8 +766,7 @@ sub chain_rattle_common {
 
 
 sub cmd_type {
-    my ($fs, $conv_ref, $lpp) = check_arg('fs oec oi', @_);
-    return unless defined($fs);
+    my ($drive, $path, $conv_ref, $lpp) = check_arg('efs oec oi', @_);
 
     $lpp = defined $lpp ? $lpp : $LINES_PER_PAGE;
     # defaults for 'type'
@@ -775,36 +774,35 @@ sub cmd_type {
     $conv_ref->{txt} = exists $conv_ref->{txt} ? $conv_ref->{txt} : "expand";
     $conv_ref->{xxx} = exists $conv_ref->{xxx} ? $conv_ref->{xxx} : "dump";
 
-    type_export_common($fs, $conv_ref, $lpp, "", 0);
+    type_export_common($drive, $path, $conv_ref, $lpp, "", 0);
 }
 
 
 sub cmd_export {
-    my ($fs, $conv_ref, $path) = check_arg('fs oec od', @_);
-    return unless defined($fs);
+    my ($drive, $path, $conv_ref, $dpath) = check_arg('efs oec od', @_);
 
-    $path = defined $path ? $path . "/" : "";
+    $dpath = defined $dpath ? $dpath . "/" : "";
     # defaults for 'export'
     $conv_ref->{bin} = exists $conv_ref->{bin} ? $conv_ref->{bin} : "raw";
     $conv_ref->{txt} = exists $conv_ref->{txt} ? $conv_ref->{txt} : "raw";
     $conv_ref->{xxx} = exists $conv_ref->{xxx} ? $conv_ref->{xxx} : "raw";
 
-    type_export_common($fs, $conv_ref, 0, $path, 1);
+    type_export_common($drive, $path, $conv_ref, 0, $dpath, 1);
 }
 
 
 sub type_export_common {
-    my ($fs, $conv_ref, $lpp, $path, $export) = @_;
-
-    my ($drive,$file,$ext) = split /\./, $fs;
+    my ($drive, $path, $conv_ref, $lpp, $dpath, $export) = @_;
     return unless mounted($drive, '');
+    return unless defined($path);
 
-    my $dir_ref = get_dir_ref($drive, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1]);
+    my ($trk, $sct, $dir_ref, $file, $ext) = walk_path($drive, $path);
+    return unless defined($trk);
+
     my $match = filter_dir($dir_ref, $file, $ext);
-
     printf "INFO %d files match $drive.$file.$ext\n", scalar @$match if scalar @$match != 1;
 
-    export_files($drive, $match, $conv_ref, $lpp, $path, $export);
+    export_files($drive, $dir_ref, $match, $conv_ref, $lpp, $dpath, $export);
 }
 
 
@@ -990,6 +988,7 @@ sub cmd_dir {
     return unless defined($path);
 
     my ($trk, $sct, $dir_ref, $file, $ext) = walk_path($drive, $path);
+    return unless defined($trk);
 
     foreach_dir($drive, $trk, $sct, '', 0, 0, undef, \&do_dir, $file, $ext);
 }
@@ -1061,6 +1060,7 @@ sub cmd_delete {
     return unless defined($path);
 
     my ($trk, $sct, $dir_ref, $file, $ext) = walk_path($drive, $path);
+    return unless defined($trk);
 
     my $match = filter_dir($dir_ref, $file, $ext);
     printf "INFO %d files match $drive.$file.$ext\n", scalar @$match if scalar @$match != 1;
@@ -1070,47 +1070,45 @@ sub cmd_delete {
 
 
 sub cmd_truncate {
-    my ($fs, $num) = check_arg('fs i', @_);
-    return unless defined($fs);
-
-    my ($drive,$file,$ext) = split /\./, $fs;
+    my ($drive, $path, $num) = check_arg('efs i', @_);
     return unless mounted($drive, '');
+    return unless defined($path);
 
-    my $dir_ref = get_dir_ref($drive, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1]);
+    my ($trk, $sct, $dir_ref, $file, $ext) = walk_path($drive, $path);
+    return unless defined($trk);
+
     my $match = filter_dir($dir_ref, $file, $ext);
-
     printf "INFO %d files match $drive.$file.$ext\n", scalar @$match if scalar @$match != 1;
 
-    truncate_files($drive, $match, $num);
+    truncate_files($drive, $dir_ref, $match, $num);
 }
 
 
 sub cmd_create {
-    my ($fs, $sectors) = check_arg('fs i', @_);
-    return unless defined($fs);
-
-    create_gather_common(1, $fs, $sectors, 0);
+    my ($drive, $path, $sectors) = check_arg('efs i', @_);
+    create_gather_common($drive, $path, 1, $sectors, 0);
 }
 
 
 sub cmd_gather {
-    my ($fs, $trk, $sct) = check_arg('fs ts', @_);
-    return unless defined($fs);
-
-    create_gather_common(0, $fs, $trk, $sct);
+    my ($drive, $path, $trk, $sct) = check_arg('efs ts', @_);
+    create_gather_common($drive, $path, 0, $trk, $sct);
 }
 
 
 sub create_gather_common {
-    my ($do_create, $fs, $sectors, $new_file_start_sct) = @_;
+    my ($drive, $path, $do_create, $sectors, $new_file_start_sct) = @_;
+    return unless mounted($drive, '');
+    return unless defined($path);
+
+    my ($trk, $sct, $dir_ref, $file, $ext) = walk_path($drive, $path);
+    return unless defined($trk);
+
     my $new_file_start_trk;
 
     my $end_free_trk;
     my $end_free_sct;
     my $end_free_data_ref;
-
-    my ($drive,$file,$ext) = split /\./, $fs;
-    return unless mounted($drive, '');
 
     if ($do_create==0) {
         if (not $dsk[$drive]->{fix}) {
@@ -1119,7 +1117,6 @@ sub create_gather_common {
         }
     }
 
-    my $dir_ref = get_dir_ref($drive, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1]);
     my $match = filter_dir($dir_ref, $file, $ext);
     # if we needed to delete a file first, the free chain would get messed up. We could cope, but better
     # not to get into the bother of it.
@@ -1187,7 +1184,6 @@ sub create_gather_common {
             printf "ERROR chain starting at t%02d,s%02d has double-assigned sector(s)\n";
             return;
         }
-
     }
 
     # Sanity check the chain that will make up the new file
@@ -1539,6 +1535,7 @@ sub cmd_mkdir {
     }
 
     my ($trk, $sct, $dir_ref, $file, $ext) = walk_path($drive, $path);
+    return unless defined($trk);
 
     # now $dir_ref is the parent for the new directory, and must not already contain a directory of this name
     my $matches = filter_dir($dir_ref, $file, "DIR");
@@ -2156,9 +2153,7 @@ sub extract_date {
 # TODO maybe make type_export_common build %f? then the
 # loop here will just change the *variant* parts.
 sub export_files {
-    my ($drive, $match, $conv_ref, $lpp, $path, $export) = @_;
-
-    my $dir_ref = get_dir_ref($drive, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1]);
+    my ($drive, $dir_ref, $match, $conv_ref, $lpp, $path, $export) = @_;
 
     foreach my $i (@{$match}) {
         # build a data structure for use by the converter
@@ -2960,7 +2955,7 @@ sub rm_files {
 # delete sectors from the end(s) of zero or more files
 # files specified by list of directory indices
 sub truncate_files {
-    my ($drive, $match, $num) = @_;
+    my ($drive, $dir_ref, $match, $num) = @_;
     my $TRK = 0;
     my $SCT = 1;
     my $SIZ = 2;
@@ -2968,8 +2963,6 @@ sub truncate_files {
     my @end_free_tsc = ($dsk[$drive]->{sir}->{LAST_T},
                         $dsk[$drive]->{sir}->{LAST_S},
                         $dsk[$drive]->{sir}->{FREE});
-
-    my $dir_ref = get_dir_ref($drive, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1]);
 
     foreach my $i (@{$match}) {
         my @start_file_tsc = rd_file_start_tsc($drive, $dir_ref, $i);
@@ -3994,7 +3987,7 @@ EOF
     }
     elsif ($cmd eq 'type') {
         print <<EOF
-    type <file specifier> [<conversions>] [<lines per page>]
+    type <extended file specifier> [<conversions>] [<lines per page>]
 
     Display the contents of the specified files, <lines per page>
     lines at a time (default: $LINES_PER_PAGE).
@@ -4009,11 +4002,12 @@ EOF
     Example:
     type 1.*.TXT txt=raw 25
     type 1.*.TXT txt=raw bin=record xxx=dump
+    type 0.DIST/VED/VED2.DOC txt=expand       -- on HIER disk
 EOF
     }
     elsif ($cmd eq 'export') {
         print <<EOF
-    export <file specifier> [<conversions>] [<path in local file system>]
+    export <extended file specifier> [<conversions>] [<path in local file system>]
 
     Copy the specified files to a directory in the host filesystem.
     By default, the files will be saved in the current working directory
@@ -4032,6 +4026,7 @@ EOF
     Example:
     export 1.*.TXT txt=expand ../files
     export 1.*.* txt=raw bin=record xxx=dump some_subdirectory
+    export 0.DIST/VED/VED2.DOC txt=expand    -- on HIER disk
 EOF
     }
     elsif ($cmd eq 'import') {
@@ -4244,7 +4239,7 @@ EOF
     }
     elsif ($cmd eq 'truncate') {
         print <<EOF
-    truncate <file specifier> <number of sectors>
+    truncate <extended file specifier> <number of sectors>
 
     Remove <number of sectors> from the end of every file on the
     specified virtual drive, or all of the files that match the
@@ -4261,11 +4256,12 @@ EOF
     Examples:
     truncate 1.FLEX.SYS 2
     truncate 1.*A*.* 4
+    truncate 0.DIST/VED/VED2.DOC 4
 EOF
     }
     elsif ($cmd eq 'create') {
         print <<EOF
-    create <file specifier> <number of sectors>
+    create <extended file specifier> <number of sectors>
 
     Create a file by taking a number of sectors from the end
     of the free list. Can be used in conjunction with 'truncate'
@@ -4280,11 +4276,12 @@ EOF
     create 1.FLEX.PT1 3
     truncate 1.FLEX.TMP 4
     create 1.FLEX.PT2 4
+    create 0.DIST/VED/VED2B.DOC 4
 EOF
     }
     elsif ($cmd eq 'gather') {
         print <<EOF
-    gather <file specifier> t<num>,s<num>
+    gather <extended file specifier> t<num>,s<num>
 
     Create a file by taking a chain of sectors starting at t<num>
     s<num>.
