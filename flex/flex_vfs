@@ -164,13 +164,20 @@ if (defined $ARGV[0]) {
         shift @ARGV;
         $hash = 1;
     }
+    elsif ($ARGV[0] eq '-hashr') {
+        shift @ARGV;
+        $hash = 2;
+    }
 
     while (my $file = shift @ARGV) {
         cmd_mount(0,$file);
         if ($dsk[0]->{mounted}) {
             my $drive = "0"; # gets modified by arg processing
-            if ($hash) {
+            if ($hash == 1) {
                 cmd_hash($drive);
+            }
+            elsif ($hash == 2) {
+                cmd_hashr($drive);
             }
             else {
                 cmd_check(0);
@@ -581,26 +588,28 @@ sub cmd_new {
 
 
 sub cmd_copy {
-    my ($fs, $dst) = check_arg('fs ev', @_);
-    return unless defined($fs);
-
-    my ($src,$file,$ext) = split /\./, $fs;
+    my ($src, $spath, $dst, $dpath) = check_arg('efs ev', @_);
     return unless mounted($src, '');
-    return unless mounted($dst, 'destination ');
-    print "Src: $src\nDst: $dst\n";
-    if ($src == $dst) {
-        print "ERROR cannot copy to the same drive\n";
+    return unless defined($spath);
+    return unless mounted($dst, '');
+    return unless defined($dpath);
+
+    my ($strk, $ssct, $src_dir_ref, $sfile, $sext) = walk_path($src, $spath);
+    return unless defined($strk);
+
+    my ($dtrk, $dsct, $dst_dir_ref, undef, undef) = walk_path($src, $dpath);
+    return unless defined($dtrk);
+
+    if (($src == $dst) and ($strk == $dtrk) and ($ssct == $dsct)) {
+        print "ERROR cannot copy from/to the same directory of a drive\n";
         return;
     }
 
-    my $src_dir_ref = get_dir_ref($src, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1]);
-    my $dst_dir_ref = get_dir_ref($dst, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1]);
-
-    my $cp_match = filter_dir($src_dir_ref,$file,$ext);
+    my $cp_match = filter_dir($src_dir_ref,$sfile,$sext);
     # which of those names already in use at the destination?
-    my $rm_match = index_match_dir($src,$cp_match,$dst);
+    my $rm_match = index_match_dir($src, $src_dir_ref, $dst, $dst_dir_ref, $cp_match);
 
-    print "INFO 0 files match $src.$file.$ext\n" if scalar @$cp_match == 0;
+    print "INFO 0 files match $src.$sfile.$sext\n" if scalar @$cp_match == 0;
 
     # is there enough space for the copy?
     my $dst_free = $dsk[$dst]->{sir}->{FREE} + sectors($dst, $dst_dir_ref, $rm_match);
@@ -617,28 +626,44 @@ sub cmd_copy {
     }
 
     rm_files($dst, $dst_dir_ref, $rm_match);
-    cp_files($src, $cp_match, $dst);
+    cp_files($src, $src_dir_ref, $dst, $dst_dir_ref, $cp_match);
 }
 
 
 sub cmd_rename {
-    my ($old, $new) = check_arg('fs fs', @_);
-    return unless defined($old);
+    my ($src, $spath, $dst, $dpath) = check_arg('efs efs', @_);
+    return unless mounted($src, '');
+    return unless defined($spath);
+    return unless mounted($dst, '');
+    return unless defined($dpath);
 
-    my ($drive, $ofile,$oext) = split /\./, $old;
-    my ($ndrive,$nfile,$next) = split /\./, $new;
+    my ($strk, $ssct, $src_dir_ref, $sfile, $sext) = walk_path($src, $spath);
+    return unless defined($strk);
 
-    return unless mounted($drive, '');
+    my ($dtrk, $dsct, $dst_dir_ref, $dfile, $dext) = walk_path($src, $dpath);
+    return unless defined($dtrk);
 
-    if ($drive != $ndrive) {
+    if ($src != $dst) {
         print "ERROR cannot rename across drives. Use copy instead\n";
         return;
     }
 
-    my $dir_ref = get_dir_ref($drive, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1]);
+    if (($strk != $dtrk) or ($ssct != $dsct)) {
+        print "ERROR cannot rename to different directory. Use copy/delete instead\n";
+        return;
+    }
 
-    my $old_match = filter_dir($dir_ref,$ofile,$oext);
-    my $new_match = filter_dir($dir_ref,$nfile,$next);
+    # The restrictions imposed above mean that we *only* need to modify a
+    # directory entry; not a file or its sectors. They also mean that
+    # we never use $dst/$dst_dir_ref because we now know/confirm that
+    # they match $src/$src_dir_ref.
+    # TODO it would be nice to remove the "same directory" restriction;
+    # there would still be no need to mess with the file itself, just
+    # to copy a directory entry from one directory to another and delete
+    # it from the original.
+
+    my $old_match = filter_dir($src_dir_ref,$sfile,$sext);
+    my $new_match = filter_dir($src_dir_ref,$dfile,$dext);
 
     if (scalar @$old_match != 1) {
         printf "ERROR source must match exactly 1 file. Matched %d files\n", scalar @$old_match;
@@ -653,19 +678,19 @@ sub cmd_rename {
         return;
     }
 
-    my $dir_entry_data = rd_dir_entry($drive, $dir_ref, $old_match->[0]);
+    my $dir_entry_data = rd_dir_entry($src, $src_dir_ref, $old_match->[0]);
 
     if (scalar @$new_match == 1) {
         # copy exact name (8+3 characters) from matching entry. Need to do this
-        # because $nfile, $next may be wildcarded.
-        my $tmp_dir_entry_data = rd_dir_entry($drive, $dir_ref, $new_match->[0]);
+        # because $dfile, $dext may be wildcarded.
+        my $tmp_dir_entry_data = rd_dir_entry($src, $src_dir_ref, $new_match->[0]);
         for my $i (0..10) {
             $dir_entry_data->[$i] = $tmp_dir_entry_data->[$i];
         }
-        rm_files($drive, $dir_ref, $new_match);
+        rm_files($src, $src_dir_ref, $new_match);
     }
     else {
-        my $flex_name = "$nfile.$next";
+        my $flex_name = "$dfile.$dext";
         # make sure there's no wildcarding
         if (legal_flex_name($flex_name)) {
             name_dir_entry($flex_name, $dir_entry_data);
@@ -676,7 +701,7 @@ sub cmd_rename {
         }
     }
 
-    wr_dir_entry($drive, $dir_ref, $old_match->[0], $dir_entry_data);
+    wr_dir_entry($src, $src_dir_ref, $old_match->[0], $dir_entry_data);
 }
 
 
@@ -807,42 +832,43 @@ sub type_export_common {
 
 
 sub cmd_import {
-    my ($dst, $hf_names, $path, $conv_ref) = check_arg('v hfw oic', @_);
-    return unless mounted($dst, '');
+    my ($drive, $path, $hf_names, $hpath, $conv_ref) = check_arg('ev hfw oic', @_);
+    return unless mounted($drive, '');
 
-    my $dir_ref = get_dir_ref($dst, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1]);
+    my ($trk, $sct, $dir_ref, undef, undef) = walk_path($drive, $path);
+    return unless defined($trk);
 
     # defaults for 'import'
     $conv_ref->{xxx} = exists $conv_ref->{xxx} ? $conv_ref->{xxx} : "raw";
 
     # which (if any) files already exist? Need to take into account the
     # file name that will be used - which means taking $UPCASE into account
-    my $rm_match = name_match_dir($dst,$dir_ref,$hf_names, $UPCASE);
+    my $rm_match = name_match_dir($drive, $dir_ref, $hf_names, $UPCASE);
 
     # is there enough space for the import?
-    my $dst_free = $dsk[$dst]->{sir}->{FREE} + sectors($dst, $dir_ref, $rm_match);
+    my $free = $dsk[$drive]->{sir}->{FREE} + sectors($drive, $dir_ref, $rm_match);
     my $sectors = 0;
     foreach my $file (@$hf_names) {
-        my $bytes = -s "$path$file";
+        my $bytes = -s "$hpath$file";
         $sectors = $sectors + int(($bytes+$DATA_SECTOR-1)/$DATA_SECTOR);
     }
-    if ($dst_free < $sectors) {
+    if ($free < $sectors) {
         print "ERROR insufficient space for import\n";
         return;
     }
 
     # are there enough directory entries for the import?
-    my $dst_dir_entries = dir_entries($dir_ref) + scalar(@$rm_match);
-    if (scalar(@$hf_names) > $dst_dir_entries) {
+    my $dir_entries = dir_entries($dir_ref) + scalar(@$rm_match);
+    if (scalar(@$hf_names) > $dir_entries) {
         print "ERROR insufficient directory entries for import\n";
         return;
     }
 
-    rm_files($dst, $dir_ref, $rm_match);
+    rm_files($drive, $dir_ref, $rm_match);
 
     my $skip = 0;
     foreach my $i (@$hf_names) {
-        if (open HFILE, "$path$i") {
+        if (open HFILE, "$hpath$i") {
             my $data;
             my $flex_name = $i;
 
@@ -851,7 +877,7 @@ sub cmd_import {
             }
 
             # this size check should be redundant
-            my $bytes = read HFILE, $data, ($dsk[$dst]->{sir}->{FREE} * 254);
+            my $bytes = read HFILE, $data, ($dsk[$drive]->{sir}->{FREE} * 254);
             if (not eof HFILE) {
                 print "ERROR skipped import of $i -- insufficient space\n";
                 $skip = $skip + 1;
@@ -882,9 +908,9 @@ sub cmd_import {
             my $SCT = 1;
             my $SIZ = 2;
 
-            my @start_free_tsc = ($dsk[$dst]->{sir}->{FIRST_T},
-                                  $dsk[$dst]->{sir}->{FIRST_S},
-                                  $dsk[$dst]->{sir}->{FREE});
+            my @start_free_tsc = ($dsk[$drive]->{sir}->{FIRST_T},
+                                  $dsk[$drive]->{sir}->{FIRST_S},
+                                  $dsk[$drive]->{sir}->{FREE});
 
             my $sectors = scalar(@$data_ref)/$DATA_SECTOR;
 
@@ -909,22 +935,22 @@ sub cmd_import {
             $dir_entry_data->[18-4] = $start_free_tsc[$SCT];
 
             for my $sector (1..$sectors) {
-                my $dst_data = rd_dts($dst,
-                                      $start_free_tsc[$TRK],
-                                      $start_free_tsc[$SCT]);
-                my @dst_data = unpack("C*", $dst_data);
+                my $data = rd_dts($drive,
+                                  $start_free_tsc[$TRK],
+                                  $start_free_tsc[$SCT]);
+                my @data = unpack("C*", $data);
 
                 # import 1 sector of data, leaving existing
                 # link (bytes 0,1) intact. Zero-out the reserved
                 # (random access) bytes
-                $dst_data[2] = 0;
-                $dst_data[3] = 0;
+                $data[2] = 0;
+                $data[3] = 0;
                 for my $byte ($DATA_OFFSET..($BYTES_SECTOR-1)) {
-                    $dst_data[$byte] = shift @$data_ref;
+                    $data[$byte] = shift @$data_ref;
                 }
 
-                my $nxt_trk = $dst_data[0];
-                my $nxt_sct = $dst_data[1];
+                my $nxt_trk = $data[0];
+                my $nxt_sct = $data[1];
 
                 if ($sector == $sectors) {
                     # final sector
@@ -933,11 +959,11 @@ sub cmd_import {
                     $dir_entry_data->[19-4] = $start_free_tsc[$TRK];
                     $dir_entry_data->[20-4] = $start_free_tsc[$SCT];
                     # break link
-                    $dst_data[0] = 0;
-                    $dst_data[1] = 0;
+                    $data[0] = 0;
+                    $data[1] = 0;
                 }
 
-                wr_dts($dst, $start_free_tsc[$TRK], $start_free_tsc[$SCT], pack("C*", @dst_data));
+                wr_dts($drive, $start_free_tsc[$TRK], $start_free_tsc[$SCT], pack("C*", @data));
 
                 # update free list
                 $start_free_tsc[$TRK] = $nxt_trk;
@@ -945,15 +971,15 @@ sub cmd_import {
                 $start_free_tsc[$SIZ] = $start_free_tsc[$SIZ] - 1;
             }
             my $index = allocate_dir_entry($dir_ref);
-            wr_dir_entry($dst, $dir_ref, $index, $dir_entry_data);
+            wr_dir_entry($drive, $dir_ref, $index, $dir_entry_data);
 
             # Finally, update the SIR
-            wr_sir_start_free($dst, @start_free_tsc);
+            wr_sir_start_free($drive, @start_free_tsc);
             # and refresh the local data
-            cache_sir($dst);
+            cache_sir($drive);
         }
         else {
-            print "ERROR skipped import of $path$i -- cannot open\n";
+            print "ERROR skipped import of $hpath$i -- cannot open\n";
             $skip = $skip + 1;
         }
     }
@@ -1033,16 +1059,36 @@ sub do_dir {
 }
 
 
-# like cmd_dir but print the hash of the payload of each matched
-# file.
+# like cmd_dir but print the hash of the payload of each matched file.
 sub cmd_hash {
+    my ($drive, $path) = check_arg('efs', @_);
+    return unless mounted($drive, '');
+    return unless defined($path);
+
+    my ($trk, $sct, $dir_ref, $file, $ext) = walk_path($drive, $path);
+    return unless defined($trk);
+
+    foreach_dir($drive, $trk, $sct, '', 0, 0, undef, \&do_hash, $file, $ext);
+}
+
+
+# Like cmd_dirr but print the hash of the payload of each matched file
+sub cmd_hashr {
     my ($fs) = check_arg('fs', @_);
     return unless defined($fs);
 
     my ($drive,$file,$ext) = split /\./, $fs;
     return unless mounted($drive, '');
 
-    my $dir_ref = get_dir_ref($drive, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1]);
+    foreach_dir($drive, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1], 'home', 1, 1, undef, \&do_hash, $file, $ext);
+}
+
+
+# Callback to report a file's hash
+# Print the entries from $dir_ref that correspond to the indices in @{$match}.
+# cmd_dir/cmd_dirr use foreach_dir() with this as a callback
+sub do_hash {
+    my ($drive, $dir_ref, $path, $file, $ext) = @_;
     my $match = filter_dir($dir_ref, $file, $ext);
 
     foreach my $i (@{$match}) {
@@ -1051,6 +1097,7 @@ sub cmd_hash {
         printf "%s % 15s.%-3s %s\n",
             md5_hex($payload), $j->{NAME}, $j->{EXT}, $dsk[$drive]->{filename}
     }
+    print "\n";
 }
 
 
@@ -2797,7 +2844,7 @@ sub legal_flex_name {
 # copy zero or more files
 # files specified by list of directory indices
 sub cp_files {
-    my ($src, $match, $dst) = @_;
+    my ($src, $src_dir_ref, $dst, $dst_dir_ref, $match) = @_;
     my $TRK = 0;
     my $SCT = 1;
     my $SIZ = 2;
@@ -2805,9 +2852,6 @@ sub cp_files {
     my @start_free_tsc = ($dsk[$dst]->{sir}->{FIRST_T},
                           $dsk[$dst]->{sir}->{FIRST_S},
                           $dsk[$dst]->{sir}->{FREE});
-
-    my $src_dir_ref = get_dir_ref($src, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1]);
-    my $dst_dir_ref = get_dir_ref($dst, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1]);
 
     foreach my $i (@{$match}) {
         my @src_start_file_tsc = rd_file_start_tsc($src, $src_dir_ref, $i);
@@ -2881,9 +2925,15 @@ sub cp_files {
 }
 
 
-# Given a path, walk from the root directory to the final directory
-# return (trk, sct, dir_ref, file, ext) where the first 3 refer to the final
-# directory and the last 2 are a filename (which might be a wildcard) there.
+# Given an extended drive specifier, walk from the root directory
+# to the final directory return (trk, sct, dir_ref, file, ext) where the first
+# 3 refer to the final directory and the last 2 are UNDEFINED.
+#
+# Given an extended file specifier, walk from the root directory
+# to the final directory return (trk, sct, dir_ref, file, ext) where the first
+# 3 refer to the final directory and the last 2 are a filename (which might
+# be a wildcard) there.
+#
 # On error, print error message and return an undefined value
 sub walk_path {
     my ($drive, $path) = @_;
@@ -2891,10 +2941,20 @@ sub walk_path {
     my @bits = split /\//, $path;
     my ($file, $ext) = split /\./, $bits[-1];
 
+    my $end_at;
+    if ($path =~ /\/$/) {
+        # ends with a / -> it's an extended virtual drive specifier
+        $end_at = $#bits;
+    }
+    else {
+        # an extended file specifier; final element is the file name
+        $end_at = $#bits-1;
+    }
+
     my ($trk, $sct) = @FLEX_DIR_TS; # always start in home directory
     my $dir_ref = get_dir_ref($drive, $trk, $sct);
 
-    for my $i (0.. $#bits-1) {
+    for my $i (0.. $end_at) {
         my @name = ("$bits[$i].DIR");
         my $indx_ref = name_match_dir($drive, $dir_ref, \@name, $UPCASE);
         unless (defined($indx_ref->[0])) {
@@ -3583,12 +3643,9 @@ sub filter_dir {
 # to a list of the directory entries that match - that list
 # corresponds to indices in $drive2, NOT $drive1.
 sub index_match_dir {
-    my ($drive1, $files, $drive2) = @_;
+    my ($drive1, $drive1_dir_ref, $drive2, $drive2_dir_ref, $files) = @_;
     my @matches;
     my %drive1_names;
-
-    my $drive1_dir_ref = get_dir_ref($drive1, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1]);
-    my $drive2_dir_ref = get_dir_ref($drive2, $FLEX_DIR_TS[0], $FLEX_DIR_TS[1]);
 
     # build a hash of the names we're looking for
     foreach my $i (@{$files}) {
@@ -3923,7 +3980,7 @@ EOF
     }
     elsif ($cmd eq 'copy') {
         print <<EOF
-    copy <file specifier> <virtual drive specifier>
+    copy <extended file specifier> <extended virtual drive specifier>
 
     Copy all of the files that match the file specifier (source)
     to the specified virtual drive (destination). Any files of
@@ -3944,24 +4001,28 @@ EOF
     copy 2.*.* 3
     copy 2.*.CMD 3
     copy 1.FLEX.SYS 2
+    copy 0 1.SRC/                          -- on HIER disk
+    copy 0.SOME/DIR/*.C 0.SRC/             -- on HIER disk
 EOF
     }
     elsif ($cmd eq 'rename') {
         print <<EOF
-    rename <file specifier> <new file specifier>
+    rename <extended file specifier> <new extended file specifier>
 
-    Rename the file that matches the file specifier (source)
-    to the new name. Any existing file of the same name on
-    the virtual drive is deleted.
+    Rename the file that matches the file specifier (source) to
+    the new name. Any existing file of the same name on the virtual
+    drive is deleted.
 
-    The new file specifier must be on the same virtual drive. The
-    files can be specified using wildcard, but must each resolve
-    to exactly one file.
+    The new file specifier must be on the same virtual drive (and,
+    for HIER disks, must be in the same directory). The files can
+    be specified using wildcard, but must each resolve to exactly
+    one file.
 
     Examples:
     rename 1.FLEX.SYS 1.FLEX.OLD
     rename 1.*.COR 1.FLEX.BAK
     rename 1.FRED.TXT 1.FR*.BAK
+    rename 1.DIST/*.COR 1.DIST/*.BAK     -- on HIER disk
 EOF
     }
     elsif ($cmd eq 'label') {
@@ -4031,7 +4092,7 @@ EOF
     }
     elsif ($cmd eq 'import') {
         print <<EOF
-    import <virtual drive specifier> <file on host filesystem> [<conversions>]
+    import <extended virtual drive specifier> <file on host filesystem> [<conversions>]
 
     Copy the specified file(s) to the specified virtual drive from
     the host filesystem. Files can be specified using wildcarding
@@ -4152,7 +4213,7 @@ EOF
     }
     elsif ($cmd eq 'hash') {
         print <<EOF
-    hash <virtual drive specifier | <file specifier>
+    hash <extended virtual drive specifier | <extended file specifier>
 
     List all of the files on the specified virtual drive, or
     all of the files that match the file specifier. The file
@@ -4167,7 +4228,26 @@ EOF
     hash 1.F*.*
     hash 1.*.CMD
     hash 1.*A*.*
+    hash 1./DIST/                        -- on HIER disk
+    hash 1./DIST/*.C                     -- on HIER disk
     flex_vfs -hash *.DSK > t.t && sort t.t > sorted_t.t
+EOF
+    }
+    elsif ($cmd eq 'hashr') {
+        print <<EOF
+    hashr <virtual drive specifier | <extended file specifier>
+
+    List all of the files on the specified virtual drive, or
+    all of the files that match the file specifier. The file
+    specifier can include * used as a wildcard.
+
+    For each file, the MD5SUM of the payload is displayed,
+    followed by the file name and disk name
+
+    Examples:
+    hashr 2
+    hashr 1
+    flex_vfs -hashr *.DSK > t.t
 EOF
     }
     elsif ($cmd eq 'hdir') {
@@ -4657,14 +4737,15 @@ and the host filesystem. Virtual drives can be inspected and manipulated.
 
 Usage:
 
-    flex_vfs               -- start interactive session
-    flex_vfs < script      -- run a sequence of commands from a file (see 'help scripts')
-    flex_vfs foo.bin       -- treat foo.bin as a disk image and do a mount/info/check/dir/exit.
-    flex_vfs *.bin         -- treat *.bin as a set of disk images and do a mount/info/check/dir/exit
-                              on each in turn
-    flex_vfs -hash foo.bin -- treat foo.bin as a disk image and do a mount/hash/exit.
-    flex_vfs -hash *.bin   -- treat *.bin as a set of disk images and do a mount/hash/exit
-                              on each in turn
+    flex_vfs                -- start interactive session
+    flex_vfs < script       -- run a sequence of commands from a file (see 'help scripts')
+    flex_vfs foo.bin        -- treat foo.bin as a disk image and do a mount/info/check/dir/exit.
+    flex_vfs *.bin          -- treat *.bin as a set of disk images and do a mount/info/check/dir/exit
+                               on each in turn
+    flex_vfs -hashr foo.bin -- treat foo.bin as a disk image and do a mount/hashr/exit.
+    flex_vfs -hash foo.bin  -- treat foo.bin as a disk image and do a mount/hash/exit.
+    flex_vfs -hash *.bin    -- treat *.bin as a set of disk images and do a mount/hash/exit
+                               on each in turn
 
 Commands are:
 
@@ -4682,7 +4763,8 @@ Commands are:
     date       - set date
     dir        - directory of virtual drive
     dirr       - directory (recursive) of virtual drive
-    hash       - like directory but prints MD5SUM of each matched file
+    hash       - like dir but prints MD5SUM of each matched file
+    hashr      - like dirr but prints MD5SUM of every file
     hdir       - directory of local file system
     mkdir      - make HIER directory on virtual drive
     mkhier     - convert virtual drive to HIER-capable virtual drive
