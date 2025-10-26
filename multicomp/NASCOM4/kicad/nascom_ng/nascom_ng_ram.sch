@@ -5,8 +5,8 @@ $Descr A4 11693 8268
 encoding utf-8
 Sheet 2 6
 Title "NASCOM 4 - a NASCOM in an FPGA"
-Date ""
-Rev "PRE-A"
+Date "20-Oct-2021"
+Rev "B"
 Comp ""
 Comment1 ""
 Comment2 ""
@@ -1022,19 +1022,19 @@ Text GLabel 8100 5000 2    50   Input ~ 0
 PIN91_IN_DRQ
 Wire Wire Line
 	10400 5300 10650 5300
-Text GLabel 10650 5300 2    50   Input ~ 0
+Text GLabel 9300 5300 0    50   Input ~ 0
 ~PIN99_KBDRST
 Wire Wire Line
 	9400 5300 9300 5300
-Text GLabel 9300 5300 0    50   Input ~ 0
+Text GLabel 10650 5300 2    50   Input ~ 0
 ~KBDRST_5V
 Wire Wire Line
 	9400 5100 9350 5100
-Text GLabel 9350 5100 0    50   Input ~ 0
+Text GLabel 10650 5100 2    50   Input ~ 0
 ~KBDCLK_5V
 Wire Wire Line
 	10400 5100 10650 5100
-Text GLabel 10650 5100 2    50   Input ~ 0
+Text GLabel 9350 5100 0    50   Input ~ 0
 ~PIN100_KBDCLK
 Wire Wire Line
 	9300 4600 9400 4600

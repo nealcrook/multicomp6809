@@ -5,8 +5,8 @@ $Descr A4 11693 8268
 encoding utf-8
 Sheet 1 6
 Title "NASCOM 4 - a NASCOM in an FPGA"
-Date "14-Feb-2021"
-Rev "A"
+Date "20-Oct-2021"
+Rev "B"
 Comp ""
 Comment1 ""
 Comment2 ""
@@ -368,7 +368,7 @@ Wire Wire Line
 	5200 3500 5350 3500
 Wire Wire Line
 	5200 3400 5350 3400
-Text GLabel 5350 3400 2    50   Input ~ 0
+Text GLabel 4550 3400 0    50   Input ~ 0
 PIN18_IN_WARMRST
 Wire Wire Line
 	5200 3300 5250 3300
@@ -557,7 +557,7 @@ Wire Wire Line
 Wire Notes Line
 	800  550  6450 550 
 Wire Notes Line
-	6450 550  6450 6500
+	5400 1400 5400 7350
 Wire Notes Line
 	6450 6500 800  6500
 Wire Notes Line
@@ -705,7 +705,7 @@ F0 "nascom_ng_connectors" 50
 F1 "nascom_ng_connectors.sch" 50
 $EndSheet
 Text Notes 10050 2750 0    50   ~ 0
-"COLD RESET" This duplicates\nthe push-button on the\nFPGA board pin 144.
+"RESET" This duplicates\nthe push-button on the\nFPGA board pin 144.
 Text GLabel 1500 3100 0    50   Input ~ 0
 PIN101_RX
 $Comp
@@ -792,10 +792,10 @@ Wire Wire Line
 	7450 5850 7650 5850
 Text Notes 950  6850 0    50   ~ 0
 TODO: gating of side select from FDC to imitate NASCOM FDC\n
-Text Notes 4500 3450 2    50   ~ 0
+Text Notes 5400 3400 0    50   ~ 0
 PIN17_CLK50
-NoConn ~ 4550 3400
-Text Notes 5800 3750 2    50   ~ 0
+NoConn ~ 5350 3400
+Text Notes 5400 3750 0    50   ~ 0
 PIN27_PWR
 NoConn ~ 5350 3700
 Text Notes 4500 3750 2    50   ~ 0
@@ -804,9 +804,6 @@ NoConn ~ 4550 3700
 Text Notes 1450 3850 2    50   ~ 0
 PIN81_PWR
 NoConn ~ 1500 3800
-Text Notes 1450 4150 2    50   ~ 0
-PIN73_RC_RESET
-NoConn ~ 1500 4100
 Text Notes 2350 4050 0    50   ~ 0
 PIN76_JTAG
 Text Notes 2350 3950 0    50   ~ 0
@@ -858,8 +855,8 @@ F 3 "" H 8200 1000 50  0001 C CNN
 $EndComp
 Text Notes 7150 750  0    50   ~ 0
 These duplicate the 4 LEDs on the FPGA board,\nwhich are also on pins 3, 7, 9 and 3V3 power.
-Text Notes 850  4750 0    50   ~ 0
-PIN73 is connected to an RC\nnetwork on the FPGA board\nand could be used for\npower-on reset
+Text Notes 850  4800 0    50   ~ 0
+J8/3 is connected to an RC\nnetwork on the FPGA board.\nreset connects to this RC\nnetwork and to an FPGA\ninput.
 Text Notes 900  950  0    50   ~ 0
 EP2C5T144C8N mini board\nmounts face-down. It overhangs\nthe edge of the main board in order to give\naccess to the programming headers.
 Wire Notes Line
@@ -974,18 +971,18 @@ $EndComp
 Text GLabel 9150 2550 2    50   Input ~ 0
 PIN144_RST
 Wire Wire Line
-	9150 2550 8850 2550
+	9150 2550 8250 2550
 Wire Wire Line
-	8450 2550 7550 2550
+	7850 2550 7550 2550
 Connection ~ 7550 2550
 Connection ~ 7550 3350
 Wire Wire Line
-	8450 3350 7550 3350
+	7850 3350 7550 3350
 Wire Wire Line
 	7550 2950 7550 3350
 Connection ~ 7550 2950
 Wire Wire Line
-	8450 2950 7550 2950
+	7850 2950 7550 2950
 $Comp
 L power:GND #PWR0122
 U 1 1 60252982
@@ -999,12 +996,10 @@ F 3 "" H 7550 3600 50  0001 C CNN
 $EndComp
 Wire Wire Line
 	7550 2550 7550 2950
-Wire Wire Line
-	9150 3350 8850 3350
 Text GLabel 9150 3350 2    50   Input ~ 0
 PIN21_IN_NMI
 Wire Wire Line
-	9150 2950 8850 2950
+	9150 2950 8500 2950
 Text GLabel 9150 2950 2    50   Input ~ 0
 PIN18_IN_WARMRST
 Text Notes 10050 3400 0    50   ~ 0
@@ -1050,34 +1045,34 @@ Wire Wire Line
 $Comp
 L Switch:SW_Push SW3
 U 1 1 60158A7D
-P 8650 2550
-F 0 "SW3" H 8650 2835 50  0000 C CNN
-F 1 "SW_Push" H 8650 2744 50  0000 C CNN
-F 2 "mylib:MOMENTARY_TACTILE_RT_ANGLE" H 8650 2750 50  0001 C CNN
-F 3 "~" H 8650 2750 50  0001 C CNN
-	1    8650 2550
+P 8050 2550
+F 0 "SW3" H 8050 2835 50  0000 C CNN
+F 1 "SW_Push" H 8050 2744 50  0000 C CNN
+F 2 "mylib:MOMENTARY_TACTILE_RT_ANGLE" H 8050 2750 50  0001 C CNN
+F 3 "~" H 8050 2750 50  0001 C CNN
+	1    8050 2550
 	1    0    0    -1  
 $EndComp
 $Comp
 L Switch:SW_Push SW2
 U 1 1 6015E3B1
-P 8650 2950
-F 0 "SW2" H 8650 3235 50  0000 C CNN
-F 1 "SW_Push" H 8650 3144 50  0000 C CNN
-F 2 "mylib:MOMENTARY_TACTILE_RT_ANGLE" H 8650 3150 50  0001 C CNN
-F 3 "~" H 8650 3150 50  0001 C CNN
-	1    8650 2950
+P 8050 2950
+F 0 "SW2" H 8050 3235 50  0000 C CNN
+F 1 "SW_Push" H 8050 3144 50  0000 C CNN
+F 2 "mylib:MOMENTARY_TACTILE_RT_ANGLE" H 8050 3150 50  0001 C CNN
+F 3 "~" H 8050 3150 50  0001 C CNN
+	1    8050 2950
 	1    0    0    -1  
 $EndComp
 $Comp
 L Switch:SW_Push SW1
 U 1 1 6015E8F2
-P 8650 3350
-F 0 "SW1" H 8650 3635 50  0000 C CNN
-F 1 "SW_Push" H 8650 3544 50  0000 C CNN
-F 2 "mylib:MOMENTARY_TACTILE_RT_ANGLE" H 8650 3550 50  0001 C CNN
-F 3 "~" H 8650 3550 50  0001 C CNN
-	1    8650 3350
+P 8050 3350
+F 0 "SW1" H 8050 3635 50  0000 C CNN
+F 1 "SW_Push" H 8050 3544 50  0000 C CNN
+F 2 "mylib:MOMENTARY_TACTILE_RT_ANGLE" H 8050 3550 50  0001 C CNN
+F 3 "~" H 8050 3550 50  0001 C CNN
+	1    8050 3350
 	1    0    0    -1  
 $EndComp
 Wire Wire Line
@@ -1254,4 +1249,56 @@ F 3 "" H 8450 4300 50  0001 C CNN
 $EndComp
 Text Notes 850  7650 0    50   ~ 0
 PCB setup:\nSet grid to 1.0mm for edge cuts and holes\nSet grid to 25mils for routing; tracks are\n0.25mm with 0.2mm spacing.\nChange IC pads to oval,\n1.6mm x 1.439mm to get 2 tracks through.
+Text GLabel 1500 4100 0    50   Input ~ 0
+PIN144_RST
+$Comp
+L Device:R R100
+U 1 1 617B2C8D
+P 8650 2750
+F 0 "R100" V 8550 2750 50  0000 C CNN
+F 1 "10k" V 8650 2750 50  0000 C CNN
+F 2 "Resistor_THT:R_Axial_DIN0204_L3.6mm_D1.6mm_P7.62mm_Horizontal" V 8580 2750 50  0001 C CNN
+F 3 "~" H 8650 2750 50  0001 C CNN
+	1    8650 2750
+	0    1    1    0   
+$EndComp
+$Comp
+L Device:R R101
+U 1 1 617B3178
+P 8650 3200
+F 0 "R101" V 8550 3200 50  0000 C CNN
+F 1 "10k" V 8650 3200 50  0000 C CNN
+F 2 "Resistor_THT:R_Axial_DIN0204_L3.6mm_D1.6mm_P7.62mm_Horizontal" V 8580 3200 50  0001 C CNN
+F 3 "~" H 8650 3200 50  0001 C CNN
+	1    8650 3200
+	0    1    1    0   
+$EndComp
+Wire Wire Line
+	8500 2750 8500 2950
+Connection ~ 8500 2950
+Wire Wire Line
+	8500 2950 8250 2950
+Wire Wire Line
+	8500 3200 8500 3350
+Wire Wire Line
+	8250 3350 8500 3350
+Connection ~ 8500 3350
+Wire Wire Line
+	8500 3350 9150 3350
+Wire Wire Line
+	8800 3200 8800 2750
+$Comp
+L power:+3.3V #PWR0143
+U 1 1 617D0C44
+P 8800 2450
+F 0 "#PWR0143" H 8800 2300 50  0001 C CNN
+F 1 "+3.3V" H 8815 2623 50  0000 C CNN
+F 2 "" H 8800 2450 50  0001 C CNN
+F 3 "" H 8800 2450 50  0001 C CNN
+	1    8800 2450
+	1    0    0    -1  
+$EndComp
+Wire Wire Line
+	8800 2450 8800 2750
+Connection ~ 8800 2750
 $EndSCHEMATC

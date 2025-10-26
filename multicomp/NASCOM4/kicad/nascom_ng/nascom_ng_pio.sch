@@ -5,8 +5,8 @@ $Descr A4 11693 8268
 encoding utf-8
 Sheet 3 6
 Title "NASCOM 4 - a NASCOM in an FPGA"
-Date ""
-Rev "PRE-A"
+Date "20-Oct-2021"
+Rev "B"
 Comp ""
 Comment1 ""
 Comment2 ""

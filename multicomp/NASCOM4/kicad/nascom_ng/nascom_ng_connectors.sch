@@ -5,8 +5,8 @@ $Descr A4 11693 8268
 encoding utf-8
 Sheet 5 6
 Title "NASCOM 4 - a NASCOM in an FPGA"
-Date ""
-Rev "PRE-A"
+Date "20-Oct-2021"
+Rev "B"
 Comp ""
 Comment1 ""
 Comment2 ""
@@ -336,147 +336,104 @@ Wire Wire Line
 $Comp
 L Device:R R17
 U 1 1 60792D3D
-P 8350 3450
-F 0 "R17" H 8420 3496 50  0000 L CNN
-F 1 "10k" H 8420 3405 50  0000 L CNN
-F 2 "Resistor_THT:R_Axial_DIN0204_L3.6mm_D1.6mm_P7.62mm_Horizontal" V 8280 3450 50  0001 C CNN
-F 3 "~" H 8350 3450 50  0001 C CNN
-	1    8350 3450
+P 9050 3900
+F 0 "R17" H 9120 3946 50  0000 L CNN
+F 1 "10k" H 9120 3855 50  0000 L CNN
+F 2 "Resistor_THT:R_Axial_DIN0204_L3.6mm_D1.6mm_P7.62mm_Horizontal" V 8980 3900 50  0001 C CNN
+F 3 "~" H 9050 3900 50  0001 C CNN
+	1    9050 3900
 	1    0    0    -1  
 $EndComp
 $Comp
 L Device:D_Zener D5
 U 1 1 6079345F
-P 8350 3950
-F 0 "D5" V 8304 4030 50  0000 L CNN
-F 1 "3V6" V 8395 4030 50  0000 L CNN
-F 2 "Diode_THT:D_DO-35_SOD27_P7.62mm_Horizontal" H 8350 3950 50  0001 C CNN
-F 3 "~" H 8350 3950 50  0001 C CNN
-	1    8350 3950
+P 9050 4500
+F 0 "D5" V 9004 4580 50  0000 L CNN
+F 1 "3V6" V 9095 4580 50  0000 L CNN
+F 2 "Diode_THT:D_DO-35_SOD27_P7.62mm_Horizontal" H 9050 4500 50  0001 C CNN
+F 3 "~" H 9050 4500 50  0001 C CNN
+	1    9050 4500
 	0    1    1    0   
 $EndComp
 $Comp
 L Device:R R18
 U 1 1 607938E7
-P 8650 3450
-F 0 "R18" H 8720 3496 50  0000 L CNN
-F 1 "10k" H 8720 3405 50  0000 L CNN
-F 2 "Resistor_THT:R_Axial_DIN0204_L3.6mm_D1.6mm_P7.62mm_Horizontal" V 8580 3450 50  0001 C CNN
-F 3 "~" H 8650 3450 50  0001 C CNN
-	1    8650 3450
+P 9350 3900
+F 0 "R18" H 9420 3946 50  0000 L CNN
+F 1 "10k" H 9420 3855 50  0000 L CNN
+F 2 "Resistor_THT:R_Axial_DIN0204_L3.6mm_D1.6mm_P7.62mm_Horizontal" V 9280 3900 50  0001 C CNN
+F 3 "~" H 9350 3900 50  0001 C CNN
+	1    9350 3900
 	1    0    0    -1  
 $EndComp
 $Comp
 L Device:D_Zener D6
 U 1 1 60793B99
-P 8650 3950
-F 0 "D6" V 8604 4030 50  0000 L CNN
-F 1 "3V6" V 8695 4030 50  0000 L CNN
-F 2 "Diode_THT:D_DO-35_SOD27_P7.62mm_Horizontal" H 8650 3950 50  0001 C CNN
-F 3 "~" H 8650 3950 50  0001 C CNN
-	1    8650 3950
+P 9350 4500
+F 0 "D6" V 9304 4580 50  0000 L CNN
+F 1 "3V6" V 9395 4580 50  0000 L CNN
+F 2 "Diode_THT:D_DO-35_SOD27_P7.62mm_Horizontal" H 9350 4500 50  0001 C CNN
+F 3 "~" H 9350 4500 50  0001 C CNN
+	1    9350 4500
 	0    1    1    0   
 $EndComp
 $Comp
 L power:+3.3V #PWR09
 U 1 1 6079795E
-P 8350 3100
-F 0 "#PWR09" H 8350 2950 50  0001 C CNN
-F 1 "+3.3V" H 8365 3273 50  0000 C CNN
-F 2 "" H 8350 3100 50  0001 C CNN
-F 3 "" H 8350 3100 50  0001 C CNN
-	1    8350 3100
+P 9350 3550
+F 0 "#PWR09" H 9350 3400 50  0001 C CNN
+F 1 "+3.3V" H 9365 3723 50  0000 C CNN
+F 2 "" H 9350 3550 50  0001 C CNN
+F 3 "" H 9350 3550 50  0001 C CNN
+	1    9350 3550
 	1    0    0    -1  
 $EndComp
 $Comp
 L power:GND #PWR010
 U 1 1 60797F7C
-P 8350 4250
-F 0 "#PWR010" H 8350 4000 50  0001 C CNN
-F 1 "GND" H 8355 4077 50  0000 C CNN
-F 2 "" H 8350 4250 50  0001 C CNN
-F 3 "" H 8350 4250 50  0001 C CNN
-	1    8350 4250
+P 9350 4800
+F 0 "#PWR010" H 9350 4550 50  0001 C CNN
+F 1 "GND" H 9355 4627 50  0000 C CNN
+F 2 "" H 9350 4800 50  0001 C CNN
+F 3 "" H 9350 4800 50  0001 C CNN
+	1    9350 4800
 	1    0    0    -1  
 $EndComp
 Wire Wire Line
-	8350 4100 8350 4200
+	9050 4650 9050 4750
 Wire Wire Line
-	8350 4200 8650 4200
+	9350 4750 9350 4650
 Wire Wire Line
-	8650 4200 8650 4100
-Connection ~ 8350 4200
+	9050 4050 9050 4100
 Wire Wire Line
-	8350 4200 8350 4250
-Wire Wire Line
-	9000 3700 8900 3700
-Wire Wire Line
-	8900 3700 8900 4200
-Wire Wire Line
-	8900 4200 8650 4200
-Connection ~ 8650 4200
-Wire Wire Line
-	8350 3600 8350 3650
-Wire Wire Line
-	8650 3600 8650 3750
-Wire Wire Line
-	8350 3650 7800 3650
-Connection ~ 8350 3650
-Wire Wire Line
-	8650 3750 7800 3750
-Connection ~ 8650 3750
-Wire Wire Line
-	8650 3750 8650 3800
-Wire Wire Line
-	8650 3800 9000 3800
-Connection ~ 8650 3800
-Text GLabel 7800 3650 0    50   Input ~ 0
+	9050 4100 8800 4100
+Connection ~ 9050 4100
+Text GLabel 9700 4150 2    50   Input ~ 0
 PIN44_KCLK
-Text GLabel 7800 3750 0    50   Input ~ 0
-PIN45_KDAT
 Wire Wire Line
-	8350 3100 8350 3150
+	9350 3750 9350 3600
 Wire Wire Line
-	8650 3300 8650 3150
+	9350 3600 9050 3600
 Wire Wire Line
-	8650 3150 8350 3150
-Connection ~ 8350 3150
+	9050 3600 9050 3750
 Wire Wire Line
-	8350 3150 8350 3300
-$Comp
-L Connector:Conn_01x03_Male J12
-U 1 1 607AD886
-P 9650 2950
-F 0 "J12" V 9712 3094 50  0000 L CNN
-F 1 "Conn_01x03_Male" V 9900 3000 50  0000 L CNN
-F 2 "Connector_PinHeader_2.54mm:PinHeader_1x03_P2.54mm_Vertical" H 9650 2950 50  0001 C CNN
-F 3 "~" H 9650 2950 50  0001 C CNN
-	1    9650 2950
-	0    1    1    0   
-$EndComp
+	8000 3500 8000 4200
 Wire Wire Line
-	9550 3150 8650 3150
-Connection ~ 8650 3150
+	8100 3500 8450 3500
 Wire Wire Line
-	9650 3150 9650 3700
-Wire Wire Line
-	9650 3700 9600 3700
-Wire Wire Line
-	9750 3150 10100 3150
-Wire Wire Line
-	10100 3150 10100 3100
+	8450 3500 8450 3450
 $Comp
 L power:+5V #PWR011
 U 1 1 607BB163
-P 10100 3100
-F 0 "#PWR011" H 10100 2950 50  0001 C CNN
-F 1 "+5V" H 10115 3273 50  0000 C CNN
-F 2 "" H 10100 3100 50  0001 C CNN
-F 3 "" H 10100 3100 50  0001 C CNN
-	1    10100 3100
+P 8450 3450
+F 0 "#PWR011" H 8450 3300 50  0001 C CNN
+F 1 "+5V" H 8465 3623 50  0000 C CNN
+F 2 "" H 8450 3450 50  0001 C CNN
+F 3 "" H 8450 3450 50  0001 C CNN
+	1    8450 3450
 	1    0    0    -1  
 $EndComp
-Text Notes 9000 4300 0    50   ~ 0
+Text Notes 7200 4800 0    50   ~ 0
 PS/2 Keyboard. For 5V operation link\npins 1-2 and fit Zener diodes. For 3V3\noperation link pins 2-3 (Zener diodes\nare optional in this case)
 Text GLabel 4550 2450 0    50   Input ~ 0
 PIN48_SEC_VSYNC
@@ -486,8 +443,8 @@ Text GLabel 1300 1350 0    50   Input ~ 0
 PIN53_PRI_VIDEO
 Text GLabel 4500 1350 0    50   Input ~ 0
 PIN52_SEC_VIDEO
-NoConn ~ 9600 3600
-NoConn ~ 9600 3800
+NoConn ~ 8200 4100
+NoConn ~ 8200 4300
 $Comp
 L Connector_Generic:Conn_02x08_Odd_Even PL?
 U 1 1 60D96959
@@ -724,61 +681,14 @@ Text Notes 4900 3250 0    50   ~ 0
 Text Notes 4100 4750 0    50   ~ 0
 This is only "sympathetic with" not "compatible with" the\nNASCOM serial connector. There are no 12V RS232 levels,\nonly 5V levels, and no audio/cassette interface.
 NoConn ~ 5300 3850
-$Comp
-L power:GND #PWR?
-U 1 1 60D969D1
-P 4700 4300
-AR Path="/5FC86EA5/60D969D1" Ref="#PWR?"  Part="1" 
-AR Path="/5FC877BB/60D969D1" Ref="#PWR?"  Part="1" 
-AR Path="/5FC85C78/60D969D1" Ref="#PWR020"  Part="1" 
-F 0 "#PWR020" H 4700 4050 50  0001 C CNN
-F 1 "GND" H 4705 4127 50  0000 C CNN
-F 2 "" H 4700 4300 50  0001 C CNN
-F 3 "" H 4700 4300 50  0001 C CNN
-	1    4700 4300
-	1    0    0    -1  
-$EndComp
-Wire Wire Line
-	4800 4050 4700 4050
-Wire Wire Line
-	4700 4050 4700 4250
-Wire Wire Line
-	4800 4250 4700 4250
-Connection ~ 4700 4250
-Wire Wire Line
-	4700 4250 4700 4300
 Wire Wire Line
 	5300 3550 5400 3550
-Wire Wire Line
-	5400 3550 5400 3350
-$Comp
-L power:+5V #PWR?
-U 1 1 60D969DE
-P 5400 3350
-AR Path="/5FC877BB/60D969DE" Ref="#PWR?"  Part="1" 
-AR Path="/5FC85C78/60D969DE" Ref="#PWR021"  Part="1" 
-F 0 "#PWR021" H 5400 3200 50  0001 C CNN
-F 1 "+5V" H 5415 3523 50  0000 C CNN
-F 2 "" H 5400 3350 50  0001 C CNN
-F 3 "" H 5400 3350 50  0001 C CNN
-	1    5400 3350
-	1    0    0    -1  
-$EndComp
 Wire Wire Line
 	5300 4050 5600 4050
 Text GLabel 5600 4050 2    50   Input ~ 0
 TX_5V
 Text Notes 5750 3450 0    50   ~ 0
 TX OUT, RX IN - both at 5V\nTODO: polarity..
-Wire Wire Line
-	4800 3650 4700 3650
-Wire Wire Line
-	4800 3950 4700 3950
-Wire Wire Line
-	4700 3950 4700 3650
-Connection ~ 4700 3650
-Wire Wire Line
-	4700 3650 4400 3650
 Text GLabel 4400 3650 0    50   Input ~ 0
 RX_5V
 NoConn ~ 5300 3950
@@ -786,8 +696,6 @@ NoConn ~ 4800 3850
 NoConn ~ 5300 3750
 Text GLabel 4400 3550 0    50   Input ~ 0
 TAPE_DRIVE_5V
-Wire Wire Line
-	4800 3550 4400 3550
 Wire Wire Line
 	5300 3650 5600 3650
 Text GLabel 5600 3650 2    50   Input ~ 0
@@ -821,26 +729,147 @@ Wire Wire Line
 $Comp
 L myLib:Mini-DIN_6pins_ver2 J13
 U 1 1 604A5287
-P 9300 3700
-F 0 "J13" H 9300 4035 50  0000 C CNN
-F 1 "Mini-DIN_6pins_ver2" H 9300 3944 50  0000 C CNN
-F 2 "mylib:Connector_Mini-DIN_Female_6Pin_2rows" H 9300 3720 50  0001 C CNN
-F 3 "" H 9300 3720 50  0000 C CNN
-	1    9300 3700
+P 8500 4200
+F 0 "J13" H 8500 4535 50  0000 C CNN
+F 1 "Mini-DIN_6pins_ver2" H 8500 4444 50  0000 C CNN
+F 2 "mylib:Connector_Mini-DIN_Female_6Pin_2rows" H 8500 4220 50  0001 C CNN
+F 3 "" H 8500 4220 50  0000 C CNN
+	1    8500 4200
 	1    0    0    -1  
 $EndComp
-NoConn ~ 9300 3900
+NoConn ~ 8500 4400
 Wire Wire Line
-	8350 3650 8350 3700
-Wire Wire Line
-	9000 3600 8800 3600
-Wire Wire Line
-	8800 3600 8800 3700
-Wire Wire Line
-	8800 3700 8350 3700
-Connection ~ 8350 3700
-Wire Wire Line
-	8350 3700 8350 3800
+	9050 4100 9050 4150
+Connection ~ 9050 4150
 Text Notes 7100 7000 0    98   ~ 20
 Connectors: 2xVGA, 1xPS/2 keyboard, uSDcard,\nNASCOM Keyboard and Serial.
+$Comp
+L power:GND #PWR?
+U 1 1 60D969D1
+P 4650 4300
+AR Path="/5FC86EA5/60D969D1" Ref="#PWR?"  Part="1" 
+AR Path="/5FC877BB/60D969D1" Ref="#PWR?"  Part="1" 
+AR Path="/5FC85C78/60D969D1" Ref="#PWR020"  Part="1" 
+F 0 "#PWR020" H 4650 4050 50  0001 C CNN
+F 1 "GND" H 4655 4127 50  0000 C CNN
+F 2 "" H 4650 4300 50  0001 C CNN
+F 3 "" H 4650 4300 50  0001 C CNN
+	1    4650 4300
+	1    0    0    -1  
+$EndComp
+Wire Wire Line
+	4650 4250 4650 4300
+Connection ~ 4650 4250
+Wire Wire Line
+	4800 4250 4650 4250
+Wire Wire Line
+	4650 4050 4650 4250
+Wire Wire Line
+	4800 4050 4650 4050
+Wire Wire Line
+	4800 3950 4650 3950
+Wire Wire Line
+	4650 3650 4550 3650
+Connection ~ 4650 3650
+Wire Wire Line
+	4650 3950 4650 3650
+Wire Wire Line
+	4800 3650 4650 3650
+$Comp
+L power:+5V #PWR?
+U 1 1 60D969DE
+P 5400 3100
+AR Path="/5FC877BB/60D969DE" Ref="#PWR?"  Part="1" 
+AR Path="/5FC85C78/60D969DE" Ref="#PWR021"  Part="1" 
+F 0 "#PWR021" H 5400 2950 50  0001 C CNN
+F 1 "+5V" H 5415 3273 50  0000 C CNN
+F 2 "" H 5400 3100 50  0001 C CNN
+F 3 "" H 5400 3100 50  0001 C CNN
+	1    5400 3100
+	1    0    0    -1  
+$EndComp
+$Comp
+L Device:R R102
+U 1 1 617E9CE6
+P 4550 3250
+F 0 "R102" H 4620 3296 50  0000 L CNN
+F 1 "10k" H 4620 3205 50  0000 L CNN
+F 2 "Resistor_THT:R_Axial_DIN0204_L3.6mm_D1.6mm_P7.62mm_Horizontal" V 4480 3250 50  0001 C CNN
+F 3 "~" H 4550 3250 50  0001 C CNN
+	1    4550 3250
+	1    0    0    -1  
+$EndComp
+$Comp
+L power:+5V #PWR?
+U 1 1 618230AF
+P 4550 3100
+AR Path="/5FC877BB/618230AF" Ref="#PWR?"  Part="1" 
+AR Path="/5FC85C78/618230AF" Ref="#PWR0144"  Part="1" 
+F 0 "#PWR0144" H 4550 2950 50  0001 C CNN
+F 1 "+5V" H 4565 3273 50  0000 C CNN
+F 2 "" H 4550 3100 50  0001 C CNN
+F 3 "" H 4550 3100 50  0001 C CNN
+	1    4550 3100
+	1    0    0    -1  
+$EndComp
+Wire Wire Line
+	5400 3100 5400 3550
+Wire Wire Line
+	4400 3550 4800 3550
+Wire Wire Line
+	4550 3400 4550 3650
+Connection ~ 4550 3650
+Wire Wire Line
+	4550 3650 4400 3650
+$Comp
+L Connector:Conn_01x03_Male J12
+U 1 1 607AD886
+P 8000 3300
+F 0 "J12" V 8062 3444 50  0000 L CNN
+F 1 "Conn_01x03_Male" V 8250 3350 50  0000 L CNN
+F 2 "Connector_PinHeader_2.54mm:PinHeader_1x03_P2.54mm_Vertical" H 8000 3300 50  0001 C CNN
+F 3 "~" H 8000 3300 50  0001 C CNN
+	1    8000 3300
+	0    1    1    0   
+$EndComp
+Text GLabel 9700 4250 2    50   Input ~ 0
+PIN45_KDAT
+Wire Wire Line
+	9050 4150 9050 4350
+Wire Wire Line
+	8800 4300 9350 4300
+Connection ~ 9350 4300
+Wire Wire Line
+	9350 4300 9350 4350
+Wire Wire Line
+	8850 4200 8850 4750
+Wire Wire Line
+	8850 4750 9050 4750
+Wire Wire Line
+	8850 4200 8800 4200
+Wire Wire Line
+	9050 4750 9350 4750
+Connection ~ 9050 4750
+Wire Wire Line
+	9350 4750 9350 4800
+Connection ~ 9350 4750
+Wire Wire Line
+	9350 4050 9350 4250
+Wire Wire Line
+	9350 4250 9700 4250
+Connection ~ 9350 4250
+Wire Wire Line
+	9350 4250 9350 4300
+Wire Wire Line
+	9050 4150 9700 4150
+Wire Wire Line
+	7900 3500 7900 3600
+Wire Wire Line
+	7900 3600 9050 3600
+Wire Wire Line
+	9350 3550 9350 3600
+Connection ~ 9350 3600
+Connection ~ 9050 3600
+Wire Wire Line
+	8000 4200 8200 4200
 $EndSCHEMATC

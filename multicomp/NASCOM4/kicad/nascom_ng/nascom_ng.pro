@@ -1,4 +1,4 @@
-update=Sun 14 Feb 2021 16:08:32 GMT
+update=Mon 21 Nov 2022 21:54:30 GMT
 version=1
 last_client=kicad
 [cvpcb]
@@ -269,7 +269,7 @@ dPairViaGap=0.25
 [schematic_editor]
 version=1
 PageLayoutDescrFile=
-PlotDirectoryName=
+PlotDirectoryName=../../nascom/nascom4/doc/
 SubpartIdSeparator=0
 SubpartFirstId=65
 NetFmtName=Pcbnew
